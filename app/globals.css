@@ -179,10 +179,25 @@ h1, h2, h3, h4, h5 {
   100% { background-position: 200% 0; }
 }
 
+/* Subtle horizontal scanline texture — adds cinematic depth over video */
+.hero-scanlines {
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0px,
+    transparent 3px,
+    rgba(0, 0, 0, 0.08) 3px,
+    rgba(0, 0, 0, 0.08) 4px
+  );
+  pointer-events: none;
+}
+
 /* Respect users who don't want motion */
 @media (prefers-reduced-motion: reduce) {
   .hero-orb,
   .hero-sheen {
+    animation: none;
+  }
+  video {
     animation: none;
   }
 }
