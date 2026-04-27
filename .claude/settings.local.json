@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install *)",
+      "Bash(npm run *)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:5173/)",
+      "Bash(kill %1)",
+      "Bash(wait)",
+      "Bash(curl -s -o /dev/null -w \"GET / → %{http_code}\\\\n\" http://localhost:3000/)",
+      "Bash(curl -s -o /dev/null -w \"GET /booking → %{http_code}\\\\n\" http://localhost:3000/booking)",
+      "Bash(curl -s -o /dev/null -w \"GET /admin/login → %{http_code}\\\\n\" http://localhost:3000/admin/login)"
+    ]
+  }
+}

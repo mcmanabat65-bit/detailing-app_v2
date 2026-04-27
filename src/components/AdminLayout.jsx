@@ -1,0 +1,166 @@
+'use client';
+
+import { useState } from 'react';
+import Link from 'next/link';
+import { usePathname, useRouter } from 'next/navigation';
+import {
+  LayoutDashboard,
+  ClipboardList,
+  CalendarDays,
+  LogOut,
+  Sparkles,
+  Menu,
+  X,
+} from 'lucide-react';
+import { useApp } from '@/context/AppContext';
+
+const links = [
+  { href: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/admin/bookings', label: 'Bookings', icon: ClipboardList },
+  { href: '/admin/schedule', label: 'Schedule', icon: CalendarDays },
+];
+
+export function AdminLayout({ children, title }) {
+  const { setAdminSession, showToast } = useApp();
+  const router = useRouter();
+  const pathname = usePathname();
+  const [open, setOpen] = useState(false);
+
+  const handleLogout = () => {
+    setAdminSession(false);
+    showToast('Signed out.', 'info');
+    router.push('/admin/login');
+  };
+
+  const isActive = (href) =>
+    pathname === href || pathname?.startsWith(href + '/');
+
+  return (
+    <div className="min-h-screen bg-obsidian flex">
+      {/* Sidebar (desktop) */}
+      <aside className="hidden md:flex w-64 shrink-0 flex-col border-r border-white/5 bg-surface/30">
+        <Link
+          href="/admin/dashboard"
+          className="flex items-center gap-2 px-6 h-20 border-b border-white/5"
+        >
+          <div className="w-9 h-9 rounded-md bg-gradient-to-br from-gold to-gold-light flex items-center justify-center">
+            <Sparkles className="w-4 h-4 text-obsidian" strokeWidth={2.5} />
+          </div>
+          <div className="leading-none">
+            <div className="font-serif text-lg text-cream">DON MIGUEL</div>
+            <div className="text-[9px] tracking-[0.3em] text-gold uppercase">
+              Admin Console
+            </div>
+          </div>
+        </Link>
+
+        <nav className="flex-1 px-3 py-6 space-y-1">
+          {links.map((l) => {
+            const I = l.icon;
+            const active = isActive(l.href);
+            return (
+              <Link
+                key={l.href}
+                href={l.href}
+                className={`flex items-center gap-3 px-4 py-2.5 rounded-sm text-sm transition-colors ${
+                  active
+                    ? 'bg-gold/10 text-gold border-l-2 border-gold'
+                    : 'text-cream/70 hover:bg-white/5 hover:text-cream border-l-2 border-transparent'
+                }`}
+              >
+                <I className="w-4 h-4" />
+                {l.label}
+              </Link>
+            );
+          })}
+        </nav>
+
+        <div className="p-3 border-t border-white/5">
+          <button
+            onClick={handleLogout}
+            className="w-full flex items-center gap-3 px-4 py-2.5 rounded-sm text-sm text-cream/70 hover:bg-danger/10 hover:text-danger transition-colors"
+          >
+            <LogOut className="w-4 h-4" />
+            Logout
+          </button>
+        </div>
+      </aside>
+
+      {/* Mobile drawer */}
+      {open && (
+        <div
+          onClick={() => setOpen(false)}
+          className="md:hidden fixed inset-0 bg-black/60 z-40"
+        />
+      )}
+      <aside
+        className={`md:hidden fixed top-0 left-0 bottom-0 w-64 z-50 bg-surface border-r border-white/10 flex flex-col transition-transform duration-300 ${
+          open ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
+        <div className="flex items-center justify-between px-4 h-16 border-b border-white/5">
+          <div className="font-serif text-cream">Admin Console</div>
+          <button
+            onClick={() => setOpen(false)}
+            aria-label="Close menu"
+            className="text-cream"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        <nav className="flex-1 px-3 py-4 space-y-1">
+          {links.map((l) => {
+            const I = l.icon;
+            const active = isActive(l.href);
+            return (
+              <Link
+                key={l.href}
+                href={l.href}
+                onClick={() => setOpen(false)}
+                className={`flex items-center gap-3 px-4 py-2.5 rounded-sm text-sm ${
+                  active ? 'bg-gold/10 text-gold' : 'text-cream/70'
+                }`}
+              >
+                <I className="w-4 h-4" />
+                {l.label}
+              </Link>
+            );
+          })}
+          <button
+            onClick={handleLogout}
+            className="w-full flex items-center gap-3 px-4 py-2.5 rounded-sm text-sm text-cream/70 hover:text-danger"
+          >
+            <LogOut className="w-4 h-4" />
+            Logout
+          </button>
+        </nav>
+      </aside>
+
+      {/* Main */}
+      <div className="flex-1 min-w-0 flex flex-col">
+        <header className="h-16 md:h-20 px-5 md:px-8 flex items-center justify-between border-b border-white/5 bg-obsidian/80 backdrop-blur-sm sticky top-0 z-30">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setOpen(true)}
+              aria-label="Open menu"
+              className="md:hidden text-cream"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+            <h1 className="font-serif text-xl md:text-2xl text-cream">
+              {title}
+            </h1>
+          </div>
+          <Link
+            href="/"
+            className="text-xs text-muted hover:text-gold transition-colors"
+          >
+            ← View public site
+          </Link>
+        </header>
+
+        <main className="flex-1 px-5 md:px-8 py-8">{children}</main>
+      </div>
+    </div>
+  );
+}
