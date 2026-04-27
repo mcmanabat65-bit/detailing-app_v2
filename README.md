@@ -1,4 +1,4 @@
-# OBSIDIAN DETAIL CO.
+# DON MIGUEL DETAILING
 ### *Perfection is in the details.*
 
 > A premium auto detailing shop web app with VIP membership, appointment booking, and an admin dashboard — built with React + Vite + Tailwind CSS.

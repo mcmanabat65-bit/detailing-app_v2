@@ -74,6 +74,119 @@ h1, h2, h3, h4, h5 {
   animation: shimmer 4s linear infinite;
 }
 
+/* Ambient hero motion — slow drifting gold light orbs */
+.hero-orb {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(80px);
+  pointer-events: none;
+  will-change: transform, opacity;
+  mix-blend-mode: screen;
+  opacity: 0.7;
+}
+
+.hero-orb--a {
+  width: 55vmin;
+  height: 55vmin;
+  top: 8%;
+  left: 60%;
+  background: radial-gradient(
+    circle,
+    rgba(201, 168, 76, 0.55) 0%,
+    rgba(201, 168, 76, 0) 70%
+  );
+  animation: orb-drift-a 28s ease-in-out infinite;
+}
+
+.hero-orb--b {
+  width: 45vmin;
+  height: 45vmin;
+  top: 55%;
+  left: 5%;
+  background: radial-gradient(
+    circle,
+    rgba(232, 201, 106, 0.35) 0%,
+    rgba(232, 201, 106, 0) 70%
+  );
+  animation: orb-drift-b 36s ease-in-out infinite;
+}
+
+.hero-orb--c {
+  width: 30vmin;
+  height: 30vmin;
+  top: 35%;
+  left: 35%;
+  background: radial-gradient(
+    circle,
+    rgba(255, 247, 214, 0.18) 0%,
+    rgba(255, 247, 214, 0) 70%
+  );
+  animation: orb-drift-c 22s ease-in-out infinite;
+}
+
+/* A very slow horizontal "sheen" pass to add a sense of light moving across the frame */
+.hero-sheen {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    100deg,
+    transparent 0%,
+    transparent 40%,
+    rgba(201, 168, 76, 0.06) 50%,
+    transparent 60%,
+    transparent 100%
+  );
+  background-size: 250% 100%;
+  animation: sheen-pass 18s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes orb-drift-a {
+  0%, 100% {
+    transform: translate(0, 0) scale(1);
+    opacity: 0.7;
+  }
+  50% {
+    transform: translate(-12vmin, 6vmin) scale(1.12);
+    opacity: 0.85;
+  }
+}
+
+@keyframes orb-drift-b {
+  0%, 100% {
+    transform: translate(0, 0) scale(1);
+    opacity: 0.5;
+  }
+  50% {
+    transform: translate(10vmin, -8vmin) scale(0.9);
+    opacity: 0.75;
+  }
+}
+
+@keyframes orb-drift-c {
+  0%, 100% {
+    transform: translate(0, 0) scale(1);
+    opacity: 0.4;
+  }
+  50% {
+    transform: translate(8vmin, 5vmin) scale(1.2);
+    opacity: 0.7;
+  }
+}
+
+@keyframes sheen-pass {
+  0% { background-position: -100% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* Respect users who don't want motion */
+@media (prefers-reduced-motion: reduce) {
+  .hero-orb,
+  .hero-sheen {
+    animation: none;
+  }
+}
+
 .card-hover {
   transition: transform 0.35s cubic-bezier(0.2, 0.7, 0.2, 1),
     box-shadow 0.35s ease, border-color 0.35s ease;

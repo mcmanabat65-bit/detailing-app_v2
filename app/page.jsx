@@ -60,24 +60,21 @@ export default function LandingPage() {
   return (
     <div className="page-enter">
       {/* HERO */}
-      <section className="relative min-h-screen flex items-center overflow-hidden">
+      <section className="relative min-h-screen flex items-center overflow-hidden bg-obsidian">
+        {/* Ambient motion — slow-drifting gold light orbs. Pure CSS, no
+            assets. Replace with a real video later by reverting to a
+            <video> element here. */}
         <div className="absolute inset-0">
           <div className="absolute inset-0 bg-gradient-to-br from-obsidian via-[#0d0d10] to-[#13110a]" />
-          <div
-            className="absolute inset-0 opacity-30"
-            style={{
-              background:
-                'radial-gradient(60% 50% at 70% 30%, rgba(201,168,76,0.18), transparent 60%), radial-gradient(40% 40% at 20% 80%, rgba(201,168,76,0.08), transparent 60%)',
-            }}
-          />
-          <div
-            className="absolute inset-0 opacity-[0.04] mix-blend-overlay"
-            style={{
-              backgroundImage:
-                'url("data:image/svg+xml,%3Csvg viewBox=\'0 0 200 200\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cfilter id=\'n\'%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'0.85\'/%3E%3C/filter%3E%3Crect width=\'100%25\' height=\'100%25\' filter=\'url(%23n)\'/%3E%3C/svg%3E")',
-            }}
-          />
+          <div className="hero-orb hero-orb--a" aria-hidden="true" />
+          <div className="hero-orb hero-orb--b" aria-hidden="true" />
+          <div className="hero-orb hero-orb--c" aria-hidden="true" />
+          <div className="hero-sheen" aria-hidden="true" />
         </div>
+
+        {/* Tint + vignette so the gold copy stays readable */}
+        <div className="absolute inset-0 bg-gradient-to-r from-obsidian/80 via-obsidian/40 to-obsidian/10" />
+        <div className="absolute inset-0 bg-gradient-to-t from-obsidian/70 via-transparent to-transparent" />
 
         <div className="relative max-w-7xl mx-auto px-5 md:px-8 pt-32 md:pt-40 pb-20">
           <div className="max-w-3xl">
