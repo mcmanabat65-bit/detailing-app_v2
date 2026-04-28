@@ -37,7 +37,7 @@ function LoginForm() {
         className="absolute inset-0 opacity-20"
         style={{
           background:
-            'radial-gradient(50% 50% at 50% 30%, rgba(201,168,76,0.25), transparent 60%)',
+            'radial-gradient(50% 50% at 50% 30%, rgba(0,112,74,0.25), transparent 60%)',
         }}
       />
       <div className="relative w-full max-w-md">

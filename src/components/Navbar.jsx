@@ -46,7 +46,7 @@ export function Navbar() {
           </div>
           <div className="leading-none">
             <div className="font-serif text-lg md:text-xl text-cream tracking-wide">
-              Samahuzai Carwash and
+              Samahuzai Carwash &
             </div>
             <div className="text-[10px] tracking-[0.25em] text-gold/80 uppercase">
               Auto Detailing

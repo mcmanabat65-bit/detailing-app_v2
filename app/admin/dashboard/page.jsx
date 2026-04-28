@@ -9,6 +9,11 @@ import {
   Crown,
   TrendingUp,
   Clock,
+  UserCheck,
+  UserX,
+  Hourglass,
+  Mail,
+  Phone,
 } from 'lucide-react';
 import { AdminLayout } from '@/components/AdminLayout';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
@@ -18,7 +23,7 @@ import { formatDateLong, toIsoDate } from '@/utils/bookingUtils';
 import { timeSlots } from '@/data/timeSlots';
 
 function Dashboard() {
-  const { bookings } = useApp();
+  const { bookings, members, updateMemberStatus, showToast } = useApp();
   const today = toIsoDate(new Date());
 
   const stats = useMemo(() => {
@@ -34,14 +39,32 @@ function Dashboard() {
     });
     const cancelled = bookings.filter((b) => b.status === 'cancelled').length;
     const vip = confirmed.filter((b) => b.isVip).length;
+    const pendingMembers = members.filter(
+      (m) => (m.status ?? 'approved') === 'pending'
+    );
+    const approvedMembers = members.filter(
+      (m) => (m.status ?? 'approved') === 'approved'
+    );
     return {
       today: todayB.length,
       week: weekB.length,
       confirmed: confirmed.length,
       cancelled,
       vip,
+      pendingMembers,
+      approvedMembers: approvedMembers.length,
     };
-  }, [bookings, today]);
+  }, [bookings, today, members]);
+
+  const decideMember = (id, status, name) => {
+    updateMemberStatus(id, status);
+    showToast(
+      status === 'approved'
+        ? `${name} approved as VIP.`
+        : `${name}'s application rejected.`,
+      status === 'approved' ? 'success' : 'info'
+    );
+  };
 
   const todayBookings = useMemo(
     () =>
@@ -53,7 +76,7 @@ function Dashboard() {
 
   return (
     <AdminLayout title="Dashboard">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-10">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-10">
         <StatCard
           icon={Calendar}
           label="Bookings Today"
@@ -78,8 +101,84 @@ function Dashboard() {
           label="VIP Bookings"
           value={stats.vip}
           accent="text-gold"
+          sub={`${stats.approvedMembers} approved members`}
+        />
+        <StatCard
+          icon={Hourglass}
+          label="Pending VIP"
+          value={stats.pendingMembers.length}
+          accent={
+            stats.pendingMembers.length > 0 ? 'text-gold' : 'text-cream/60'
+          }
+          sub={
+            stats.pendingMembers.length > 0
+              ? 'Awaiting your approval'
+              : 'Inbox clear'
+          }
         />
       </div>
+
+      {stats.pendingMembers.length > 0 && (
+        <section className="glass-card rounded-md p-6 mb-6 border border-gold/30 animate-fade-in">
+          <div className="flex items-center justify-between mb-5 gap-3 flex-wrap">
+            <div>
+              <h2 className="font-serif text-2xl text-cream flex items-center gap-2">
+                <Hourglass className="w-5 h-5 text-gold" />
+                Pending VIP Applications
+              </h2>
+              <div className="text-muted text-sm mt-1">
+                Approve to unlock VIP perks for the customer at their next
+                booking. Detection is by email, so the email below must match.
+              </div>
+            </div>
+            <span className="text-xs px-3 py-1 rounded-full bg-gold/15 border border-gold/40 text-gold">
+              {stats.pendingMembers.length} waiting
+            </span>
+          </div>
+
+          <ul className="divide-y divide-white/5">
+            {stats.pendingMembers.map((m) => (
+              <li
+                key={m.id}
+                className="py-4 grid md:grid-cols-[1fr_auto] gap-3 items-center"
+              >
+                <div className="min-w-0">
+                  <div className="text-cream font-medium">{m.name}</div>
+                  <div className="text-xs text-muted flex flex-wrap gap-x-4 gap-y-1 mt-1">
+                    <span className="inline-flex items-center gap-1.5">
+                      <Mail className="w-3 h-3 text-gold" />
+                      {m.email}
+                    </span>
+                    <span className="inline-flex items-center gap-1.5">
+                      <Phone className="w-3 h-3 text-gold" />
+                      {m.phone}
+                    </span>
+                    <span>
+                      Applied {formatDateLong(m.memberSince.slice(0, 10))}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 justify-end">
+                  <button
+                    onClick={() => decideMember(m.id, 'rejected', m.name)}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 text-xs border border-white/10 rounded-sm text-cream/85 hover:border-danger/50 hover:text-danger transition-colors"
+                  >
+                    <UserX className="w-3.5 h-3.5" />
+                    Reject
+                  </button>
+                  <button
+                    onClick={() => decideMember(m.id, 'approved', m.name)}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 text-xs bg-gold text-obsidian font-semibold rounded-sm hover:bg-gold-light transition-colors"
+                  >
+                    <UserCheck className="w-3.5 h-3.5" />
+                    Approve
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <div className="grid lg:grid-cols-[1fr_360px] gap-6">
         <section className="glass-card rounded-md p-6">
@@ -112,7 +211,7 @@ function Dashboard() {
                       className="rounded-sm p-3 border-l-2 bg-surface/60 border border-white/5"
                       style={{
                         borderLeftColor:
-                          categoryColors[booked.serviceCategory] || '#C9A84C',
+                          categoryColors[booked.serviceCategory] || '#00704A',
                       }}
                     >
                       <div className="flex items-center justify-between gap-2">

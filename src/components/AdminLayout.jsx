@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   ClipboardList,
   CalendarDays,
+  Users,
   LogOut,
   Sparkles,
   Menu,
@@ -18,6 +19,7 @@ const links = [
   { href: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/admin/bookings', label: 'Bookings', icon: ClipboardList },
   { href: '/admin/schedule', label: 'Schedule', icon: CalendarDays },
+  { href: '/admin/members', label: 'Members', icon: Users },
 ];
 
 export function AdminLayout({ children, title }) {

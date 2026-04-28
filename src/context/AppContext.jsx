@@ -116,6 +116,82 @@ const buildSeedBookings = () => {
   });
 };
 
+/**
+ * Seed members covering all three statuses. Approved members reuse the
+ * email addresses of the seeded VIP bookings so the "Bookings" column on
+ * /admin/members shows realistic counts.
+ */
+const buildSeedMembers = () => {
+  const now = new Date();
+  const daysAgo = (n) => new Date(now.getTime() - n * 86_400_000).toISOString();
+
+  return [
+    // Approved — these emails match seeded VIP bookings
+    {
+      id: 'MEM-seed-001',
+      name: 'Juan dela Cruz',
+      email: 'juan.delacruz@email.com',
+      phone: '0917 123 4567',
+      memberSince: daysAgo(90),
+      status: 'approved',
+      decidedAt: daysAgo(89),
+    },
+    {
+      id: 'MEM-seed-002',
+      name: 'Ramon Aquino',
+      email: 'ramon.aquino@email.com',
+      phone: '0920 333 1122',
+      memberSince: daysAgo(60),
+      status: 'approved',
+      decidedAt: daysAgo(60),
+    },
+    {
+      id: 'MEM-seed-003',
+      name: 'Carlos Bautista',
+      email: 'carlos.bautista@email.com',
+      phone: '0917 990 8877',
+      memberSince: daysAgo(45),
+      status: 'approved',
+      decidedAt: daysAgo(44),
+    },
+    // Pending — recent applications awaiting admin action
+    {
+      id: 'MEM-seed-004',
+      name: 'Isabella Mendoza',
+      email: 'isabella.mendoza@email.com',
+      phone: '0917 222 3344',
+      memberSince: daysAgo(2),
+      status: 'pending',
+    },
+    {
+      id: 'MEM-seed-005',
+      name: 'Miguel Tan',
+      email: 'miguel.tan@email.com',
+      phone: '0918 555 6677',
+      memberSince: daysAgo(1),
+      status: 'pending',
+    },
+    {
+      id: 'MEM-seed-006',
+      name: 'Patricia Lim',
+      email: 'patricia.lim@email.com',
+      phone: '0925 111 2233',
+      memberSince: now.toISOString(),
+      status: 'pending',
+    },
+    // Rejected — for filter completeness / demo
+    {
+      id: 'MEM-seed-007',
+      name: 'Mario Gomez',
+      email: 'mario.gomez@email.com',
+      phone: '0915 999 8877',
+      memberSince: daysAgo(15),
+      status: 'rejected',
+      decidedAt: daysAgo(14),
+    },
+  ];
+};
+
 export function AppProvider({ children }) {
   const [bookings, setBookings] = useState([]);
   const [members, setMembers] = useState([]);
@@ -134,7 +210,14 @@ export function AppProvider({ children }) {
       localStorage.setItem(STORAGE_KEYS.bookings, JSON.stringify(seed));
       setBookings(seed);
     }
-    setMembers(safeParse(STORAGE_KEYS.members, []));
+    const storedMembers = safeParse(STORAGE_KEYS.members, null);
+    if (storedMembers && storedMembers.length) {
+      setMembers(storedMembers);
+    } else {
+      const seedM = buildSeedMembers();
+      localStorage.setItem(STORAGE_KEYS.members, JSON.stringify(seedM));
+      setMembers(seedM);
+    }
     setBlockedSlots(safeParse(STORAGE_KEYS.blockedSlots, []));
     setAdminSessionState(
       typeof window !== 'undefined' &&
@@ -188,11 +271,49 @@ export function AppProvider({ children }) {
     const m = {
       id: `MEM-${Date.now()}`,
       memberSince: new Date().toISOString(),
+      status: 'pending',
       ...member,
     };
     setMembers((prev) => [m, ...prev]);
     return m;
   }, []);
+
+  const updateMemberStatus = useCallback((id, status) => {
+    setMembers((prev) =>
+      prev.map((m) =>
+        m.id === id
+          ? {
+              ...m,
+              status,
+              decidedAt: new Date().toISOString(),
+            }
+          : m
+      )
+    );
+  }, []);
+
+  const deleteMember = useCallback((id) => {
+    setMembers((prev) => prev.filter((m) => m.id !== id));
+  }, []);
+
+  // Email lookup used by the booking flow to auto-detect approved VIPs.
+  // Treats absent `status` as 'approved' so members created before this
+  // workflow existed don't get silently demoted.
+  const findApprovedMemberByEmail = useCallback(
+    (email) => {
+      if (!email) return null;
+      const target = email.trim().toLowerCase();
+      if (!target) return null;
+      return (
+        members.find(
+          (m) =>
+            (m.email || '').trim().toLowerCase() === target &&
+            (m.status ?? 'approved') === 'approved'
+        ) || null
+      );
+    },
+    [members]
+  );
 
   // ===== Blocked slots =====
   const toggleBlockedSlot = useCallback((date, time, label = 'Unavailable') => {
@@ -236,6 +357,9 @@ export function AppProvider({ children }) {
       updateBookingStatus,
       deleteBooking,
       addMember,
+      updateMemberStatus,
+      deleteMember,
+      findApprovedMemberByEmail,
       toggleBlockedSlot,
       setAdminSession,
       showToast,
@@ -252,6 +376,9 @@ export function AppProvider({ children }) {
       updateBookingStatus,
       deleteBooking,
       addMember,
+      updateMemberStatus,
+      deleteMember,
+      findApprovedMemberByEmail,
       toggleBlockedSlot,
       setAdminSession,
       showToast,

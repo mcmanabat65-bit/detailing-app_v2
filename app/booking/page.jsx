@@ -130,7 +130,8 @@ function StepDots({ step }) {
 function BookingFlow() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const { addBooking, showToast, hydrated } = useApp();
+  const { addBooking, showToast, hydrated, findApprovedMemberByEmail } =
+    useApp();
 
   const preSelectedId = searchParams.get('service');
   const [step, setStep] = useState(1);
@@ -151,11 +152,18 @@ function BookingFlow() {
     vehicle: '',
     vehicleYear: '',
     notes: '',
-    isVip: false,
     coffeeOrder: '',
   });
 
   const service = useMemo(() => getServiceById(serviceId), [serviceId]);
+
+  // VIP status is derived from email matching an approved member — not a
+  // checkbox the customer can self-assign.
+  const vipMember = useMemo(
+    () => findApprovedMemberByEmail(details.email),
+    [details.email, findApprovedMemberByEmail]
+  );
+  const isVip = Boolean(vipMember);
 
   // getSlotStatuses reads localStorage; it's safe-guarded for SSR but
   // we still depend on `hydrated` so the slot grid reflects real data on the
@@ -219,7 +227,7 @@ function BookingFlow() {
       showToast('Please fill in all required fields.', 'error');
       return;
     }
-    if (details.isVip && !details.coffeeOrder) {
+    if (isVip && !details.coffeeOrder) {
       showToast("Pick a coffee — it's on us.", 'error');
       return;
     }
@@ -237,8 +245,9 @@ function BookingFlow() {
       vehicle: details.vehicle,
       vehicleYear: details.vehicleYear,
       notes: details.notes,
-      isVip: details.isVip,
-      coffeeOrder: details.isVip ? details.coffeeOrder : '',
+      isVip,
+      memberId: vipMember?.id || null,
+      coffeeOrder: isVip ? details.coffeeOrder : '',
     });
     showToast('Booking confirmed. See you soon.', 'success');
     router.push(`/confirmation/${booking.id}`);
@@ -510,45 +519,54 @@ function BookingFlow() {
                 />
               </Field>
 
-              <label className="flex items-center gap-3 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={details.isVip}
-                  onChange={(e) =>
-                    setDetails((d) => ({
-                      ...d,
-                      isVip: e.target.checked,
-                      coffeeOrder: e.target.checked ? d.coffeeOrder : '',
-                    }))
-                  }
-                  className="w-5 h-5 accent-gold"
-                />
-                <span className="text-cream/85 inline-flex items-center gap-2">
-                  <Crown className="w-4 h-4 text-gold" />
-                  I am a VIP Member
-                </span>
-              </label>
-
-              {details.isVip && (
-                <Field label="Your coffee while you wait">
-                  <div className="relative">
-                    <Coffee className="w-4 h-4 text-gold absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                    <select
-                      value={details.coffeeOrder}
-                      onChange={(e) =>
-                        setDetails((d) => ({ ...d, coffeeOrder: e.target.value }))
-                      }
-                      className="input pl-10"
-                    >
-                      <option value="">Choose a drink…</option>
-                      {coffeeOptions.map((c) => (
-                        <option key={c} value={c}>
-                          {c}
-                        </option>
-                      ))}
-                    </select>
+              {isVip ? (
+                <div className="rounded-md border border-gold/30 bg-gold/10 p-4 animate-fade-in">
+                  <div className="flex items-center gap-2 mb-3 text-gold">
+                    <Crown className="w-4 h-4" />
+                    <span className="text-sm font-semibold tracking-wide">
+                      VIP Member detected — perks unlocked
+                    </span>
                   </div>
-                </Field>
+                  <p className="text-xs text-cream/70 mb-4">
+                    Welcome back, {vipMember.name.split(' ')[0]}. Your coffee
+                    is on us, and the 10% member discount has been applied.
+                  </p>
+                  <Field label="Your coffee while you wait">
+                    <div className="relative">
+                      <Coffee className="w-4 h-4 text-gold absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                      <select
+                        value={details.coffeeOrder}
+                        onChange={(e) =>
+                          setDetails((d) => ({
+                            ...d,
+                            coffeeOrder: e.target.value,
+                          }))
+                        }
+                        className="input pl-10"
+                      >
+                        <option value="">Choose a drink…</option>
+                        {coffeeOptions.map((c) => (
+                          <option key={c} value={c}>
+                            {c}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </Field>
+                </div>
+              ) : (
+                <p className="text-[11px] text-muted leading-relaxed">
+                  VIP perks are linked to your registered email. Not a member
+                  yet?{' '}
+                  <a
+                    href="/membership"
+                    className="text-gold hover:underline"
+                  >
+                    Apply for VIP membership
+                  </a>{' '}
+                  — approved members get 10% off and a free coffee on every
+                  visit.
+                </p>
               )}
             </div>
 

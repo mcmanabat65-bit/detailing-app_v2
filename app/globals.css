@@ -6,8 +6,8 @@
   --color-obsidian: #0A0A0B;
   --color-surface: #141416;
   --color-surface-2: #1C1C1F;
-  --color-gold: #C9A84C;
-  --color-gold-light: #E8C96A;
+  --color-gold: #00704A;
+  --color-gold-light: #1A8761;
   --color-cream: #F5F0E8;
   --color-muted: #6B6B72;
   --color-success: #4CAF7D;
@@ -63,7 +63,7 @@ h1, h2, h3, h4, h5 {
     90deg,
     var(--color-gold) 0%,
     var(--color-gold-light) 25%,
-    #fff7d6 50%,
+    #D4E9E2 50%,
     var(--color-gold-light) 75%,
     var(--color-gold) 100%
   );
@@ -92,8 +92,8 @@ h1, h2, h3, h4, h5 {
   left: 60%;
   background: radial-gradient(
     circle,
-    rgba(201, 168, 76, 0.55) 0%,
-    rgba(201, 168, 76, 0) 70%
+    rgba(0, 112, 74, 0.55) 0%,
+    rgba(0, 112, 74, 0) 70%
   );
   animation: orb-drift-a 28s ease-in-out infinite;
 }
@@ -132,7 +132,7 @@ h1, h2, h3, h4, h5 {
     100deg,
     transparent 0%,
     transparent 40%,
-    rgba(201, 168, 76, 0.06) 50%,
+    rgba(0, 112, 74, 0.06) 50%,
     transparent 60%,
     transparent 100%
   );
@@ -208,9 +208,9 @@ h1, h2, h3, h4, h5 {
 }
 .card-hover:hover {
   transform: translateY(-4px);
-  border-color: rgba(201, 168, 76, 0.45);
-  box-shadow: 0 12px 40px -12px rgba(201, 168, 76, 0.25),
-    0 0 0 1px rgba(201, 168, 76, 0.15) inset;
+  border-color: rgba(0, 112, 74, 0.45);
+  box-shadow: 0 12px 40px -12px rgba(0, 112, 74, 0.25),
+    0 0 0 1px rgba(0, 112, 74, 0.15) inset;
 }
 
 .glass-card {
@@ -236,8 +236,8 @@ h1, h2, h3, h4, h5 {
   height: 1px;
   background: linear-gradient(
     90deg,
-    rgba(201, 168, 76, 0.6),
-    rgba(201, 168, 76, 0.1)
+    rgba(0, 112, 74, 0.6),
+    rgba(0, 112, 74, 0.1)
   );
   transform: translateY(-50%);
 }
@@ -251,7 +251,7 @@ h1, h2, h3, h4, h5 {
   gap: 4px;
   padding: 2px 8px;
   border-radius: 999px;
-  background: linear-gradient(135deg, #c9a84c 0%, #e8c96a 100%);
+  background: linear-gradient(135deg, #00704A 0%, #1A8761 100%);
   color: #0a0a0b;
   font-size: 10px;
   font-weight: 700;
@@ -262,15 +262,15 @@ h1, h2, h3, h4, h5 {
 .gold-gradient {
   background: linear-gradient(
     135deg,
-    #2a2316 0%,
-    #4a3a1d 30%,
-    #c9a84c 70%,
-    #e8c96a 100%
+    #0B1F1A 0%,
+    #1E3932 30%,
+    #00704A 70%,
+    #1A8761 100%
   );
 }
 
 .gold-border {
-  border: 1px solid rgba(201, 168, 76, 0.3);
+  border: 1px solid rgba(0, 112, 74, 0.3);
 }
 
 .page-enter {
@@ -315,5 +315,5 @@ input, textarea, select {
 input:focus, textarea:focus, select:focus {
   outline: none;
   border-color: var(--color-gold);
-  box-shadow: 0 0 0 3px rgba(201, 168, 76, 0.15);
+  box-shadow: 0 0 0 3px rgba(0, 112, 74, 0.15);
 }

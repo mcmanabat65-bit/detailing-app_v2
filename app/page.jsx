@@ -71,7 +71,7 @@ export default function LandingPage() {
         {/* Bottom vignette grounds the section into the page */}
         <div className="absolute inset-0 bg-gradient-to-t from-obsidian via-transparent to-obsidian/30" style={{ zIndex: 3 }} />
         {/* Subtle gold tint on the right — harmonises with brand colour */}
-        <div className="absolute inset-0 bg-gradient-to-bl from-[#c9a84c]/10 via-transparent to-transparent" style={{ zIndex: 3 }} />
+        <div className="absolute inset-0 bg-gradient-to-bl from-[#00704A]/10 via-transparent to-transparent" style={{ zIndex: 3 }} />
         {/* Fine horizontal scanline texture for cinematic depth */}
         <div className="absolute inset-0 hero-scanlines" aria-hidden="true" style={{ zIndex: 4 }} />
         {/* Gold sheen sweep — reused from CSS, still looks great on video */}

@@ -274,6 +274,12 @@ MIT License — see `LICENSE` for details.
 
 ---
 
-<div align="center">
-  <sub>Built with ☕ and obsessive attention to detail.</sub>
-</div>
+## feature branch changes:
+- changed the yellow color to starbucks green color
+- admin approval on VIP membership registration
+- added /admin/members page
+
+
+original themecolor:
+--color-gold: #C9A84C;
+--color-gold-light: #E8C96A;
