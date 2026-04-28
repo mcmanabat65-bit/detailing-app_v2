@@ -311,9 +311,26 @@ h1, h2, h3, h4, h5 {
 
 input, textarea, select {
   font-family: inherit;
+  color: var(--color-cream);
+  background-color: var(--color-surface-2);
 }
 input:focus, textarea:focus, select:focus {
   outline: none;
   border-color: var(--color-gold);
   box-shadow: 0 0 0 3px rgba(201, 168, 76, 0.15);
+}
+input::placeholder, textarea::placeholder {
+  color: var(--color-muted);
+}
+/* Fix browser autofill overriding the dark background */
+input:-webkit-autofill,
+input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 1000px var(--color-surface-2) inset;
+  -webkit-text-fill-color: var(--color-cream);
+}
+/* Native date/time picker icon colour */
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.7);
+  cursor: pointer;
 }
