@@ -5,8 +5,8 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Lock, User, Sparkles } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 
-const ADMIN_USERNAME = 'obsidian_admin';
-const ADMIN_PASSWORD = 'detail2024!';
+const ADMIN_USERNAME = 'donmiguel_admin';
+const ADMIN_PASSWORD = 'detail2026@';
 
 function LoginForm() {
   const { setAdminSession, showToast } = useApp();
