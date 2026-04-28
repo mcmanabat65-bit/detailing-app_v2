@@ -46,10 +46,10 @@ export function Navbar() {
           </div>
           <div className="leading-none">
             <div className="font-serif text-lg md:text-xl text-cream tracking-wide">
-              DON MIGUEL
+              Samahuzai Carwash and
             </div>
             <div className="text-[10px] tracking-[0.25em] text-gold/80 uppercase">
-              Detailing
+              Auto Detailing
             </div>
           </div>
         </Link>

@@ -47,7 +47,7 @@ export function AdminLayout({ children, title }) {
             <Sparkles className="w-4 h-4 text-obsidian" strokeWidth={2.5} />
           </div>
           <div className="leading-none">
-            <div className="font-serif text-lg text-cream">DON MIGUEL</div>
+            <div className="font-serif text-lg text-cream">Samahuzai Carwash and Auto Detailing</div>
             <div className="text-[9px] tracking-[0.3em] text-gold uppercase">
               Admin Console
             </div>

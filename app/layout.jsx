@@ -17,7 +17,7 @@ const sans = DM_Sans({
 });
 
 export const metadata = {
-  title: 'Don Miguel Detailing — Perfection is in the details',
+  title: 'Samahuzai Carwash and Auto Detailing — Perfection is in the details',
   description:
     'Where your vehicle becomes a statement. Premium auto detailing & VIP membership.',
   icons: { icon: '/favicon.svg' },

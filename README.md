@@ -1,4 +1,4 @@
-# DON MIGUEL DETAILING
+# Samahuzai Carwash and Auto Detailing
 ### *Perfection is in the details.*
 
 > A premium auto detailing shop web app with VIP membership, appointment booking, and an admin dashboard — built with React + Vite + Tailwind CSS.

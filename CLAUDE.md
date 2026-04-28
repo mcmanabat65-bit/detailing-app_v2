@@ -1,4 +1,4 @@
-# CLAUDE.md — DON MIGUEL DETAILING
+# CLAUDE.md — Samahuzai Carwash and Auto Detailing
 
 > This file provides context, conventions, and instructions for AI coding agents (Claude Code, Copilot, etc.) working on this project. Read this before making any changes.
 
@@ -6,7 +6,7 @@
 
 ## Project Overview
 
-**DON MIGUEL DETAILING** is a premium auto detailing shop web application built with React + Vite + Tailwind CSS. It features:
+**Samahuzai Carwash and Auto Detailing** is a premium auto detailing shop web application built with React + Vite + Tailwind CSS. It features:
 
 - Public-facing site with service catalog and VIP membership
 - Multi-step appointment booking with conflict prevention

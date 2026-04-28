@@ -23,7 +23,7 @@ function LoginForm() {
       creds.password === ADMIN_PASSWORD
     ) {
       setAdminSession(true);
-      showToast('Welcome back, Don Miguel.', 'success');
+      showToast('Welcome back, Admin.', 'success');
       const next = searchParams.get('next') || '/admin/dashboard';
       router.replace(next);
     } else {
@@ -46,7 +46,7 @@ function LoginForm() {
             <Sparkles className="w-5 h-5 text-obsidian" strokeWidth={2.5} />
           </div>
           <div className="font-serif text-3xl text-cream">Admin Console</div>
-          <div className="text-muted text-sm mt-1">Don Miguel Detailing</div>
+          <div className="text-muted text-sm mt-1">Samahuzai Carwash and Auto Detailing</div>
         </div>
 
         <form

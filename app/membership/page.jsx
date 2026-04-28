@@ -107,7 +107,7 @@ export default function MembershipPage() {
               <div className="flex items-start justify-between">
                 <div>
                   <div className="text-obsidian/70 text-[10px] tracking-[0.3em] uppercase">
-                    Don Miguel
+                    Samahuzai Carwash and Auto Detailing
                   </div>
                   <div className="text-obsidian font-serif text-2xl">
                     VIP Member
