@@ -55,7 +55,7 @@ export default function MembershipPage() {
     const m = addMember(form);
     setSuccess(m);
     setForm({ name: '', email: '', phone: '' });
-    showToast('Welcome to the lounge.', 'success');
+    showToast('Application submitted — pending review.', 'success');
   };
 
   const memberSinceLabel = (iso) =>
@@ -104,10 +104,15 @@ export default function MembershipPage() {
           <div className="relative">
             <div className="absolute -inset-6 bg-gold/15 blur-3xl rounded-full" />
             <div className="relative gold-gradient rounded-2xl p-8 aspect-[1.6/1] flex flex-col justify-between shadow-2xl shadow-black/50">
+              {success && (
+                <div className="absolute top-4 right-4 px-2.5 py-1 rounded-full bg-obsidian/80 text-[10px] tracking-[0.2em] uppercase text-gold border border-gold/40">
+                  Pending Approval
+                </div>
+              )}
               <div className="flex items-start justify-between">
                 <div>
                   <div className="text-obsidian/70 text-[10px] tracking-[0.3em] uppercase">
-                    Don Miguel
+                    Samahuzai Carwash and Auto Detailing
                   </div>
                   <div className="text-obsidian font-serif text-2xl">
                     VIP Member
@@ -139,20 +144,24 @@ export default function MembershipPage() {
           <div className="glass-card rounded-md p-8">
             {success ? (
               <div className="text-center py-6 animate-fade-in">
-                <div className="w-16 h-16 rounded-full bg-success/15 border border-success/30 flex items-center justify-center mx-auto mb-5">
-                  <Check className="w-7 h-7 text-success" />
+                <div className="w-16 h-16 rounded-full bg-gold/15 border border-gold/30 flex items-center justify-center mx-auto mb-5">
+                  <Check className="w-7 h-7 text-gold" />
                 </div>
                 <h2 className="font-serif text-3xl text-cream mb-2">
-                  Welcome, {success.name.split(' ')[0]}.
+                  Application received, {success.name.split(' ')[0]}.
                 </h2>
-                <p className="text-muted mb-6">
-                  Your VIP card is active. Mention your name on your next visit.
+                <p className="text-muted mb-2">
+                  A manager will review your application — usually within 24 hours.
+                </p>
+                <p className="text-muted text-sm mb-6">
+                  Once approved, your VIP perks unlock automatically when you book under{' '}
+                  <span className="text-cream/80">{success.email}</span>.
                 </p>
                 <button
                   onClick={() => setSuccess(null)}
                   className="px-5 py-2.5 border border-white/10 text-cream/80 rounded-sm hover:border-gold/50 hover:text-gold transition-colors text-sm"
                 >
-                  Add another member
+                  Submit another application
                 </button>
               </div>
             ) : (

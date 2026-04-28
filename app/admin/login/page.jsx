@@ -5,8 +5,8 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Lock, User, Sparkles } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 
-const ADMIN_USERNAME = 'obsidian_admin';
-const ADMIN_PASSWORD = 'detail2024!';
+const ADMIN_USERNAME = 'donmiguel_admin';
+const ADMIN_PASSWORD = 'detail2026@';
 
 function LoginForm() {
   const { setAdminSession, showToast } = useApp();
@@ -23,7 +23,7 @@ function LoginForm() {
       creds.password === ADMIN_PASSWORD
     ) {
       setAdminSession(true);
-      showToast('Welcome back, Don Miguel.', 'success');
+      showToast('Welcome back, Admin.', 'success');
       const next = searchParams.get('next') || '/admin/dashboard';
       router.replace(next);
     } else {
@@ -37,7 +37,7 @@ function LoginForm() {
         className="absolute inset-0 opacity-20"
         style={{
           background:
-            'radial-gradient(50% 50% at 50% 30%, rgba(201,168,76,0.25), transparent 60%)',
+            'radial-gradient(50% 50% at 50% 30%, rgba(0,112,74,0.25), transparent 60%)',
         }}
       />
       <div className="relative w-full max-w-md">
@@ -46,7 +46,7 @@ function LoginForm() {
             <Sparkles className="w-5 h-5 text-obsidian" strokeWidth={2.5} />
           </div>
           <div className="font-serif text-3xl text-cream">Admin Console</div>
-          <div className="text-muted text-sm mt-1">Don Miguel Detailing</div>
+          <div className="text-muted text-sm mt-1">Samahuzai Carwash and Auto Detailing</div>
         </div>
 
         <form

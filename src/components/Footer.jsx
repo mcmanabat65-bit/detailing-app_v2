@@ -6,9 +6,9 @@ export function Footer() {
     <footer className="border-t border-white/5 bg-obsidian/80 mt-24">
       <div className="max-w-7xl mx-auto px-5 md:px-8 py-14 grid md:grid-cols-4 gap-10">
         <div>
-          <div className="font-serif text-2xl text-cream">DON MIGUEL</div>
+          <div className="font-serif text-2xl text-cream">Samahuzai Carwash and</div>
           <div className="text-[11px] tracking-[0.3em] text-gold uppercase mb-4">
-            Detailing
+            Auto Detailing
           </div>
           <p className="text-sm text-muted leading-relaxed">
             Perfection is in the details. Premium detailing & ceramic
@@ -103,7 +103,7 @@ export function Footer() {
       </div>
 
       <div className="border-t border-white/5 py-5 text-center text-xs text-muted">
-        © {new Date().getFullYear()} Don Miguel Detailing. All rights reserved.
+        © {new Date().getFullYear()} Samahuzai Carwash and Auto Detailing. All rights reserved.
       </div>
     </footer>
   );

@@ -92,7 +92,7 @@ export const services = [
 
 export const categoryColors = {
   exterior: '#5B8DEF',
-  full: '#C9A84C',
+  full: '#00704A',
   premium: '#9B6BFF',
   specialty: '#4CAF7D',
   interior: '#E58E5C',

@@ -1,4 +1,4 @@
-# DON MIGUEL DETAILING
+# Samahuzai Carwash and Auto Detailing
 ### *Perfection is in the details.*
 
 > A premium auto detailing shop web app with VIP membership, appointment booking, and an admin dashboard — built with React + Vite + Tailwind CSS.
@@ -274,6 +274,12 @@ MIT License — see `LICENSE` for details.
 
 ---
 
-<div align="center">
-  <sub>Built with ☕ and obsessive attention to detail.</sub>
-</div>
+## feature branch changes:
+- changed the yellow color to starbucks green color
+- admin approval on VIP membership registration
+- added /admin/members page
+
+
+original themecolor:
+--color-gold: #C9A84C;
+--color-gold-light: #E8C96A;

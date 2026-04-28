@@ -38,7 +38,7 @@ const testimonials = [
     name: 'Jehnsen Enrique',
     car: 'Nissan GTR Owner',
     quote:
-      'I have been to every detailer in BGC. Don Miguel is the only one I trust with my GTR. The finish is mirror-grade.',
+      'I have been to every detailer in BGC. Samahuzai Carwash and Auto Detailing is the only one I trust with my GTR. The finish is mirror-grade.',
     rating: 5,
   },
   {
@@ -71,7 +71,7 @@ export default function LandingPage() {
         {/* Bottom vignette grounds the section into the page */}
         <div className="absolute inset-0 bg-gradient-to-t from-obsidian via-transparent to-obsidian/30" style={{ zIndex: 3 }} />
         {/* Subtle gold tint on the right — harmonises with brand colour */}
-        <div className="absolute inset-0 bg-gradient-to-bl from-[#c9a84c]/10 via-transparent to-transparent" style={{ zIndex: 3 }} />
+        <div className="absolute inset-0 bg-gradient-to-bl from-[#00704A]/10 via-transparent to-transparent" style={{ zIndex: 3 }} />
         {/* Fine horizontal scanline texture for cinematic depth */}
         <div className="absolute inset-0 hero-scanlines" aria-hidden="true" style={{ zIndex: 4 }} />
         {/* Gold sheen sweep — reused from CSS, still looks great on video */}
@@ -84,9 +84,9 @@ export default function LandingPage() {
               Est. 2026 &middot; Cavite
             </div>
             <h1 className="font-serif text-5xl md:text-7xl lg:text-8xl leading-[1.05] mb-6">
-              <span className="gold-shimmer">DON MIGUEL</span>
+              <span className="gold-shimmer">SAMAHUZAI CARWASH & </span>
               <br />
-              <span className="text-cream">DETAILING</span>
+              <span className="text-cream">AUTO DETAILING</span>
             </h1>
             <p className="text-cream/75 text-lg md:text-xl max-w-xl mb-10 leading-relaxed">
               Where your vehicle becomes a statement. Hand-crafted detailing
@@ -115,14 +115,14 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* WHY DON MIGUEL */}
+      {/* WHY Samahuzai Carwash and Auto Detailing */}
       <section className="py-24 md:py-32 max-w-7xl mx-auto px-5 md:px-8">
         <div className="text-center max-w-2xl mx-auto mb-16">
           <div className="text-gold text-xs tracking-[0.3em] uppercase mb-3">
             The Difference
           </div>
           <h2 className="font-serif text-4xl md:text-5xl text-cream mb-4">
-            Why Don Miguel?
+            Why Samahuzai Carwash and Auto Detailing?
           </h2>
           <p className="text-muted">
             Three pillars define every detail we deliver.
@@ -246,7 +246,7 @@ export default function LandingPage() {
               <div className="flex items-start justify-between">
                 <div>
                   <div className="text-obsidian/70 text-[10px] tracking-[0.3em] uppercase">
-                    Don Miguel
+                    Samahuzai Carwash and Auto Detailing
                   </div>
                   <div className="text-obsidian font-serif text-2xl">
                     VIP Member

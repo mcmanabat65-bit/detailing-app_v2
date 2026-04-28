@@ -143,7 +143,7 @@ function Schedule() {
         </div>
 
         <div className="flex items-center gap-3 text-xs">
-          <Legend swatch="#C9A84C" label="Full" />
+          <Legend swatch="#00704A" label="Full" />
           <Legend swatch={categoryColors.exterior} label="Exterior" />
           <Legend swatch={categoryColors.interior} label="Interior" />
           <Legend swatch={categoryColors.specialty} label="Specialty" />
@@ -208,14 +208,14 @@ function Schedule() {
                             style={{
                               background: `linear-gradient(135deg, ${
                                 categoryColors[cell.booking.serviceCategory] ||
-                                '#C9A84C'
+                                '#00704A'
                               }33, ${
                                 categoryColors[cell.booking.serviceCategory] ||
-                                '#C9A84C'
+                                '#00704A'
                               }15)`,
                               borderLeft: `3px solid ${
                                 categoryColors[cell.booking.serviceCategory] ||
-                                '#C9A84C'
+                                '#00704A'
                               }`,
                               height: `calc(${cell.span} * 60px - 12px)`,
                               zIndex: 2,
