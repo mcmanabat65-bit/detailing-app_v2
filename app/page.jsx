@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { HeroVideo } from '@/components/HeroVideo';
 import {
   Award,
   Sparkles,
@@ -34,21 +35,21 @@ const features = [
 
 const testimonials = [
   {
-    name: 'Andres Mariano',
-    car: '911 Carrera S Owner',
+    name: 'Jehnsen Enrique',
+    car: 'Nissan GTR Owner',
     quote:
-      'I have been to every detailer in BGC. Don Miguel is the only one I trust with the Porsche. The finish is mirror-grade.',
+      'I have been to every detailer in BGC. Don Miguel is the only one I trust with my GTR. The finish is mirror-grade.',
     rating: 5,
   },
   {
-    name: 'Patricia Lim',
+    name: 'Azi Acosta',
     car: 'Range Rover Velar',
     quote:
       'The lounge alone is worth it. I came in for a wash and left feeling like I had spent the morning at a five-star hotel.',
     rating: 5,
   },
   {
-    name: 'Miguel Tan',
+    name: 'Vince Tacloban',
     car: 'BMW M3 Competition',
     quote:
       'Ceramic coating turned out flawless. Six months in, still beading like the day I drove out. Worth every peso.',
@@ -61,26 +62,26 @@ export default function LandingPage() {
     <div className="page-enter">
       {/* HERO */}
       <section className="relative min-h-screen flex items-center overflow-hidden bg-obsidian">
-        {/* Ambient motion — slow-drifting gold light orbs. Pure CSS, no
-            assets. Replace with a real video later by reverting to a
-            <video> element here. */}
-        <div className="absolute inset-0">
-          <div className="absolute inset-0 bg-gradient-to-br from-obsidian via-[#0d0d10] to-[#13110a]" />
-          <div className="hero-orb hero-orb--a" aria-hidden="true" />
-          <div className="hero-orb hero-orb--b" aria-hidden="true" />
-          <div className="hero-orb hero-orb--c" aria-hidden="true" />
-          <div className="hero-sheen" aria-hidden="true" />
-        </div>
+        {/* Full-bleed background video — crossfades between two clips */}
+        <HeroVideo />
 
-        {/* Tint + vignette so the gold copy stays readable */}
-        <div className="absolute inset-0 bg-gradient-to-r from-obsidian/80 via-obsidian/40 to-obsidian/10" />
-        <div className="absolute inset-0 bg-gradient-to-t from-obsidian/70 via-transparent to-transparent" />
+        {/* Layered cinematic overlays — keep these for premium quality */}
+        {/* Deep left-to-right shadow so left-aligned copy always pops */}
+        <div className="absolute inset-0 bg-gradient-to-r from-obsidian/90 via-obsidian/55 to-obsidian/10" style={{ zIndex: 3 }} />
+        {/* Bottom vignette grounds the section into the page */}
+        <div className="absolute inset-0 bg-gradient-to-t from-obsidian via-transparent to-obsidian/30" style={{ zIndex: 3 }} />
+        {/* Subtle gold tint on the right — harmonises with brand colour */}
+        <div className="absolute inset-0 bg-gradient-to-bl from-[#c9a84c]/10 via-transparent to-transparent" style={{ zIndex: 3 }} />
+        {/* Fine horizontal scanline texture for cinematic depth */}
+        <div className="absolute inset-0 hero-scanlines" aria-hidden="true" style={{ zIndex: 4 }} />
+        {/* Gold sheen sweep — reused from CSS, still looks great on video */}
+        <div className="hero-sheen" aria-hidden="true" style={{ zIndex: 5 }} />
 
-        <div className="relative max-w-7xl mx-auto px-5 md:px-8 pt-32 md:pt-40 pb-20">
+        <div className="relative max-w-7xl mx-auto px-5 md:px-8 pt-32 md:pt-40 pb-20" style={{ zIndex: 10 }}>
           <div className="max-w-3xl">
             <div className="inline-flex items-center gap-2 text-xs tracking-[0.3em] uppercase text-gold/90 mb-6">
               <span className="w-8 h-px bg-gold" />
-              Est. 2018 &middot; Manila
+              Est. 2026 &middot; Cavite
             </div>
             <h1 className="font-serif text-5xl md:text-7xl lg:text-8xl leading-[1.05] mb-6">
               <span className="gold-shimmer">DON MIGUEL</span>
@@ -109,7 +110,7 @@ export default function LandingPage() {
           </div>
         </div>
 
-        <div className="hidden md:block absolute bottom-8 left-1/2 -translate-x-1/2 text-muted text-xs tracking-widest uppercase animate-pulse">
+        <div className="hidden md:block absolute bottom-8 left-1/2 -translate-x-1/2 text-muted text-xs tracking-widest uppercase animate-pulse" style={{ zIndex: 10 }}>
           Scroll
         </div>
       </section>
