@@ -12,6 +12,8 @@ export const services = [
       'Interior Vacuum',
     ],
     popular: false,
+    minDetailers: 1,
+    recommendedDetailers: 1,
   },
   {
     id: 2,
@@ -28,6 +30,8 @@ export const services = [
       'Engine Bay Cleaning',
     ],
     popular: true,
+    minDetailers: 1,
+    recommendedDetailers: 2,
   },
   {
     id: 3,
@@ -44,6 +48,8 @@ export const services = [
       'VIP Lounge Priority',
     ],
     popular: false,
+    minDetailers: 2,
+    recommendedDetailers: 3,
   },
   {
     id: 4,
@@ -58,6 +64,8 @@ export const services = [
       'Final polish & seal',
     ],
     popular: false,
+    minDetailers: 1,
+    recommendedDetailers: 2,
   },
   {
     id: 5,
@@ -72,6 +80,8 @@ export const services = [
       '2-year protection warranty',
     ],
     popular: false,
+    minDetailers: 2,
+    recommendedDetailers: 3,
   },
   {
     id: 6,
@@ -87,6 +97,8 @@ export const services = [
       'Deodorize & sanitize',
     ],
     popular: false,
+    minDetailers: 1,
+    recommendedDetailers: 1,
   },
 ];
 

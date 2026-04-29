@@ -283,3 +283,10 @@ MIT License — see `LICENSE` for details.
 original themecolor:
 --color-gold: #C9A84C;
 --color-gold-light: #E8C96A;
+
+1.Do you have a Supabase project already? - Yes just leave the NEXT_PUBLIC_SUPABASE_URL  and the NEXT_PUBLIC_SUPABASE_ANON_KEY empty for now
+
+2.Scope — full cutover
+3.Admin auth - Keep the hardcoded credentials for now
+4.recommended
+5.recommended

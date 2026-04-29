@@ -1,146 +1,220 @@
-import { timeSlots } from '../data/timeSlots.js';
+import { timeSlots, SLOT_MINUTES } from '../data/timeSlots.js';
 
+/**
+ * Admin session is the only piece of state still in localStorage — auth
+ * stays hardcoded for Phase 1. Bookings, members, blocked slots, and
+ * settings are now sourced from Supabase via AppContext.
+ */
 const STORAGE_KEYS = {
-  bookings: 'obsidian_bookings',
-  members: 'obsidian_members',
-  blockedSlots: 'obsidian_blocked_slots',
   adminSession: 'obsidian_admin_session',
 };
 
 export { STORAGE_KEYS };
 
-const readBookings = () => {
-  if (typeof window === 'undefined') return [];
-  try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEYS.bookings) || '[]');
-  } catch {
-    return [];
-  }
+export const DEFAULT_SETTINGS = {
+  detailerPoolSize: 5,
+  defaultDetailersPerBooking: 1,
 };
 
-const readBlocked = () => {
-  if (typeof window === 'undefined') return [];
-  try {
-    return JSON.parse(
-      localStorage.getItem(STORAGE_KEYS.blockedSlots) || '[]'
-    );
-  } catch {
-    return [];
-  }
-};
+/** A booking is "active" (consumes detailer capacity) unless cancelled / no_show. */
+export const isActiveBooking = (b) =>
+  b && b.status !== 'cancelled' && b.status !== 'no_show';
 
 /**
- * Map a service "duration" string (e.g. "4–5 hrs", "1–2 days") to the number
- * of consecutive 1-hour slots it occupies. The shop runs 1 service at a time
- * so anything > 4 hrs blocks the next consecutive slot.
+ * Map a service "duration" string (e.g. "1.5 hrs", "4–5 hrs", "1–2 days") to
+ * the number of 30-minute slots it occupies.
+ *   - Range strings use the upper bound (conservative, no double-booking).
+ *   - Day strings consume the full slot grid.
+ *   - Fractional hours are rounded up to the next slot boundary.
  */
 export const getSlotsConsumed = (duration = '') => {
   const d = duration.toLowerCase();
   if (d.includes('day')) return timeSlots.length; // entire day
-  // grab the upper bound number from "X–Y hrs"
-  const match = d.match(/(\d+)\s*[–-]\s*(\d+)/);
-  if (match) {
-    const upper = parseInt(match[2], 10);
-    if (upper > 4) return 2;
-    return 1;
+  const slotsPerHour = 60 / SLOT_MINUTES;
+  // Range: "1.5–2 hrs" or "4-5 hrs" — take upper bound
+  const range = d.match(/(\d+(?:\.\d+)?)\s*[–-]\s*(\d+(?:\.\d+)?)/);
+  if (range) {
+    const upper = parseFloat(range[2]);
+    return Math.max(1, Math.ceil(upper * slotsPerHour));
   }
-  const single = d.match(/(\d+)/);
-  if (single && parseInt(single[1], 10) > 4) return 2;
+  // Single value: "1.5 hrs", "2 hrs"
+  const single = d.match(/(\d+(?:\.\d+)?)/);
+  if (single) {
+    const hours = parseFloat(single[1]);
+    return Math.max(1, Math.ceil(hours * slotsPerHour));
+  }
   return 1;
 };
 
 const slotIndex = (time) => timeSlots.indexOf(time);
 
-/**
- * Returns the array of slot strings occupied if a booking starts at `time`.
- */
+/** Returns the array of slot strings occupied if a booking starts at `time`. */
 const occupiedRange = (time, slotsConsumed) => {
   const i = slotIndex(time);
   if (i === -1) return [];
   return timeSlots.slice(i, i + slotsConsumed);
 };
 
+const detailersFor = (b) => {
+  const n = Number(b.detailersAssigned);
+  return Number.isFinite(n) && n > 0 ? n : 1;
+};
+
 /**
- * isSlotAvailable — given a date + start time + service duration, true if
- * the booking can fit without overlapping existing bookings or blocks.
+ * Sum the detailers consumed at (date, time) across all active bookings.
+ * Pure: callers pass the current `bookings` array (now sourced from Supabase
+ * via AppContext, no localStorage fallback).
  */
-export const isSlotAvailable = (date, time, serviceDuration, opts = {}) => {
-  const { ignoreBookingId = null } = opts;
-  const slotsConsumed = getSlotsConsumed(serviceDuration);
-  const want = occupiedRange(time, slotsConsumed);
-  if (want.length < slotsConsumed) return false; // would overflow the day
-
-  const bookings = readBookings().filter(
-    (b) => b.status !== 'cancelled' && b.id !== ignoreBookingId
-  );
-  const blocked = readBlocked();
-
-  // For each existing booking on this date, compute its occupied range and
-  // check overlap.
+export const computeDetailersUsedAt = (date, time, bookings = []) => {
+  let used = 0;
   for (const b of bookings) {
+    if (!isActiveBooking(b)) continue;
     if (b.date !== date) continue;
     const consumed = getSlotsConsumed(b.serviceDuration || '1 hr');
     const range = occupiedRange(b.time, consumed);
-    if (range.some((t) => want.includes(t))) return false;
+    if (range.includes(time)) used += detailersFor(b);
   }
+  return used;
+};
 
-  for (const blk of blocked) {
+/**
+ * Across the slots that a booking starting at `time` would occupy, return
+ * the smallest remaining-detailer capacity. That is the binding constraint.
+ *
+ * `excludeBookingId` is used when re-validating an existing booking (its own
+ * detailers should not be counted against itself).
+ */
+export const getMinRemainingForRange = (
+  date,
+  time,
+  serviceDuration,
+  opts = {}
+) => {
+  const {
+    bookings = [],
+    settings = DEFAULT_SETTINGS,
+    excludeBookingId = null,
+  } = opts;
+  const pool = settings.detailerPoolSize ?? DEFAULT_SETTINGS.detailerPoolSize;
+  const slotsConsumed = getSlotsConsumed(serviceDuration);
+  const range = occupiedRange(time, slotsConsumed);
+  if (range.length < slotsConsumed) return -1; // overflows the day
+
+  const list = bookings.filter((b) => b.id !== excludeBookingId);
+
+  let minRemaining = pool;
+  for (const t of range) {
+    const used = computeDetailersUsedAt(date, t, list);
+    minRemaining = Math.min(minRemaining, pool - used);
+  }
+  return minRemaining;
+};
+
+/**
+ * isSlotAvailable — given a date + start time + service duration, true if
+ * a booking can fit without overflowing the day, hitting a block, or
+ * exceeding detailer capacity for the service's minimum.
+ */
+export const isSlotAvailable = (date, time, serviceDuration, opts = {}) => {
+  const {
+    minDetailers = 1,
+    bookings = [],
+    blockedSlots = [],
+    settings = DEFAULT_SETTINGS,
+    excludeBookingId = null,
+  } = opts;
+
+  const slotsConsumed = getSlotsConsumed(serviceDuration);
+  const range = occupiedRange(time, slotsConsumed);
+  if (range.length < slotsConsumed) return false;
+
+  for (const blk of blockedSlots) {
     if (blk.date !== date) continue;
-    if (want.includes(blk.time)) return false;
+    if (range.includes(blk.time)) return false;
   }
 
-  return true;
+  const remaining = getMinRemainingForRange(date, time, serviceDuration, {
+    bookings,
+    settings,
+    excludeBookingId,
+  });
+  return remaining >= minDetailers;
+};
+
+/**
+ * Returns slot-status objects for the UI:
+ *   { time, available, reason, remaining, slotsConsumed }
+ * `reason` is one of 'blocked' | 'overflow' | 'capacity' | null.
+ */
+export const getSlotStatuses = (date, serviceDuration, opts = {}) => {
+  if (!date) return [];
+  const {
+    minDetailers = 1,
+    bookings = [],
+    blockedSlots = [],
+    settings = DEFAULT_SETTINGS,
+  } = opts;
+  const slotsConsumed = getSlotsConsumed(serviceDuration);
+  const pool = settings.detailerPoolSize ?? DEFAULT_SETTINGS.detailerPoolSize;
+  const list = bookings;
+  const blocked = blockedSlots.filter((b) => b.date === date);
+
+  return timeSlots.map((t) => {
+    const range = occupiedRange(t, slotsConsumed);
+    if (range.length < slotsConsumed) {
+      const used = computeDetailersUsedAt(date, t, list);
+      return {
+        time: t,
+        available: false,
+        reason: 'overflow',
+        remaining: Math.max(0, pool - used),
+        slotsConsumed,
+      };
+    }
+    if (range.some((rt) => blocked.some((blk) => blk.time === rt))) {
+      const used = computeDetailersUsedAt(date, t, list);
+      return {
+        time: t,
+        available: false,
+        reason: 'blocked',
+        remaining: Math.max(0, pool - used),
+        slotsConsumed,
+      };
+    }
+
+    let minRemaining = pool;
+    for (const rt of range) {
+      const used = computeDetailersUsedAt(date, rt, list);
+      minRemaining = Math.min(minRemaining, pool - used);
+    }
+    if (minRemaining < minDetailers) {
+      return {
+        time: t,
+        available: false,
+        reason: 'capacity',
+        remaining: Math.max(0, minRemaining),
+        slotsConsumed,
+      };
+    }
+    return {
+      time: t,
+      available: true,
+      reason: null,
+      remaining: minRemaining,
+      slotsConsumed,
+    };
+  });
 };
 
 /**
  * getAvailableSlots — slot strings that can host a booking of this duration
  * starting at that slot, on the given date.
  */
-export const getAvailableSlots = (date, serviceDuration) => {
+export const getAvailableSlots = (date, serviceDuration, opts = {}) => {
   if (!date) return [];
-  return timeSlots.filter((t) => isSlotAvailable(date, t, serviceDuration));
-};
-
-/**
- * Returns slot status for the UI — useful when rendering all slots,
- * not just the available ones.
- *   { time, available, reason: 'booked' | 'blocked' | 'overflow' | null }
- */
-export const getSlotStatuses = (date, serviceDuration) => {
-  if (!date) return [];
-  const slotsConsumed = getSlotsConsumed(serviceDuration);
-  const bookings = readBookings().filter(
-    (b) => b.status !== 'cancelled' && b.date === date
-  );
-  const blocked = readBlocked().filter((b) => b.date === date);
-
-  // Build a set of occupied slot strings on this date (any source).
-  const occupied = new Set();
-  for (const b of bookings) {
-    const consumed = getSlotsConsumed(b.serviceDuration || '1 hr');
-    occupiedRange(b.time, consumed).forEach((t) => occupied.add(t));
-  }
-  for (const blk of blocked) occupied.add(blk.time);
-
-  return timeSlots.map((t) => {
-    if (occupied.has(t)) {
-      const isBlocked = blocked.some((b) => b.time === t);
-      return {
-        time: t,
-        available: false,
-        reason: isBlocked ? 'blocked' : 'booked',
-      };
-    }
-    // Check downstream overflow for multi-slot services
-    const range = occupiedRange(t, slotsConsumed);
-    if (range.length < slotsConsumed) {
-      return { time: t, available: false, reason: 'overflow' };
-    }
-    if (range.some((rt) => occupied.has(rt))) {
-      return { time: t, available: false, reason: 'booked' };
-    }
-    return { time: t, available: true, reason: null };
-  });
+  return getSlotStatuses(date, serviceDuration, opts)
+    .filter((s) => s.available)
+    .map((s) => s.time);
 };
 
 /** Format YYYYMMDD for booking IDs */
