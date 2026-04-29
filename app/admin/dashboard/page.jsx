@@ -56,8 +56,12 @@ function Dashboard() {
     };
   }, [bookings, today, members]);
 
-  const decideMember = (id, status, name) => {
-    updateMemberStatus(id, status);
+  const decideMember = async (id, status, name) => {
+    const result = await updateMemberStatus(id, status);
+    if (result?.error) {
+      showToast(result.error, 'error');
+      return;
+    }
     showToast(
       status === 'approved'
         ? `${name} approved as VIP.`

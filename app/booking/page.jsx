@@ -12,6 +12,7 @@ import {
   Clock,
   Coffee,
   Crown,
+  Users,
   User,
 } from 'lucide-react';
 import { services, formatCurrency, getServiceById } from '@/data/services';
@@ -130,8 +131,15 @@ function StepDots({ step }) {
 function BookingFlow() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const { addBooking, showToast, hydrated, findApprovedMemberByEmail } =
-    useApp();
+  const {
+    addBooking,
+    showToast,
+    hydrated,
+    bookings,
+    blockedSlots,
+    settings,
+    findApprovedMemberByEmail,
+  } = useApp();
 
   const preSelectedId = searchParams.get('service');
   const [step, setStep] = useState(1);
@@ -165,15 +173,19 @@ function BookingFlow() {
   );
   const isVip = Boolean(vipMember);
 
-  // getSlotStatuses reads localStorage; it's safe-guarded for SSR but
-  // we still depend on `hydrated` so the slot grid reflects real data on the
-  // first client render.
+  // Live slot availability — recomputes when the bookings list or settings
+  // change so the slot grid reflects detailer capacity as it shifts.
   const slotStatuses = useMemo(
     () =>
       hydrated && date && service
-        ? getSlotStatuses(date, service.duration)
+        ? getSlotStatuses(date, service.duration, {
+            minDetailers: service.minDetailers ?? 1,
+            bookings,
+            blockedSlots,
+            settings,
+          })
         : [],
-    [date, service, hydrated]
+    [date, service, hydrated, bookings, blockedSlots, settings]
   );
 
   useEffect(() => {
@@ -215,7 +227,7 @@ function BookingFlow() {
 
   const handleBack = () => setStep((s) => Math.max(1, s - 1));
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (
       !details.customerName ||
@@ -231,7 +243,12 @@ function BookingFlow() {
       showToast("Pick a coffee — it's on us.", 'error');
       return;
     }
-    const booking = addBooking({
+    const minDetailers = service.minDetailers ?? 1;
+    const requested = Math.max(
+      minDetailers,
+      settings?.defaultDetailersPerBooking ?? 1
+    );
+    const booking = await addBooking({
       serviceId: service.id,
       serviceName: service.name,
       servicePrice: service.price,
@@ -248,7 +265,18 @@ function BookingFlow() {
       isVip,
       memberId: vipMember?.id || null,
       coffeeOrder: isVip ? details.coffeeOrder : '',
+      detailersAssigned: requested,
     });
+    if (!booking || booking.error) {
+      showToast(
+        booking?.error || 'Could not confirm booking — please try again.',
+        'error'
+      );
+      // Bounce back to step 2 so they can pick a different slot.
+      setTime('');
+      setStep(2);
+      return;
+    }
     showToast('Booking confirmed. See you soon.', 'success');
     router.push(`/confirmation/${booking.id}`);
   };
@@ -392,38 +420,62 @@ function BookingFlow() {
                 )}
                 {slotStatuses.map((s) => {
                   const selected = time === s.time;
+                  const tooltip = !s.available
+                    ? s.reason === 'blocked'
+                      ? 'Blocked by shop'
+                      : s.reason === 'overflow'
+                        ? "Not enough hours remaining for this service"
+                        : s.reason === 'capacity'
+                          ? `All detailers busy (need ${
+                              service.minDetailers ?? 1
+                            }, ${s.remaining} left)`
+                          : 'Unavailable'
+                    : `${s.remaining} detailer${s.remaining === 1 ? '' : 's'} available`;
                   return (
                     <button
                       key={s.time}
                       type="button"
                       disabled={!s.available}
                       onClick={() => setTime(s.time)}
-                      className={`px-3 py-2.5 text-sm rounded-sm border transition-all ${
+                      className={`relative px-3 py-2.5 text-sm rounded-sm border transition-all ${
                         selected
                           ? 'bg-gold text-obsidian border-gold'
                           : s.available
                             ? 'border-white/10 text-cream hover:border-gold/50 hover:text-gold'
                             : 'border-white/5 text-muted/50 line-through cursor-not-allowed'
                       }`}
-                      title={
-                        !s.available
-                          ? s.reason === 'blocked'
-                            ? 'Blocked by shop'
-                            : s.reason === 'overflow'
-                              ? "Not enough hours remaining for this service"
-                              : 'Already booked'
-                          : ''
-                      }
+                      title={tooltip}
                     >
-                      {s.time}
+                      <span>{s.time}</span>
+                      {s.available && (
+                        <span
+                          className={`block text-[10px] mt-0.5 inline-flex items-center gap-1 justify-center w-full ${
+                            selected ? 'text-obsidian/70' : 'text-gold/80'
+                          }`}
+                        >
+                          <Users className="w-2.5 h-2.5" />
+                          {s.remaining} left
+                        </span>
+                      )}
                     </button>
                   );
                 })}
               </div>
 
               <div className="text-[11px] text-muted mt-5 leading-relaxed">
-                Slots greyed out are already booked, blocked, or wouldn&apos;t allow
-                enough hours for the selected package.
+                {service.minDetailers > 1 ? (
+                  <>
+                    {service.name} needs at least{' '}
+                    <b>{service.minDetailers} detailers</b>. Slots are dimmed
+                    when blocked, would overflow the day, or don&apos;t have
+                    enough detailers free.
+                  </>
+                ) : (
+                  <>
+                    Slots are dimmed when they&apos;re blocked, would overflow
+                    the day, or have no detailers free.
+                  </>
+                )}
               </div>
             </aside>
           </div>

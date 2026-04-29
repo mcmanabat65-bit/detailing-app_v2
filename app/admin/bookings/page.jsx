@@ -9,16 +9,26 @@ import {
   XCircle,
   Crown,
   Coffee,
+  Users,
+  Minus,
+  Plus,
+  UserX,
   X,
 } from 'lucide-react';
 import { AdminLayout } from '@/components/AdminLayout';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { useApp } from '@/context/AppContext';
-import { services, formatCurrency } from '@/data/services';
+import { services, getServiceById, formatCurrency } from '@/data/services';
 import { formatDateShort } from '@/utils/bookingUtils';
 
 function BookingsTable() {
-  const { bookings, updateBookingStatus, deleteBooking, showToast } = useApp();
+  const {
+    bookings,
+    updateBookingStatus,
+    updateBookingDetailers,
+    deleteBooking,
+    showToast,
+  } = useApp();
 
   const [filters, setFilters] = useState({
     date: '',
@@ -60,6 +70,7 @@ function BookingsTable() {
       'Price',
       'Date',
       'Time',
+      'Detailers',
       'Vehicle',
       'VIP',
       'Coffee',
@@ -74,6 +85,7 @@ function BookingsTable() {
       b.servicePrice,
       b.date,
       b.time,
+      b.detailersAssigned ?? 1,
       `${b.vehicleYear || ''} ${b.vehicle || ''}`.trim(),
       b.isVip ? 'Yes' : 'No',
       b.coffeeOrder || '',
@@ -101,6 +113,28 @@ function BookingsTable() {
 
   const resetFilters = () =>
     setFilters({ date: '', serviceId: 'all', status: 'all', q: '' });
+
+  const adjustDetailers = async (booking, delta) => {
+    const next = (booking.detailersAssigned ?? 1) + delta;
+    const result = await updateBookingDetailers(booking.id, next);
+    if (result?.error) {
+      showToast(result.error, 'error');
+    } else if (result?.ok) {
+      showToast(
+        `Assigned ${result.detailersAssigned} detailer${result.detailersAssigned === 1 ? '' : 's'}.`,
+        'success'
+      );
+    }
+  };
+
+  const setStatus = async (id, status, successMessage) => {
+    const result = await updateBookingStatus(id, status);
+    if (result?.error) {
+      showToast(result.error, 'error');
+    } else if (successMessage) {
+      showToast(successMessage, 'info');
+    }
+  };
 
   return (
     <AdminLayout title="Bookings">
@@ -150,6 +184,7 @@ function BookingsTable() {
             <option value="all">All status</option>
             <option value="confirmed">Confirmed</option>
             <option value="cancelled">Cancelled</option>
+            <option value="no_show">No-show</option>
           </select>
         </div>
         <div className="flex items-center justify-between mt-4">
@@ -177,7 +212,7 @@ function BookingsTable() {
 
       <div className="glass-card rounded-md overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm min-w-[1100px]">
+          <table className="w-full text-sm min-w-[1240px]">
             <thead>
               <tr className="text-left text-[10px] uppercase tracking-widest text-muted border-b border-white/5">
                 <th className="px-4 py-3 font-medium">Booking ID</th>
@@ -185,6 +220,7 @@ function BookingsTable() {
                 <th className="px-4 py-3 font-medium">Service</th>
                 <th className="px-4 py-3 font-medium">Date</th>
                 <th className="px-4 py-3 font-medium">Time</th>
+                <th className="px-4 py-3 font-medium">Detailers</th>
                 <th className="px-4 py-3 font-medium">Vehicle</th>
                 <th className="px-4 py-3 font-medium">VIP</th>
                 <th className="px-4 py-3 font-medium">Coffee</th>
@@ -215,6 +251,12 @@ function BookingsTable() {
                     {formatDateShort(b.date)}
                   </td>
                   <td className="px-4 py-3 text-cream/85">{b.time}</td>
+                  <td className="px-4 py-3">
+                    <DetailerControl
+                      booking={b}
+                      onAdjust={(delta) => adjustDetailers(b, delta)}
+                    />
+                  </td>
                   <td className="px-4 py-3 text-cream/85 max-w-[180px] truncate">
                     {b.vehicleYear} {b.vehicle}
                   </td>
@@ -242,21 +284,41 @@ function BookingsTable() {
                     <div className="flex items-center justify-end gap-1">
                       {b.status !== 'confirmed' && (
                         <button
-                          onClick={() =>
-                            updateBookingStatus(b.id, 'confirmed')
-                          }
+                          onClick={() => setStatus(b.id, 'confirmed')}
                           aria-label="Mark confirmed"
+                          title="Mark confirmed"
                           className="p-2 text-success hover:bg-success/10 rounded-sm transition-colors"
                         >
                           <CheckCircle2 className="w-4 h-4" />
                         </button>
                       )}
+                      {b.status !== 'no_show' && (
+                        <button
+                          onClick={() =>
+                            setStatus(
+                              b.id,
+                              'no_show',
+                              'Marked as no-show — detailers freed.'
+                            )
+                          }
+                          aria-label="Mark no-show"
+                          title="Mark no-show (frees detailers)"
+                          className="p-2 text-cream/70 hover:text-gold hover:bg-gold/10 rounded-sm transition-colors"
+                        >
+                          <UserX className="w-4 h-4" />
+                        </button>
+                      )}
                       {b.status !== 'cancelled' && (
                         <button
                           onClick={() =>
-                            updateBookingStatus(b.id, 'cancelled')
+                            setStatus(
+                              b.id,
+                              'cancelled',
+                              'Booking cancelled — detailers freed.'
+                            )
                           }
                           aria-label="Cancel booking"
+                          title="Cancel (frees detailers)"
                           className="p-2 text-cream/70 hover:text-danger hover:bg-danger/10 rounded-sm transition-colors"
                         >
                           <XCircle className="w-4 h-4" />
@@ -275,7 +337,7 @@ function BookingsTable() {
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="px-4 py-16 text-center text-muted">
+                  <td colSpan={11} className="px-4 py-16 text-center text-muted">
                     No bookings match your filters.
                   </td>
                 </tr>
@@ -330,9 +392,13 @@ function BookingsTable() {
                 Cancel
               </button>
               <button
-                onClick={() => {
-                  deleteBooking(confirmDelete.id);
-                  showToast('Booking deleted.', 'success');
+                onClick={async () => {
+                  const result = await deleteBooking(confirmDelete.id);
+                  if (result?.error) {
+                    showToast(result.error, 'error');
+                  } else {
+                    showToast('Booking deleted.', 'success');
+                  }
                   setConfirmDelete(null);
                 }}
                 className="flex-1 px-4 py-2.5 bg-danger text-white rounded-sm hover:bg-danger/90 transition-colors inline-flex items-center justify-center gap-2"
@@ -356,10 +422,51 @@ function StatusBadge({ status }) {
       </span>
     );
   }
+  if (status === 'no_show') {
+    return (
+      <span className="text-[10px] uppercase tracking-widest px-2 py-1 rounded-sm bg-gold/15 text-gold">
+        No-show
+      </span>
+    );
+  }
   return (
     <span className="text-[10px] uppercase tracking-widest px-2 py-1 rounded-sm bg-success/15 text-success">
       Confirmed
     </span>
+  );
+}
+
+function DetailerControl({ booking, onAdjust }) {
+  const svc = getServiceById(booking.serviceId);
+  const min = svc?.minDetailers ?? 1;
+  const count = booking.detailersAssigned ?? 1;
+  const isFrozen =
+    booking.status === 'cancelled' || booking.status === 'no_show';
+  return (
+    <div className="inline-flex items-center gap-1.5">
+      <button
+        type="button"
+        onClick={() => onAdjust(-1)}
+        disabled={isFrozen || count <= min}
+        aria-label="Remove a detailer"
+        className="w-6 h-6 rounded-sm border border-white/10 text-cream/80 hover:border-gold/50 hover:text-gold disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center transition-colors"
+      >
+        <Minus className="w-3 h-3" />
+      </button>
+      <span className="inline-flex items-center gap-1 min-w-[44px] justify-center text-cream text-sm">
+        <Users className="w-3.5 h-3.5 text-gold" />
+        {count}
+      </span>
+      <button
+        type="button"
+        onClick={() => onAdjust(1)}
+        disabled={isFrozen}
+        aria-label="Add a detailer"
+        className="w-6 h-6 rounded-sm border border-white/10 text-cream/80 hover:border-gold/50 hover:text-gold disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center transition-colors"
+      >
+        <Plus className="w-3 h-3" />
+      </button>
+    </div>
   );
 }
 

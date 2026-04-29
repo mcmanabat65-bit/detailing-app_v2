@@ -11,6 +11,7 @@ import {
   LogOut,
   Sparkles,
   Menu,
+  Settings as SettingsIcon,
   X,
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
@@ -20,6 +21,7 @@ const links = [
   { href: '/admin/bookings', label: 'Bookings', icon: ClipboardList },
   { href: '/admin/schedule', label: 'Schedule', icon: CalendarDays },
   { href: '/admin/members', label: 'Members', icon: Users },
+  { href: '/admin/settings', label: 'Settings', icon: SettingsIcon },
 ];
 
 export function AdminLayout({ children, title }) {

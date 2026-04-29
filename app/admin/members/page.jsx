@@ -64,8 +64,12 @@ function MembersAdmin() {
     return map;
   }, [bookings]);
 
-  const decide = (id, status, name) => {
-    updateMemberStatus(id, status);
+  const decide = async (id, status, name) => {
+    const result = await updateMemberStatus(id, status);
+    if (result?.error) {
+      showToast(result.error, 'error');
+      return;
+    }
     showToast(
       status === 'approved'
         ? `${name} approved.`
@@ -287,9 +291,13 @@ function MembersAdmin() {
                 Cancel
               </button>
               <button
-                onClick={() => {
-                  deleteMember(confirmDelete.id);
-                  showToast('Member deleted.', 'success');
+                onClick={async () => {
+                  const result = await deleteMember(confirmDelete.id);
+                  if (result?.error) {
+                    showToast(result.error, 'error');
+                  } else {
+                    showToast('Member deleted.', 'success');
+                  }
                   setConfirmDelete(null);
                 }}
                 className="flex-1 px-4 py-2.5 bg-danger text-white rounded-sm hover:bg-danger/90 transition-colors inline-flex items-center justify-center gap-2"

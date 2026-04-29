@@ -8,7 +8,13 @@
       "Bash(wait)",
       "Bash(curl -s -o /dev/null -w \"GET / → %{http_code}\\\\n\" http://localhost:3000/)",
       "Bash(curl -s -o /dev/null -w \"GET /booking → %{http_code}\\\\n\" http://localhost:3000/booking)",
-      "Bash(curl -s -o /dev/null -w \"GET /admin/login → %{http_code}\\\\n\" http://localhost:3000/admin/login)"
+      "Bash(curl -s -o /dev/null -w \"GET /admin/login → %{http_code}\\\\n\" http://localhost:3000/admin/login)",
+      "Bash(npx next *)",
+      "Bash(curl -s -o /dev/null -w \"settings:%{http_code} bookings:\" \"http://localhost:3007/admin/settings\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code} schedule:\" \"http://localhost:3007/admin/bookings\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code} booking:\" \"http://localhost:3007/admin/schedule\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" \"http://localhost:3007/booking\")",
+      "Bash(tail -60 \"C:\\\\\\\\Users\\\\\\\\252164~1.JEN\\\\\\\\AppData\\\\\\\\Local\\\\\\\\Temp\\\\\\\\claude\\\\\\\\d--xampp-apache-bin-FE-detailing-app\\\\\\\\57e1beb4-bee4-4868-ae1f-922a905c6b8c\\\\\\\\tasks\\\\\\\\bubtctpk1.output\")"
     ]
   }
 }

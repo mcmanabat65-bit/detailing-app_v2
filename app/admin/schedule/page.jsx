@@ -10,6 +10,7 @@ import {
   Coffee,
   Lock,
   Plus,
+  Users,
   Trash2,
 } from 'lucide-react';
 import { AdminLayout } from '@/components/AdminLayout';
@@ -37,42 +38,48 @@ const weekDates = (anchor) => {
 };
 
 function Schedule() {
-  const { bookings, blockedSlots, toggleBlockedSlot, showToast } = useApp();
+  const { bookings, blockedSlots, settings, toggleBlockedSlot, showToast } =
+    useApp();
   const [anchor, setAnchor] = useState(new Date());
   const [drawer, setDrawer] = useState(null);
   const [blockForm, setBlockForm] = useState({ date: '', time: '', label: '' });
 
   const week = useMemo(() => weekDates(anchor), [anchor]);
+  const poolSize = settings?.detailerPoolSize ?? 5;
 
+  // cells[date][time] = {
+  //   bookings: [{ booking, isStart, span }],   // may be empty
+  //   block:    { ...block } | null,
+  //   used:     number,                           // detailers in use
+  // }
   const cells = useMemo(() => {
     const map = {};
     for (const d of week) {
       const iso = toIsoDate(d);
       map[iso] = {};
+      for (const t of timeSlots) {
+        map[iso][t] = { bookings: [], block: null, used: 0 };
+      }
     }
     for (const b of bookings) {
-      if (b.status === 'cancelled') continue;
+      if (b.status === 'cancelled' || b.status === 'no_show') continue;
       if (!map[b.date]) continue;
       const consumed = getSlotsConsumed(b.serviceDuration || '1 hr');
       const startIdx = timeSlots.indexOf(b.time);
       if (startIdx === -1) continue;
+      const headcount = Number(b.detailersAssigned) || 1;
       for (let i = 0; i < consumed; i++) {
         const t = timeSlots[startIdx + i];
         if (!t) break;
-        if (!map[b.date][t]) {
-          map[b.date][t] = {
-            kind: 'booking',
-            booking: b,
-            isStart: i === 0,
-            span: consumed,
-          };
-        }
+        const cell = map[b.date][t];
+        cell.bookings.push({ booking: b, isStart: i === 0, span: consumed });
+        cell.used += headcount;
       }
     }
     for (const blk of blockedSlots) {
       if (!map[blk.date]) continue;
-      if (!map[blk.date][blk.time]) {
-        map[blk.date][blk.time] = { kind: 'block', block: blk };
+      if (map[blk.date][blk.time]) {
+        map[blk.date][blk.time].block = blk;
       }
     }
     return map;
@@ -87,17 +94,21 @@ function Schedule() {
     year: 'numeric',
   })}`;
 
-  const handleBlockSubmit = (e) => {
+  const handleBlockSubmit = async (e) => {
     e.preventDefault();
     if (!blockForm.date || !blockForm.time) {
       showToast('Pick a date and time first.', 'error');
       return;
     }
-    toggleBlockedSlot(
+    const result = await toggleBlockedSlot(
       blockForm.date,
       blockForm.time,
       blockForm.label || 'Unavailable'
     );
+    if (result?.error) {
+      showToast(result.error, 'error');
+      return;
+    }
     showToast('Slot updated.', 'success');
     setBlockForm({ date: '', time: '', label: '' });
   };
@@ -194,54 +205,105 @@ function Schedule() {
                   {week.map((d) => {
                     const iso = toIsoDate(d);
                     const cell = cells[iso]?.[time];
+                    const used = cell?.used || 0;
+                    const remaining = Math.max(0, poolSize - used);
+                    const startsHere = (cell?.bookings || []).filter(
+                      (e) => e.isStart
+                    );
+                    const passThrough = (cell?.bookings || []).filter(
+                      (e) => !e.isStart
+                    );
                     return (
                       <div
                         key={`${iso}-${time}`}
-                        className="border-l border-white/5 p-1.5 min-h-[60px] relative"
+                        className="border-l border-white/5 p-1.5 min-h-[80px] relative space-y-1"
                       >
-                        {cell?.kind === 'booking' && cell.isStart && (
+                        {used > 0 && (
+                          <div
+                            title={`${used}/${poolSize} detailers in use, ${remaining} free`}
+                            className="flex items-center gap-1 text-[9px] uppercase tracking-widest text-muted"
+                          >
+                            <Users className="w-2.5 h-2.5 text-gold/70" />
+                            <span className="text-gold/80">{used}</span>
+                            <span>/{poolSize}</span>
+                            <div className="flex-1 h-1 rounded-full bg-white/5 overflow-hidden ml-1">
+                              <div
+                                className="h-full bg-gold/60"
+                                style={{
+                                  width: `${Math.min(100, (used / poolSize) * 100)}%`,
+                                }}
+                              />
+                            </div>
+                          </div>
+                        )}
+
+                        {startsHere.map(({ booking, span }) => (
                           <button
+                            key={booking.id}
                             onClick={() =>
-                              setDrawer({ type: 'booking', data: cell.booking })
+                              setDrawer({ type: 'booking', data: booking })
                             }
-                            className="absolute inset-1.5 rounded-sm text-left p-2 text-xs text-cream hover:scale-[1.02] transition-transform"
+                            className="block w-full rounded-sm text-left p-1.5 text-[11px] text-cream hover:translate-x-0.5 transition-transform"
                             style={{
                               background: `linear-gradient(135deg, ${
-                                categoryColors[cell.booking.serviceCategory] ||
+                                categoryColors[booking.serviceCategory] ||
                                 '#00704A'
                               }33, ${
-                                categoryColors[cell.booking.serviceCategory] ||
+                                categoryColors[booking.serviceCategory] ||
                                 '#00704A'
                               }15)`,
                               borderLeft: `3px solid ${
-                                categoryColors[cell.booking.serviceCategory] ||
+                                categoryColors[booking.serviceCategory] ||
                                 '#00704A'
                               }`,
-                              height: `calc(${cell.span} * 60px - 12px)`,
-                              zIndex: 2,
                             }}
                           >
                             <div className="font-medium truncate flex items-center gap-1">
-                              {cell.booking.customerName}
-                              {cell.booking.isVip && (
-                                <Crown className="w-3 h-3 text-gold" />
+                              {booking.customerName}
+                              {booking.isVip && (
+                                <Crown className="w-2.5 h-2.5 text-gold" />
                               )}
                             </div>
-                            <div className="text-[10px] opacity-80 truncate">
-                              {cell.booking.serviceName}
+                            <div className="text-[9px] opacity-80 flex items-center justify-between gap-2">
+                              <span className="truncate">
+                                {booking.serviceName}
+                              </span>
+                              <span className="inline-flex items-center gap-0.5 shrink-0 text-gold/85">
+                                <Users className="w-2.5 h-2.5" />
+                                {booking.detailersAssigned ?? 1}
+                                {span > 1 ? ` · ${span}h` : ''}
+                              </span>
                             </div>
                           </button>
-                        )}
-                        {cell?.kind === 'block' && (
+                        ))}
+
+                        {passThrough.map(({ booking }) => (
+                          <div
+                            key={`pt-${booking.id}`}
+                            className="rounded-sm px-1.5 py-1 text-[9px] uppercase tracking-widest text-muted/70 border-l-2"
+                            style={{
+                              borderColor:
+                                categoryColors[booking.serviceCategory] ||
+                                '#00704A',
+                              background: 'rgba(255,255,255,0.02)',
+                            }}
+                          >
+                            ↳ {booking.customerName.split(' ')[0]} continues
+                          </div>
+                        ))}
+
+                        {cell?.block && (
                           <button
                             onClick={() =>
                               setDrawer({ type: 'block', data: cell.block })
                             }
-                            className="absolute inset-1.5 rounded-sm text-left p-2 text-xs text-cream/70 bg-white/5 border border-white/10 hover:bg-white/10 transition-colors"
+                            className="block w-full rounded-sm text-left p-1.5 text-[11px] text-cream/70 bg-white/5 border border-white/10 hover:bg-white/10 transition-colors"
                           >
                             <div className="flex items-center gap-1">
-                              <Lock className="w-3 h-3" />
-                              <span className="truncate">{cell.block.label}</span>
+                              <Lock className="w-2.5 h-2.5" />
+                              <span className="truncate">
+                                {cell.block.label}
+                              </span>
                             </div>
                           </button>
                         )}
@@ -366,6 +428,15 @@ function Schedule() {
                 />
                 <Info label="Service" value={drawer.data.serviceName} />
                 <Info label="Duration" value={drawer.data.serviceDuration} />
+                <Info
+                  label="Detailers assigned"
+                  value={
+                    <span className="inline-flex items-center gap-1.5">
+                      <Users className="w-3.5 h-3.5 text-gold" />
+                      {drawer.data.detailersAssigned ?? 1}
+                    </span>
+                  }
+                />
                 <Info label="Date" value={formatDateLong(drawer.data.date)} />
                 <Info label="Time" value={drawer.data.time} />
                 {drawer.data.isVip && (
@@ -390,13 +461,17 @@ function Schedule() {
                 <Info label="Date" value={formatDateLong(drawer.data.date)} />
                 <Info label="Time" value={drawer.data.time} />
                 <button
-                  onClick={() => {
-                    toggleBlockedSlot(
+                  onClick={async () => {
+                    const result = await toggleBlockedSlot(
                       drawer.data.date,
                       drawer.data.time,
                       drawer.data.label
                     );
-                    showToast('Block removed.', 'success');
+                    if (result?.error) {
+                      showToast(result.error, 'error');
+                    } else {
+                      showToast('Block removed.', 'success');
+                    }
                     setDrawer(null);
                   }}
                   className="w-full mt-4 px-4 py-2.5 bg-danger text-white rounded-sm hover:bg-danger/90 transition-colors inline-flex items-center justify-center gap-2"

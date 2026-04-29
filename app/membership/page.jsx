@@ -46,13 +46,17 @@ export default function MembershipPage() {
   const [form, setForm] = useState({ name: '', email: '', phone: '' });
   const [success, setSuccess] = useState(null);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!form.name || !form.email || !form.phone) {
       showToast('Please complete the form.', 'error');
       return;
     }
-    const m = addMember(form);
+    const m = await addMember(form);
+    if (!m || m.error) {
+      showToast(m?.error || 'Could not submit application.', 'error');
+      return;
+    }
     setSuccess(m);
     setForm({ name: '', email: '', phone: '' });
     showToast('Application submitted — pending review.', 'success');
