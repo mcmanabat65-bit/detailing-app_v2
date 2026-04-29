@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import Image from 'next/image';
 import { Instagram, Facebook, MessageCircle, MapPin, Phone, Mail } from 'lucide-react';
 
 export function Footer() {
@@ -6,10 +7,14 @@ export function Footer() {
     <footer className="border-t border-white/5 bg-obsidian/80 mt-24">
       <div className="max-w-7xl mx-auto px-5 md:px-8 py-14 grid md:grid-cols-4 gap-10">
         <div>
-          <div className="font-serif text-2xl text-cream">Samahuzai Carwash and</div>
-          <div className="text-[11px] tracking-[0.3em] text-gold uppercase mb-4">
-            Auto Detailing
-          </div>
+          <Image
+            src="/logo.jpg"
+            alt="Samahuzai Carwash & Auto Detailing"
+            width={160}
+            height={48}
+            className="h-12 w-auto object-contain mb-4"
+            style={{ mixBlendMode: 'screen' }}
+          />
           <p className="text-sm text-muted leading-relaxed">
             Perfection is in the details. Premium detailing & ceramic
             coating for vehicles that demand more.

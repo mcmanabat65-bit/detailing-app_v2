@@ -83,8 +83,10 @@ export default function LandingPage() {
               <span className="w-8 h-px bg-gold" />
               Est. 2026 &middot; Cavite
             </div>
-            <h1 className="font-serif text-5xl md:text-7xl lg:text-8xl leading-[1.05] mb-6">
-              <span className="gold-shimmer">SAMAHUZAI CARWASH & </span>
+            <h1 className="font-serif text-4xl md:text-6xl lg:text-7xl leading-[1.1] mb-6">
+              <span className="gold-shimmer">SAMAHUZAI</span>
+              <br />
+              <span className="text-cream">CARWASH &</span>
               <br />
               <span className="text-cream">AUTO DETAILING</span>
             </h1>
