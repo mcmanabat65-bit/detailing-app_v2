@@ -2,33 +2,44 @@
 
 import { Suspense, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Lock, User, Sparkles } from 'lucide-react';
+import { Lock, Mail, Sparkles } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
-
-const ADMIN_USERNAME = 'donmiguel_admin';
-const ADMIN_PASSWORD = 'detail2026@';
+import { supabase } from '@/lib/supabase';
 
 function LoginForm() {
-  const { setAdminSession, showToast } = useApp();
+  const { showToast } = useApp();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [creds, setCreds] = useState({ username: '', password: '' });
+  const [creds, setCreds] = useState({ email: '', password: '' });
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    if (
-      creds.username === ADMIN_USERNAME &&
-      creds.password === ADMIN_PASSWORD
-    ) {
-      setAdminSession(true);
-      showToast('Welcome back, Admin.', 'success');
-      const next = searchParams.get('next') || '/admin/dashboard';
-      router.replace(next);
-    } else {
-      setError('Invalid credentials. Try again.');
+    setLoading(true);
+
+    if (!supabase) {
+      setError('Database not connected. Set Supabase env vars and reload.');
+      setLoading(false);
+      return;
     }
+
+    const { error: authError } = await supabase.auth.signInWithPassword({
+      email: creds.email.trim(),
+      password: creds.password,
+    });
+
+    setLoading(false);
+
+    if (authError) {
+      setError('Invalid credentials. Try again.');
+      return;
+    }
+
+    showToast('Welcome back, Admin.', 'success');
+    const next = searchParams.get('next') || '/admin/dashboard';
+    window.location.href = next;
   };
 
   return (
@@ -49,25 +60,21 @@ function LoginForm() {
           <div className="text-muted text-sm mt-1">Samahuzai Carwash and Auto Detailing</div>
         </div>
 
-        <form
-          onSubmit={handleSubmit}
-          className="glass-card rounded-md p-7 space-y-5"
-        >
+        <form onSubmit={handleSubmit} className="glass-card rounded-md p-7 space-y-5">
           <div>
             <label className="block text-[11px] uppercase tracking-widest text-cream/70 mb-1.5">
-              Username
+              Email
             </label>
             <div className="relative">
-              <User className="w-4 h-4 text-gold absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <Mail className="w-4 h-4 text-gold absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
-                type="text"
+                type="email"
                 autoFocus
-                value={creds.username}
-                onChange={(e) =>
-                  setCreds((c) => ({ ...c, username: e.target.value }))
-                }
+                required
+                value={creds.email}
+                onChange={(e) => setCreds((c) => ({ ...c, email: e.target.value }))}
                 className="w-full bg-surface/70 border border-white/10 rounded-sm py-2.5 pl-10 pr-3 text-cream"
-                placeholder="obsidian_admin"
+                placeholder="admin@example.com"
               />
             </div>
           </div>
@@ -80,10 +87,9 @@ function LoginForm() {
               <Lock className="w-4 h-4 text-gold absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
                 type="password"
+                required
                 value={creds.password}
-                onChange={(e) =>
-                  setCreds((c) => ({ ...c, password: e.target.value }))
-                }
+                onChange={(e) => setCreds((c) => ({ ...c, password: e.target.value }))}
                 className="w-full bg-surface/70 border border-white/10 rounded-sm py-2.5 pl-10 pr-3 text-cream"
                 placeholder="••••••••"
               />
@@ -98,16 +104,11 @@ function LoginForm() {
 
           <button
             type="submit"
-            className="w-full px-5 py-3 bg-gold text-obsidian font-semibold rounded-sm hover:bg-gold-light transition-colors"
+            disabled={loading}
+            className="w-full px-5 py-3 bg-gold text-obsidian font-semibold rounded-sm hover:bg-gold-light transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            Sign In
+            {loading ? 'Signing in…' : 'Sign In'}
           </button>
-
-          <div className="text-[11px] text-muted text-center pt-2 border-t border-white/5">
-            Demo credentials:{' '}
-            <span className="text-cream/70">obsidian_admin</span> /{' '}
-            <span className="text-cream/70">detail2024!</span>
-          </div>
         </form>
       </div>
     </div>

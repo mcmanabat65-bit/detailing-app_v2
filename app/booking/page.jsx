@@ -15,7 +15,7 @@ import {
   Users,
   User,
 } from 'lucide-react';
-import { services, formatCurrency, getServiceById } from '@/data/services';
+import { formatCurrency } from '@/data/services';
 import { coffeeOptions } from '@/data/timeSlots';
 import {
   formatDateLong,
@@ -132,6 +132,8 @@ function BookingFlow() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const {
+    services,
+    getServiceById,
     addBooking,
     showToast,
     hydrated,

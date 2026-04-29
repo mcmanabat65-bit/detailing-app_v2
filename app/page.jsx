@@ -13,7 +13,8 @@ import {
   Wifi,
   Cake,
 } from 'lucide-react';
-import { services, formatCurrency } from '@/data/services';
+import { formatCurrency } from '@/data/services';
+import { fetchServices } from '@/lib/supabase-server';
 
 const features = [
   {
@@ -57,7 +58,8 @@ const testimonials = [
   },
 ];
 
-export default function LandingPage() {
+export default async function LandingPage() {
+  const services = await fetchServices();
   return (
     <div className="page-enter">
       {/* HERO */}

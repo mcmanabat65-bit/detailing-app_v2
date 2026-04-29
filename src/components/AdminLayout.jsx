@@ -13,6 +13,7 @@ import {
   Menu,
   Settings as SettingsIcon,
   X,
+  Wrench,
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 
@@ -21,17 +22,18 @@ const links = [
   { href: '/admin/bookings', label: 'Bookings', icon: ClipboardList },
   { href: '/admin/schedule', label: 'Schedule', icon: CalendarDays },
   { href: '/admin/members', label: 'Members', icon: Users },
+  { href: '/admin/services', label: 'Services', icon: Wrench },
   { href: '/admin/settings', label: 'Settings', icon: SettingsIcon },
 ];
 
 export function AdminLayout({ children, title }) {
-  const { setAdminSession, showToast } = useApp();
+  const { signOut, showToast } = useApp();
   const router = useRouter();
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
 
-  const handleLogout = () => {
-    setAdminSession(false);
+  const handleLogout = async () => {
+    await signOut();
     showToast('Signed out.', 'info');
     router.push('/admin/login');
   };

@@ -14,7 +14,7 @@ import {
   generateBookingId,
   getSlotsConsumed,
 } from '@/utils/bookingUtils';
-import { getServiceById } from '@/data/services';
+import { services as staticServices } from '@/data/services';
 import { timeSlots } from '@/data/timeSlots';
 import { supabase, isSupabaseConfigured, fromRow, toRow } from '@/lib/supabase';
 
@@ -29,6 +29,7 @@ const computeOccupiesSlots = (startTime, serviceDuration) => {
 };
 
 export function AppProvider({ children }) {
+  const [services, setServices] = useState(staticServices);
   const [bookings, setBookings] = useState([]);
   const [members, setMembers] = useState([]);
   const [blockedSlots, setBlockedSlots] = useState([]);
@@ -38,6 +39,19 @@ export function AppProvider({ children }) {
   const [toasts, setToasts] = useState([]);
 
   // ===== Refetch helpers =====
+  const refetchServices = useCallback(async () => {
+    if (!supabase) return;
+    const { data, error } = await supabase
+      .from('services')
+      .select('*')
+      .order('sort_order', { ascending: true });
+    if (error) {
+      console.error('[services] fetch error', error);
+      return;
+    }
+    if (data && data.length > 0) setServices(data.map(fromRow));
+  }, []);
+
   const refetchBookings = useCallback(async () => {
     if (!supabase) return;
     const { data, error } = await supabase
@@ -83,31 +97,80 @@ export function AppProvider({ children }) {
       .from('settings')
       .select('*')
       .eq('id', 1)
-      .single();
+      .maybeSingle();
     if (error) {
       console.error('[settings] fetch error', error);
       return;
     }
     if (data) setSettings({ ...DEFAULT_SETTINGS, ...fromRow(data) });
+    // If no row yet, keep DEFAULT_SETTINGS — schema seed may not have run
   }, []);
 
   // Hydrate everything in parallel on mount.
   useEffect(() => {
-    setAdminSessionState(
-      typeof window !== 'undefined' &&
-        localStorage.getItem(STORAGE_KEYS.adminSession) === 'true'
-    );
     if (!supabase) {
       setHydrated(true);
       return;
     }
-    Promise.all([
+
+    // Sync admin session from Supabase Auth
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setAdminSessionState(!!session);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (_event, session) => setAdminSessionState(!!session)
+    );
+
+    Promise.allSettled([
+      refetchServices(),
       refetchBookings(),
       refetchMembers(),
       refetchBlockedSlots(),
       refetchSettings(),
     ]).finally(() => setHydrated(true));
-  }, [refetchBookings, refetchMembers, refetchBlockedSlots, refetchSettings]);
+
+    return () => subscription.unsubscribe();
+  }, [refetchServices, refetchBookings, refetchMembers, refetchBlockedSlots, refetchSettings]);
+
+  // ===== Services =====
+  const upsertService = useCallback(
+    async (service) => {
+      if (!supabase) return { error: 'Database not connected.' };
+      const row = toRow({
+        id: service.id,
+        name: service.name,
+        price: Number(service.price),
+        duration: service.duration,
+        category: service.category,
+        inclusions: service.inclusions ?? [],
+        popular: Boolean(service.popular),
+        minDetailers: Number(service.minDetailers) || 1,
+        recommendedDetailers: Number(service.recommendedDetailers) || 1,
+        sortOrder: Number(service.sortOrder) || 0,
+      });
+      const { data, error } = await supabase
+        .from('services')
+        .upsert(row, { onConflict: 'id' })
+        .select()
+        .single();
+      if (error) return { error: error.message };
+      await refetchServices();
+      return fromRow(data);
+    },
+    [refetchServices]
+  );
+
+  const deleteService = useCallback(
+    async (id) => {
+      if (!supabase) return { error: 'Database not connected.' };
+      const { error } = await supabase.from('services').delete().eq('id', id);
+      if (error) return { error: error.message };
+      await refetchServices();
+      return { ok: true };
+    },
+    [refetchServices]
+  );
 
   // ===== Bookings =====
   const addBooking = useCallback(
@@ -118,7 +181,7 @@ export function AppProvider({ children }) {
             'Database not connected. Set Supabase env vars and reload.',
         };
       }
-      const svc = getServiceById(booking.serviceId);
+      const svc = services.find((s) => s.id === Number(booking.serviceId));
       const minDetailers = svc?.minDetailers ?? 1;
       const occupies = computeOccupiesSlots(
         booking.time,
@@ -166,15 +229,19 @@ export function AppProvider({ children }) {
       await refetchBookings();
       return fromRow(data);
     },
-    [settings, refetchBookings]
+    [services, settings, refetchBookings]
   );
 
   const updateBookingStatus = useCallback(
-    async (id, status) => {
+    async (id, status, cancellationReason = null) => {
       if (!supabase) return { error: 'Database not connected.' };
+      const payload = { status };
+      if (status === 'cancelled') {
+        payload.cancellation_reason = cancellationReason || null;
+      }
       const { error } = await supabase
         .from('bookings')
-        .update({ status })
+        .update(payload)
         .eq('id', id);
       if (error) return { error: error.message };
       await refetchBookings();
@@ -191,7 +258,7 @@ export function AppProvider({ children }) {
         return { error: 'Detailer count must be at least 1.' };
       }
       const booking = bookings.find((b) => b.id === id);
-      const svc = booking ? getServiceById(booking.serviceId) : null;
+      const svc = booking ? services.find((s) => s.id === Number(booking.serviceId)) : null;
       const minDetailers = svc?.minDetailers ?? 1;
 
       const { data, error } = await supabase.rpc('update_booking_detailers', {
@@ -205,7 +272,7 @@ export function AppProvider({ children }) {
       await refetchBookings();
       return { ok: true, detailersAssigned: target };
     },
-    [bookings, refetchBookings]
+    [services, bookings, refetchBookings]
   );
 
   const deleteBooking = useCallback(
@@ -331,13 +398,14 @@ export function AppProvider({ children }) {
     [settings, refetchSettings]
   );
 
-  // ===== Admin session (still localStorage — auth not migrated in Phase 1) =====
-  const setAdminSession = useCallback((value) => {
-    setAdminSessionState(value);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(STORAGE_KEYS.adminSession, value ? 'true' : 'false');
-    }
+  // ===== Admin session — backed by Supabase Auth =====
+  const signOut = useCallback(async () => {
+    if (supabase) await supabase.auth.signOut();
+    setAdminSessionState(false);
   }, []);
+
+  // Keep setAdminSession as a no-op shim so existing call-sites don't break
+  const setAdminSession = useCallback(() => {}, []);
 
   // ===== Toasts =====
   const showToast = useCallback((message, variant = 'success') => {
@@ -352,8 +420,17 @@ export function AppProvider({ children }) {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
+  const getServiceById = useCallback(
+    (id) => services.find((s) => s.id === Number(id)) || null,
+    [services]
+  );
+
   const value = useMemo(
     () => ({
+      services,
+      getServiceById,
+      upsertService,
+      deleteService,
       bookings,
       members,
       blockedSlots,
@@ -373,10 +450,15 @@ export function AppProvider({ children }) {
       toggleBlockedSlot,
       updateSettings,
       setAdminSession,
+      signOut,
       showToast,
       dismissToast,
     }),
     [
+      services,
+      getServiceById,
+      upsertService,
+      deleteService,
       bookings,
       members,
       blockedSlots,
@@ -395,6 +477,7 @@ export function AppProvider({ children }) {
       toggleBlockedSlot,
       updateSettings,
       setAdminSession,
+      signOut,
       showToast,
       dismissToast,
     ]

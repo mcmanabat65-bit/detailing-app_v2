@@ -14,16 +14,31 @@ import {
   Plus,
   UserX,
   X,
+  AlertTriangle,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { AdminLayout } from '@/components/AdminLayout';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { useApp } from '@/context/AppContext';
-import { services, getServiceById, formatCurrency } from '@/data/services';
+import { formatCurrency } from '@/data/services';
 import { formatDateShort } from '@/utils/bookingUtils';
+
+const CANCEL_REASONS = [
+  'Customer request',
+  'Schedule conflict',
+  'Vehicle unavailable',
+  'Weather conditions',
+  'Staff unavailability',
+  'Other',
+];
 
 function BookingsTable() {
   const {
+    services,
+    getServiceById,
     bookings,
+    settings,
     updateBookingStatus,
     updateBookingDetailers,
     deleteBooking,
@@ -36,67 +51,68 @@ function BookingsTable() {
     status: 'all',
     q: '',
   });
+  const [page, setPage] = useState(1);
   const [confirmDelete, setConfirmDelete] = useState(null);
+  const [cancelModal, setCancelModal] = useState(null); // booking to cancel
+  const [cancelReason, setCancelReason] = useState('Customer request');
+  const [cancelCustom, setCancelCustom] = useState('');
 
   const filtered = useMemo(() => {
     return bookings.filter((b) => {
       if (filters.date && b.date !== filters.date) return false;
-      if (
-        filters.serviceId !== 'all' &&
-        Number(filters.serviceId) !== b.serviceId
-      )
-        return false;
+      if (filters.serviceId !== 'all' && Number(filters.serviceId) !== b.serviceId) return false;
       if (filters.status !== 'all' && b.status !== filters.status) return false;
       if (filters.q) {
         const q = filters.q.toLowerCase();
-        const hay = `${b.customerName} ${b.id}`.toLowerCase();
-        if (!hay.includes(q)) return false;
+        if (!`${b.customerName} ${b.id}`.toLowerCase().includes(q)) return false;
       }
       return true;
     });
   }, [bookings, filters]);
 
-  const exportCsv = () => {
-    if (filtered.length === 0) {
-      showToast('Nothing to export.', 'info');
-      return;
+  const PAGE_SIZE = 10;
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const paginated = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
+  const setFilterAndReset = (updater) => {
+    setFilters(updater);
+    setPage(1);
+  };
+
+  // Compute available detailer headroom per booking (pool minus others in overlapping slots)
+  const availableHeadroomFor = (booking) => {
+    if (!booking?.occupiesSlots?.length) return 0;
+    const pool = settings?.detailerPoolSize ?? 5;
+    let min = pool;
+    for (const slot of booking.occupiesSlots) {
+      const used = bookings
+        .filter(
+          (b) =>
+            b.id !== booking.id &&
+            b.date === booking.date &&
+            b.status !== 'cancelled' &&
+            b.status !== 'no_show' &&
+            b.occupiesSlots?.includes(slot)
+        )
+        .reduce((sum, b) => sum + (b.detailersAssigned ?? 1), 0);
+      min = Math.min(min, pool - used);
     }
-    const headers = [
-      'Booking ID',
-      'Customer',
-      'Email',
-      'Phone',
-      'Service',
-      'Price',
-      'Date',
-      'Time',
-      'Detailers',
-      'Vehicle',
-      'VIP',
-      'Coffee',
-      'Status',
-    ];
+    return min;
+  };
+
+  const exportCsv = () => {
+    if (filtered.length === 0) { showToast('Nothing to export.', 'info'); return; }
+    const headers = ['Booking ID','Customer','Email','Phone','Service','Price','Date','Time','Detailers','Vehicle','VIP','Coffee','Status','Cancellation Reason'];
     const rows = filtered.map((b) => [
-      b.id,
-      b.customerName,
-      b.email,
-      b.phone,
-      b.serviceName,
-      b.servicePrice,
-      b.date,
-      b.time,
-      b.detailersAssigned ?? 1,
+      b.id, b.customerName, b.email, b.phone, b.serviceName, b.servicePrice,
+      b.date, b.time, b.detailersAssigned ?? 1,
       `${b.vehicleYear || ''} ${b.vehicle || ''}`.trim(),
-      b.isVip ? 'Yes' : 'No',
-      b.coffeeOrder || '',
-      b.status,
+      b.isVip ? 'Yes' : 'No', b.coffeeOrder || '', b.status,
+      b.cancellationReason || '',
     ]);
     const csv = [headers, ...rows]
-      .map((r) =>
-        r
-          .map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`)
-          .join(',')
-      )
+      .map((r) => r.map((c) => `"${String(c ?? '').replace(/"/g, '""')}"`).join(','))
       .join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -105,39 +121,44 @@ function BookingsTable() {
     a.download = `bookings-${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-    showToast(
-      `Exported ${filtered.length} booking${filtered.length === 1 ? '' : 's'}.`,
-      'success'
-    );
+    showToast(`Exported ${filtered.length} booking${filtered.length === 1 ? '' : 's'}.`, 'success');
   };
 
-  const resetFilters = () =>
-    setFilters({ date: '', serviceId: 'all', status: 'all', q: '' });
+  const resetFilters = () => { setFilters({ date: '', serviceId: 'all', status: 'all', q: '' }); setPage(1); };
 
   const adjustDetailers = async (booking, delta) => {
     const next = (booking.detailersAssigned ?? 1) + delta;
     const result = await updateBookingDetailers(booking.id, next);
-    if (result?.error) {
-      showToast(result.error, 'error');
-    } else if (result?.ok) {
-      showToast(
-        `Assigned ${result.detailersAssigned} detailer${result.detailersAssigned === 1 ? '' : 's'}.`,
-        'success'
-      );
-    }
+    if (result?.error) showToast(result.error, 'error');
+    else if (result?.ok) showToast(`Assigned ${result.detailersAssigned} detailer${result.detailersAssigned === 1 ? '' : 's'}.`, 'success');
   };
 
   const setStatus = async (id, status, successMessage) => {
     const result = await updateBookingStatus(id, status);
-    if (result?.error) {
-      showToast(result.error, 'error');
-    } else if (successMessage) {
-      showToast(successMessage, 'info');
-    }
+    if (result?.error) showToast(result.error, 'error');
+    else if (successMessage) showToast(successMessage, 'info');
+  };
+
+  const openCancelModal = (booking) => {
+    setCancelModal(booking);
+    setCancelReason('Customer request');
+    setCancelCustom('');
+  };
+
+  const confirmCancel = async () => {
+    if (!cancelModal) return;
+    const reason = cancelReason === 'Other'
+      ? (cancelCustom.trim() || 'Other')
+      : cancelReason;
+    const result = await updateBookingStatus(cancelModal.id, 'cancelled', reason);
+    if (result?.error) showToast(result.error, 'error');
+    else showToast('Booking cancelled — detailers freed.', 'info');
+    setCancelModal(null);
   };
 
   return (
     <AdminLayout title="Bookings">
+      {/* Filters */}
       <div className="glass-card rounded-md p-4 md:p-5 mb-6">
         <div className="grid md:grid-cols-[1fr_auto_auto_auto] gap-3 items-stretch">
           <div className="relative">
@@ -145,9 +166,7 @@ function BookingsTable() {
             <input
               type="text"
               value={filters.q}
-              onChange={(e) =>
-                setFilters((f) => ({ ...f, q: e.target.value }))
-              }
+              onChange={(e) => setFilterAndReset((f) => ({ ...f, q: e.target.value }))}
               placeholder="Search by customer name or booking ID…"
               className="w-full bg-surface/70 border border-white/10 rounded-sm py-2.5 pl-10 pr-3 text-sm text-cream"
             />
@@ -155,30 +174,22 @@ function BookingsTable() {
           <input
             type="date"
             value={filters.date}
-            onChange={(e) =>
-              setFilters((f) => ({ ...f, date: e.target.value }))
-            }
+            onChange={(e) => setFilterAndReset((f) => ({ ...f, date: e.target.value }))}
             className="bg-surface/70 border border-white/10 rounded-sm py-2.5 px-3 text-sm text-cream"
           />
           <select
             value={filters.serviceId}
-            onChange={(e) =>
-              setFilters((f) => ({ ...f, serviceId: e.target.value }))
-            }
+            onChange={(e) => setFilterAndReset((f) => ({ ...f, serviceId: e.target.value }))}
             className="bg-surface/70 border border-white/10 rounded-sm py-2.5 px-3 text-sm text-cream"
           >
             <option value="all">All services</option>
             {services.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
+              <option key={s.id} value={s.id}>{s.name}</option>
             ))}
           </select>
           <select
             value={filters.status}
-            onChange={(e) =>
-              setFilters((f) => ({ ...f, status: e.target.value }))
-            }
+            onChange={(e) => setFilterAndReset((f) => ({ ...f, status: e.target.value }))}
             className="bg-surface/70 border border-white/10 rounded-sm py-2.5 px-3 text-sm text-cream"
           >
             <option value="all">All status</option>
@@ -189,16 +200,10 @@ function BookingsTable() {
         </div>
         <div className="flex items-center justify-between mt-4">
           <div className="text-xs text-muted">
-            Showing <span className="text-cream">{filtered.length}</span> of{' '}
-            {bookings.length}
+            Showing <span className="text-cream">{paginated.length}</span> of <span className="text-cream">{filtered.length}</span> filtered ({bookings.length} total)
           </div>
           <div className="flex items-center gap-2">
-            <button
-              onClick={resetFilters}
-              className="text-xs text-muted hover:text-gold"
-            >
-              Reset
-            </button>
+            <button onClick={resetFilters} className="text-xs text-muted hover:text-gold">Reset</button>
             <button
               onClick={exportCsv}
               className="inline-flex items-center gap-2 text-xs px-3 py-2 border border-gold/40 text-gold rounded-sm hover:bg-gold/10 transition-colors"
@@ -210,9 +215,10 @@ function BookingsTable() {
         </div>
       </div>
 
+      {/* Table */}
       <div className="glass-card rounded-md overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm min-w-[1240px]">
+          <table className="w-full text-sm min-w-[1280px]">
             <thead>
               <tr className="text-left text-[10px] uppercase tracking-widest text-muted border-b border-white/5">
                 <th className="px-4 py-3 font-medium">Booking ID</th>
@@ -229,113 +235,122 @@ function BookingsTable() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((b) => (
-                <tr
-                  key={b.id}
-                  className="border-b border-white/5 hover:bg-white/[0.02]"
-                >
-                  <td className="px-4 py-3 font-mono text-xs text-gold/90">
-                    {b.id}
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="text-cream">{b.customerName}</div>
-                    <div className="text-xs text-muted">{b.email}</div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="text-cream">{b.serviceName}</div>
-                    <div className="text-xs text-muted">
-                      {formatCurrency(b.servicePrice)}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-cream/85">
-                    {formatDateShort(b.date)}
-                  </td>
-                  <td className="px-4 py-3 text-cream/85">{b.time}</td>
-                  <td className="px-4 py-3">
-                    <DetailerControl
-                      booking={b}
-                      onAdjust={(delta) => adjustDetailers(b, delta)}
-                    />
-                  </td>
-                  <td className="px-4 py-3 text-cream/85 max-w-[180px] truncate">
-                    {b.vehicleYear} {b.vehicle}
-                  </td>
-                  <td className="px-4 py-3">
-                    {b.isVip ? (
-                      <Crown className="w-4 h-4 text-gold" />
-                    ) : (
-                      <span className="text-muted/60">—</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    {b.coffeeOrder ? (
-                      <span className="inline-flex items-center gap-1 text-xs text-cream/85">
-                        <Coffee className="w-3 h-3 text-gold" />
-                        {b.coffeeOrder}
-                      </span>
-                    ) : (
-                      <span className="text-muted/60">—</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    <StatusBadge status={b.status} />
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center justify-end gap-1">
-                      {b.status !== 'confirmed' && (
+              {paginated.map((b) => {
+                const headroom = availableHeadroomFor(b);
+                const count = b.detailersAssigned ?? 1;
+                const svc = getServiceById(b.serviceId);
+                const minDetailers = svc?.minDetailers ?? 1;
+                const canAdd = b.status === 'confirmed' && count < headroom;
+                const canRemove = b.status === 'confirmed' && count > minDetailers;
+
+                return (
+                  <tr key={b.id} className="border-b border-white/5 hover:bg-white/[0.02]">
+                    <td className="px-4 py-3 font-mono text-xs text-gold/90">{b.id}</td>
+                    <td className="px-4 py-3">
+                      <div className="text-cream">{b.customerName}</div>
+                      <div className="text-xs text-muted">{b.email}</div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="text-cream">{b.serviceName}</div>
+                      <div className="text-xs text-muted">{formatCurrency(b.servicePrice)}</div>
+                    </td>
+                    <td className="px-4 py-3 text-cream/85">{formatDateShort(b.date)}</td>
+                    <td className="px-4 py-3 text-cream/85">{b.time}</td>
+                    <td className="px-4 py-3">
+                      <div className="inline-flex items-center gap-1.5">
                         <button
-                          onClick={() => setStatus(b.id, 'confirmed')}
-                          aria-label="Mark confirmed"
-                          title="Mark confirmed"
-                          className="p-2 text-success hover:bg-success/10 rounded-sm transition-colors"
+                          type="button"
+                          onClick={() => adjustDetailers(b, -1)}
+                          disabled={!canRemove}
+                          aria-label="Remove a detailer"
+                          className="w-6 h-6 rounded-sm border border-white/10 text-cream/80 hover:border-gold/50 hover:text-gold disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center transition-colors"
                         >
-                          <CheckCircle2 className="w-4 h-4" />
+                          <Minus className="w-3 h-3" />
                         </button>
-                      )}
-                      {b.status !== 'no_show' && (
+                        <span className="inline-flex items-center gap-1 min-w-[44px] justify-center text-cream text-sm">
+                          <Users className="w-3.5 h-3.5 text-gold" />
+                          {count}
+                        </span>
                         <button
-                          onClick={() =>
-                            setStatus(
-                              b.id,
-                              'no_show',
-                              'Marked as no-show — detailers freed.'
-                            )
-                          }
-                          aria-label="Mark no-show"
-                          title="Mark no-show (frees detailers)"
-                          className="p-2 text-cream/70 hover:text-gold hover:bg-gold/10 rounded-sm transition-colors"
+                          type="button"
+                          onClick={() => adjustDetailers(b, 1)}
+                          disabled={!canAdd}
+                          aria-label="Add a detailer"
+                          title={!canAdd && b.status === 'confirmed' ? 'No detailers available in this time slot' : undefined}
+                          className="w-6 h-6 rounded-sm border border-white/10 text-cream/80 hover:border-gold/50 hover:text-gold disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center transition-colors"
                         >
-                          <UserX className="w-4 h-4" />
+                          <Plus className="w-3 h-3" />
                         </button>
-                      )}
-                      {b.status !== 'cancelled' && (
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-cream/85 max-w-[180px] truncate">
+                      {b.vehicleYear} {b.vehicle}
+                    </td>
+                    <td className="px-4 py-3">
+                      {b.isVip ? <Crown className="w-4 h-4 text-gold" /> : <span className="text-muted/60">—</span>}
+                    </td>
+                    <td className="px-4 py-3">
+                      {b.coffeeOrder ? (
+                        <span className="inline-flex items-center gap-1 text-xs text-cream/85">
+                          <Coffee className="w-3 h-3 text-gold" />{b.coffeeOrder}
+                        </span>
+                      ) : <span className="text-muted/60">—</span>}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div>
+                        <StatusBadge status={b.status} />
+                        {b.status === 'cancelled' && b.cancellationReason && (
+                          <div className="text-[10px] text-muted mt-1 max-w-[120px] truncate" title={b.cancellationReason}>
+                            {b.cancellationReason}
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center justify-end gap-1">
+                        {b.status !== 'confirmed' && (
+                          <button
+                            onClick={() => setStatus(b.id, 'confirmed')}
+                            aria-label="Mark confirmed"
+                            title="Mark confirmed"
+                            className="p-2 text-success hover:bg-success/10 rounded-sm transition-colors"
+                          >
+                            <CheckCircle2 className="w-4 h-4" />
+                          </button>
+                        )}
+                        {b.status !== 'no_show' && (
+                          <button
+                            onClick={() => setStatus(b.id, 'no_show', 'Marked as no-show — detailers freed.')}
+                            aria-label="Mark no-show"
+                            title="Mark no-show"
+                            className="p-2 text-cream/70 hover:text-gold hover:bg-gold/10 rounded-sm transition-colors"
+                          >
+                            <UserX className="w-4 h-4" />
+                          </button>
+                        )}
+                        {b.status !== 'cancelled' && (
+                          <button
+                            onClick={() => openCancelModal(b)}
+                            aria-label="Cancel booking"
+                            title="Cancel booking"
+                            className="p-2 text-cream/70 hover:text-danger hover:bg-danger/10 rounded-sm transition-colors"
+                          >
+                            <XCircle className="w-4 h-4" />
+                          </button>
+                        )}
                         <button
-                          onClick={() =>
-                            setStatus(
-                              b.id,
-                              'cancelled',
-                              'Booking cancelled — detailers freed.'
-                            )
-                          }
-                          aria-label="Cancel booking"
-                          title="Cancel (frees detailers)"
+                          onClick={() => setConfirmDelete(b)}
+                          aria-label="Delete booking"
                           className="p-2 text-cream/70 hover:text-danger hover:bg-danger/10 rounded-sm transition-colors"
                         >
-                          <XCircle className="w-4 h-4" />
+                          <Trash2 className="w-4 h-4" />
                         </button>
-                      )}
-                      <button
-                        onClick={() => setConfirmDelete(b)}
-                        aria-label="Delete booking"
-                        className="p-2 text-cream/70 hover:text-danger hover:bg-danger/10 rounded-sm transition-colors"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {filtered.length === 0 && (
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+              {paginated.length === 0 && (
                 <tr>
                   <td colSpan={11} className="px-4 py-16 text-center text-muted">
                     No bookings match your filters.
@@ -347,6 +362,90 @@ function BookingsTable() {
         </div>
       </div>
 
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <Pagination page={safePage} totalPages={totalPages} onPageChange={setPage} />
+      )}
+
+      {/* Cancellation reason modal */}
+      {cancelModal && (
+        <div
+          onClick={() => setCancelModal(null)}
+          className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-5 animate-fade-in"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="glass-card gold-border rounded-md max-w-md w-full p-6"
+          >
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <h3 className="font-serif text-2xl text-cream">Cancel Booking</h3>
+                <p className="text-muted text-sm mt-1">Please provide a reason for cancellation.</p>
+              </div>
+              <button onClick={() => setCancelModal(null)} aria-label="Close" className="text-cream/70 hover:text-cream">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="bg-surface/60 rounded-sm p-4 mb-5 border border-white/5 space-y-1">
+              <div className="text-xs text-muted">{cancelModal.id}</div>
+              <div className="text-cream font-medium">{cancelModal.customerName}</div>
+              <div className="text-sm text-muted">
+                {cancelModal.serviceName} &middot; {formatDateShort(cancelModal.date)} &middot; {cancelModal.time}
+              </div>
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-[11px] uppercase tracking-widest text-cream/70 mb-2">
+                Reason
+              </label>
+              <div className="grid grid-cols-2 gap-2 mb-3">
+                {CANCEL_REASONS.map((r) => (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => setCancelReason(r)}
+                    className={`text-sm px-3 py-2 rounded-sm border text-left transition-colors ${
+                      cancelReason === r
+                        ? 'border-gold bg-gold/10 text-gold'
+                        : 'border-white/10 text-cream/70 hover:border-white/30'
+                    }`}
+                  >
+                    {r}
+                  </button>
+                ))}
+              </div>
+              {cancelReason === 'Other' && (
+                <textarea
+                  value={cancelCustom}
+                  onChange={(e) => setCancelCustom(e.target.value)}
+                  placeholder="Describe the reason…"
+                  rows={3}
+                  className="w-full bg-surface/70 border border-white/10 rounded-sm py-2 px-3 text-sm text-cream resize-none"
+                />
+              )}
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setCancelModal(null)}
+                className="flex-1 px-4 py-2.5 border border-white/10 text-cream/85 rounded-sm hover:border-gold/50 transition-colors"
+              >
+                Go Back
+              </button>
+              <button
+                onClick={confirmCancel}
+                className="flex-1 px-4 py-2.5 bg-danger text-white rounded-sm hover:bg-danger/90 transition-colors inline-flex items-center justify-center gap-2"
+              >
+                <AlertTriangle className="w-4 h-4" />
+                Confirm Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete confirm modal */}
       {confirmDelete && (
         <div
           onClick={() => setConfirmDelete(null)}
@@ -358,47 +457,32 @@ function BookingsTable() {
           >
             <div className="flex items-start justify-between mb-4">
               <div>
-                <h3 className="font-serif text-2xl text-cream">
-                  Delete this booking?
-                </h3>
-                <p className="text-muted text-sm mt-1">
-                  This action cannot be undone.
-                </p>
+                <h3 className="font-serif text-2xl text-cream">Delete this booking?</h3>
+                <p className="text-muted text-sm mt-1">This action cannot be undone.</p>
               </div>
-              <button
-                onClick={() => setConfirmDelete(null)}
-                aria-label="Close"
-                className="text-cream/70 hover:text-cream"
-              >
+              <button onClick={() => setConfirmDelete(null)} aria-label="Close" className="text-cream/70 hover:text-cream">
                 <X className="w-5 h-5" />
               </button>
             </div>
             <div className="bg-surface/60 rounded-sm p-4 mb-5 border border-white/5 space-y-1">
               <div className="text-xs text-muted">{confirmDelete.id}</div>
-              <div className="text-cream font-medium">
-                {confirmDelete.customerName}
-              </div>
+              <div className="text-cream font-medium">{confirmDelete.customerName}</div>
               <div className="text-sm text-muted">
-                {confirmDelete.serviceName} &middot;{' '}
-                {formatDateShort(confirmDelete.date)} &middot;{' '}
-                {confirmDelete.time}
+                {confirmDelete.serviceName} &middot; {formatDateShort(confirmDelete.date)} &middot; {confirmDelete.time}
               </div>
             </div>
             <div className="flex gap-3">
               <button
                 onClick={() => setConfirmDelete(null)}
-                className="flex-1 px-4 py-2.5 border border-white/10 text-cream/85 rounded-sm hover:border-gold/50 hover:text-gold transition-colors"
+                className="flex-1 px-4 py-2.5 border border-white/10 text-cream/85 rounded-sm hover:border-gold/50 transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={async () => {
                   const result = await deleteBooking(confirmDelete.id);
-                  if (result?.error) {
-                    showToast(result.error, 'error');
-                  } else {
-                    showToast('Booking deleted.', 'success');
-                  }
+                  if (result?.error) showToast(result.error, 'error');
+                  else showToast('Booking deleted.', 'success');
                   setConfirmDelete(null);
                 }}
                 className="flex-1 px-4 py-2.5 bg-danger text-white rounded-sm hover:bg-danger/90 transition-colors inline-flex items-center justify-center gap-2"
@@ -414,59 +498,76 @@ function BookingsTable() {
   );
 }
 
-function StatusBadge({ status }) {
-  if (status === 'cancelled') {
-    return (
-      <span className="text-[10px] uppercase tracking-widest px-2 py-1 rounded-sm bg-danger/15 text-danger">
-        Cancelled
-      </span>
-    );
+function Pagination({ page, totalPages, onPageChange }) {
+  const pages = [];
+  const delta = 2;
+  for (let i = 1; i <= totalPages; i++) {
+    if (i === 1 || i === totalPages || (i >= page - delta && i <= page + delta)) {
+      pages.push(i);
+    }
   }
-  if (status === 'no_show') {
-    return (
-      <span className="text-[10px] uppercase tracking-widest px-2 py-1 rounded-sm bg-gold/15 text-gold">
-        No-show
-      </span>
-    );
+
+  const items = [];
+  let prev = null;
+  for (const p of pages) {
+    if (prev !== null && p - prev > 1) items.push('…');
+    items.push(p);
+    prev = p;
   }
+
   return (
-    <span className="text-[10px] uppercase tracking-widest px-2 py-1 rounded-sm bg-success/15 text-success">
-      Confirmed
-    </span>
+    <div className="flex items-center justify-between mt-4 px-1">
+      <div className="text-xs text-muted">
+        Page <span className="text-cream">{page}</span> of <span className="text-cream">{totalPages}</span>
+      </div>
+      <div className="flex items-center gap-1">
+        <button
+          onClick={() => onPageChange(page - 1)}
+          disabled={page === 1}
+          aria-label="Previous page"
+          className="w-8 h-8 flex items-center justify-center rounded-sm border border-white/10 text-cream/70 hover:border-gold/50 hover:text-gold disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+        >
+          <ChevronLeft className="w-4 h-4" />
+        </button>
+        {items.map((item, i) =>
+          item === '…' ? (
+            <span key={`gap-${i}`} className="w-8 h-8 flex items-center justify-center text-muted text-xs">…</span>
+          ) : (
+            <button
+              key={item}
+              onClick={() => onPageChange(item)}
+              className={`w-8 h-8 flex items-center justify-center rounded-sm border text-xs transition-colors ${
+                item === page
+                  ? 'bg-gold text-obsidian border-gold font-semibold'
+                  : 'border-white/10 text-cream/70 hover:border-gold/50 hover:text-gold'
+              }`}
+            >
+              {item}
+            </button>
+          )
+        )}
+        <button
+          onClick={() => onPageChange(page + 1)}
+          disabled={page === totalPages}
+          aria-label="Next page"
+          className="w-8 h-8 flex items-center justify-center rounded-sm border border-white/10 text-cream/70 hover:border-gold/50 hover:text-gold disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+        >
+          <ChevronRight className="w-4 h-4" />
+        </button>
+      </div>
+    </div>
   );
 }
 
-function DetailerControl({ booking, onAdjust }) {
-  const svc = getServiceById(booking.serviceId);
-  const min = svc?.minDetailers ?? 1;
-  const count = booking.detailersAssigned ?? 1;
-  const isFrozen =
-    booking.status === 'cancelled' || booking.status === 'no_show';
+function StatusBadge({ status }) {
+  if (status === 'cancelled') return (
+    <span className="text-[10px] uppercase tracking-widest px-2 py-1 rounded-sm bg-danger/15 text-danger">Cancelled</span>
+  );
+  if (status === 'no_show') return (
+    <span className="text-[10px] uppercase tracking-widest px-2 py-1 rounded-sm bg-gold/15 text-gold">No-show</span>
+  );
   return (
-    <div className="inline-flex items-center gap-1.5">
-      <button
-        type="button"
-        onClick={() => onAdjust(-1)}
-        disabled={isFrozen || count <= min}
-        aria-label="Remove a detailer"
-        className="w-6 h-6 rounded-sm border border-white/10 text-cream/80 hover:border-gold/50 hover:text-gold disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center transition-colors"
-      >
-        <Minus className="w-3 h-3" />
-      </button>
-      <span className="inline-flex items-center gap-1 min-w-[44px] justify-center text-cream text-sm">
-        <Users className="w-3.5 h-3.5 text-gold" />
-        {count}
-      </span>
-      <button
-        type="button"
-        onClick={() => onAdjust(1)}
-        disabled={isFrozen}
-        aria-label="Add a detailer"
-        className="w-6 h-6 rounded-sm border border-white/10 text-cream/80 hover:border-gold/50 hover:text-gold disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center transition-colors"
-      >
-        <Plus className="w-3 h-3" />
-      </button>
-    </div>
+    <span className="text-[10px] uppercase tracking-widest px-2 py-1 rounded-sm bg-success/15 text-success">Confirmed</span>
   );
 }
 

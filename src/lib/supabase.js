@@ -1,19 +1,21 @@
 'use client';
 
-import { createClient } from '@supabase/supabase-js';
+import { createBrowserClient } from '@supabase/ssr';
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
 export const isSupabaseConfigured = Boolean(url && key);
 
-export const supabase = isSupabaseConfigured ? createClient(url, key) : null;
+export const supabase = isSupabaseConfigured
+  ? createBrowserClient(url, key)
+  : null;
 
 if (!isSupabaseConfigured && typeof window !== 'undefined') {
   // eslint-disable-next-line no-console
   console.warn(
     '[supabase] NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY are not set. ' +
-      'The app will run in read-only no-op mode until you fill them in .env.local and restart.'
+      'The app will run in no-op mode until you fill them in .env.local and restart.'
   );
 }
 

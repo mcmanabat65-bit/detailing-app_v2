@@ -3,7 +3,8 @@
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Check, Clock, ArrowRight, Star } from 'lucide-react';
-import { services, formatCurrency } from '@/data/services';
+import { formatCurrency } from '@/data/services';
+import { useApp } from '@/context/AppContext';
 
 const categories = [
   { id: 'all', label: 'All' },
@@ -15,11 +16,12 @@ const categories = [
 ];
 
 export default function ServicesPage() {
+  const { services } = useApp();
   const [filter, setFilter] = useState('all');
 
   const visible = useMemo(
     () => (filter === 'all' ? services : services.filter((s) => s.category === filter)),
-    [filter]
+    [filter, services]
   );
 
   return (

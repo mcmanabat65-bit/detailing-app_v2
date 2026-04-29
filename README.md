@@ -290,3 +290,8 @@ original themecolor:
 3.Admin auth - Keep the hardcoded credentials for now
 4.recommended
 5.recommended
+
+
+carlos.bautista@email.com
+
+0917 990 8877

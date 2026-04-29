@@ -1,7 +1,7 @@
 -- =====================================================================
--- Samahuzai Carwash and Auto Detailing — Phase 1 schema
--- Run this in the Supabase SQL Editor (Project → SQL → New query → Run).
--- Safe to re-run: DROPs are guarded with IF EXISTS, INSERTs use upsert.
+-- Samahuzai Carwash and Auto Detailing — Schema
+-- Run FIRST in Supabase SQL Editor.
+-- Safe to re-run: all creates are guarded with IF EXISTS / OR REPLACE.
 -- =====================================================================
 
 -- ---------------------------------------------------------------------
@@ -31,6 +31,28 @@ create table if not exists members (
 create unique index if not exists members_email_lower_idx on members (lower(email));
 create index if not exists members_status_idx on members (status);
 
+create table if not exists services (
+  id integer primary key,
+  name text not null,
+  price integer not null,
+  duration text not null,
+  category text not null,
+  inclusions text[] not null default '{}',
+  popular boolean not null default false,
+  min_detailers integer not null default 1,
+  recommended_detailers integer not null default 1,
+  sort_order integer not null default 0
+);
+
+insert into services (id, name, price, duration, category, inclusions, popular, min_detailers, recommended_detailers, sort_order) values
+  (1, 'The Essential',      1500,  '2–3 hrs',  'exterior', array['Exterior Hand Wash','Tire Dressing','Window Cleaning','Interior Vacuum'],                                                               false, 1, 1, 1),
+  (2, 'The Executive',      3500,  '4–5 hrs',  'full',     array['Full Exterior Detail','Clay Bar Treatment','Interior Deep Clean','Dashboard Polish','Leather Conditioning','Engine Bay Cleaning'],      true,  1, 2, 2),
+  (3, 'The Obsidian Elite', 6000,  '6–8 hrs',  'premium',  array['Everything in Executive','Paint Correction','Ceramic Coating Prep','Odor Elimination','Headlight Restoration','VIP Lounge Priority'],  false, 2, 3, 3),
+  (4, 'Paint Correction',   4500,  '5–6 hrs',  'specialty',array['Multi-stage paint correction','Swirl mark removal','Oxidation treatment','Final polish & seal'],                                       false, 1, 2, 4),
+  (5, 'Ceramic Coating',    12000, '1–2 days', 'specialty',array['Surface decontamination','Paint correction','Professional ceramic coat application','2-year protection warranty'],                     false, 2, 3, 5),
+  (6, 'Interior Rescue',    2500,  '3–4 hrs',  'interior', array['Deep vacuum','Shampoo carpets & seats','Steam clean vents','Stain treatment','Deodorize & sanitize'],                                  false, 1, 1, 6)
+on conflict (id) do nothing;
+
 create table if not exists bookings (
   id text primary key,
   service_id integer not null,
@@ -50,14 +72,15 @@ create table if not exists bookings (
   member_id text,
   coffee_order text,
   status text not null default 'confirmed' check (status in ('confirmed', 'cancelled', 'no_show')),
+  cancellation_reason text,
   detailers_assigned integer not null default 1 check (detailers_assigned >= 1),
   occupies_slots text[] not null default '{}',
   created_at timestamptz not null default now()
 );
 
-create index if not exists bookings_date_idx on bookings (date);
+create index if not exists bookings_date_idx   on bookings (date);
 create index if not exists bookings_status_idx on bookings (status);
-create index if not exists bookings_email_idx on bookings (lower(email));
+create index if not exists bookings_email_idx  on bookings (lower(email));
 
 create table if not exists blocked_slots (
   id text primary key,
@@ -70,9 +93,7 @@ create table if not exists blocked_slots (
 create unique index if not exists blocked_slots_date_time_idx on blocked_slots (date, time);
 
 -- ---------------------------------------------------------------------
--- RPC: add_booking — atomic capacity-aware insert.
--- Locks the date with an advisory transaction lock so concurrent submits
--- can't both claim the last detailer slot.
+-- RPC: add_booking — atomic capacity-aware insert
 -- ---------------------------------------------------------------------
 create or replace function add_booking(
   p jsonb,
@@ -99,8 +120,6 @@ begin
   v_min_detailers := coalesce((p->>'min_detailers')::int, 1);
   v_requested := coalesce((p->>'detailers_assigned')::int, 1);
 
-  -- For each slot the new booking would occupy, sum already-assigned
-  -- detailers across active bookings whose ranges include that slot.
   foreach v_slot in array p_occupies_slots loop
     select coalesce(sum(detailers_assigned), 0) into v_used
     from bookings
@@ -156,8 +175,7 @@ end;
 $$;
 
 -- ---------------------------------------------------------------------
--- RPC: update_booking_detailers — admin ratchets a booking's detailer
--- count. The booking's own current allocation is excluded from "used".
+-- RPC: update_booking_detailers
 -- ---------------------------------------------------------------------
 create or replace function update_booking_detailers(
   p_id text,
@@ -219,8 +237,7 @@ end;
 $$;
 
 -- ---------------------------------------------------------------------
--- RPC: update_settings — guarded settings write. Refuses to shrink the
--- pool below the busiest single (date,time) cell already in use.
+-- RPC: update_settings
 -- ---------------------------------------------------------------------
 create or replace function update_settings(
   p_pool_size int,
@@ -242,7 +259,6 @@ begin
     return jsonb_build_object('error', 'Default detailers per booking cannot exceed pool size.');
   end if;
 
-  -- Peak detailers in any single (date,slot) cell
   select coalesce(max(slot_total), 0) into v_peak
   from (
     select date, slot, sum(detailers_assigned) as slot_total
@@ -273,88 +289,36 @@ end;
 $$;
 
 -- ---------------------------------------------------------------------
--- RLS — Phase 1 keeps everything open to anon since admin auth is still
--- hardcoded in the client. Tighten when admin auth migrates to Supabase.
+-- Row Level Security
 -- ---------------------------------------------------------------------
-alter table bookings enable row level security;
-alter table members enable row level security;
+alter table bookings      enable row level security;
+alter table members       enable row level security;
 alter table blocked_slots enable row level security;
-alter table settings enable row level security;
+alter table settings      enable row level security;
+alter table services      enable row level security;
 
-drop policy if exists "anon all bookings" on bookings;
-drop policy if exists "anon all members" on members;
+drop policy if exists "anon all bookings"      on bookings;
+drop policy if exists "anon all members"       on members;
 drop policy if exists "anon all blocked_slots" on blocked_slots;
-drop policy if exists "anon all settings" on settings;
+drop policy if exists "anon all settings"      on settings;
+drop policy if exists "anon all services"      on services;
+drop policy if exists "public all bookings"      on bookings;
+drop policy if exists "public all members"       on members;
+drop policy if exists "public all blocked_slots" on blocked_slots;
+drop policy if exists "public all settings"      on settings;
+drop policy if exists "public all services"      on services;
 
-create policy "anon all bookings"      on bookings      for all to anon using (true) with check (true);
-create policy "anon all members"       on members       for all to anon using (true) with check (true);
-create policy "anon all blocked_slots" on blocked_slots for all to anon using (true) with check (true);
-create policy "anon all settings"      on settings      for all to anon using (true) with check (true);
+create policy "public all bookings"      on bookings      for all to anon, authenticated using (true) with check (true);
+create policy "public all members"       on members       for all to anon, authenticated using (true) with check (true);
+create policy "public all blocked_slots" on blocked_slots for all to anon, authenticated using (true) with check (true);
+create policy "public all settings"      on settings      for all to anon, authenticated using (true) with check (true);
+create policy "public all services"      on services      for all to anon, authenticated using (true) with check (true);
 
--- ---------------------------------------------------------------------
--- Seed data — same fixtures the JS used to seed into localStorage.
--- 5 bookings spread across the next week, 7 members in mixed states.
--- Re-run safe via on conflict do nothing.
--- ---------------------------------------------------------------------
-insert into members (id, name, email, phone, member_since, status, decided_at) values
-  ('MEM-seed-001', 'Juan dela Cruz',     'juan.delacruz@email.com',   '0917 123 4567', now() - interval '90 days', 'approved', now() - interval '89 days'),
-  ('MEM-seed-002', 'Ramon Aquino',       'ramon.aquino@email.com',    '0920 333 1122', now() - interval '60 days', 'approved', now() - interval '60 days'),
-  ('MEM-seed-003', 'Carlos Bautista',    'carlos.bautista@email.com', '0917 990 8877', now() - interval '45 days', 'approved', now() - interval '44 days'),
-  ('MEM-seed-004', 'Isabella Mendoza',   'isabella.mendoza@email.com','0917 222 3344', now() - interval '2 days',  'pending',  null),
-  ('MEM-seed-005', 'Miguel Tan',         'miguel.tan@email.com',      '0918 555 6677', now() - interval '1 days',  'pending',  null),
-  ('MEM-seed-006', 'Patricia Lim',       'patricia.lim@email.com',    '0925 111 2233', now(),                       'pending',  null),
-  ('MEM-seed-007', 'Mario Gomez',        'mario.gomez@email.com',     '0915 999 8877', now() - interval '15 days', 'rejected', now() - interval '14 days')
-on conflict (id) do nothing;
-
--- For seed bookings the occupies_slots array is precomputed against the
--- 30-min slot grid (8:00 AM..4:30 PM, no 12:xx). Service durations:
---   id 1 Essential       2–3 hrs → 6 slots
---   id 2 Executive       4–5 hrs → 10 slots
---   id 3 Obsidian Elite  6–8 hrs → 16 slots (whole day)
---   id 4 Paint Correction 5–6 hrs → 12 slots
---   id 6 Interior Rescue 3–4 hrs → 8 slots
-insert into bookings (
-  id, service_id, service_name, service_price, service_duration, service_category,
-  date, time, customer_name, email, phone, vehicle, vehicle_year, notes,
-  is_vip, coffee_order, status, detailers_assigned, occupies_slots, created_at
-) values
-  ('OBS-seed-0001', 2, 'The Executive', 3500, '4–5 hrs', 'full',
-   current_date + 1, '10:00 AM',
-   'Juan dela Cruz', 'juan.delacruz@email.com', '0917 123 4567',
-   '2019 Toyota Fortuner', '2019', 'Has a small scratch on the rear bumper.',
-   true, 'Macchiato', 'confirmed', 2,
-   array['10:00 AM','10:30 AM','11:00 AM','11:30 AM','1:00 PM','1:30 PM','2:00 PM','2:30 PM','3:00 PM','3:30 PM'],
-   now() - interval '0 hours'),
-
-  ('OBS-seed-0002', 1, 'The Essential', 1500, '2–3 hrs', 'exterior',
-   current_date + 2, '9:00 AM',
-   'Maria Santos', 'maria.santos@email.com', '0918 456 7890',
-   '2021 Honda CR-V', '2021', '',
-   false, '', 'confirmed', 1,
-   array['9:00 AM','9:30 AM','10:00 AM','10:30 AM','11:00 AM','11:30 AM'],
-   now() - interval '1 hours'),
-
-  ('OBS-seed-0003', 4, 'Paint Correction', 4500, '5–6 hrs', 'specialty',
-   current_date + 3, '8:00 AM',
-   'Ramon Aquino', 'ramon.aquino@email.com', '0920 333 1122',
-   '2018 BMW 320i', '2018', 'Please pay extra attention to the wheels.',
-   true, 'Cappuccino', 'confirmed', 2,
-   array['8:00 AM','8:30 AM','9:00 AM','9:30 AM','10:00 AM','10:30 AM','11:00 AM','11:30 AM','1:00 PM','1:30 PM','2:00 PM','2:30 PM'],
-   now() - interval '2 hours'),
-
-  ('OBS-seed-0004', 6, 'Interior Rescue', 2500, '3–4 hrs', 'interior',
-   current_date + 4, '11:00 AM',
-   'Liza Reyes', 'liza.reyes@email.com', '0925 789 1234',
-   '2022 Mazda 3', '2022', 'Pick-up at 5pm.',
-   false, '', 'confirmed', 1,
-   array['11:00 AM','11:30 AM','1:00 PM','1:30 PM','2:00 PM','2:30 PM','3:00 PM','3:30 PM'],
-   now() - interval '3 hours'),
-
-  ('OBS-seed-0005', 3, 'The Obsidian Elite', 6000, '6–8 hrs', 'premium',
-   current_date + 6, '8:00 AM',
-   'Carlos Bautista', 'carlos.bautista@email.com', '0917 990 8877',
-   '2020 Ford Ranger Raptor', '2020', 'Off-roading dust — needs deep clean.',
-   true, 'Latte', 'confirmed', 3,
-   array['8:00 AM','8:30 AM','9:00 AM','9:30 AM','10:00 AM','10:30 AM','11:00 AM','11:30 AM','1:00 PM','1:30 PM','2:00 PM','2:30 PM','3:00 PM','3:30 PM','4:00 PM','4:30 PM'],
-   now() - interval '4 hours')
-on conflict (id) do nothing;
+-- =====================================================================
+-- ADMIN USER SETUP
+-- Create your admin account via the Supabase Dashboard:
+--   Authentication → Users → Add user
+--   Email: admin@samahuzai.com  (or any email you prefer)
+--   Password: (choose a strong password)
+--   Toggle "Auto Confirm User": ON
+-- =====================================================================
