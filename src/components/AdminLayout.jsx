@@ -14,6 +14,7 @@ import {
   Settings as SettingsIcon,
   X,
   Wrench,
+  Car,
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 
@@ -22,6 +23,7 @@ const links = [
   { href: '/admin/bookings', label: 'Bookings', icon: ClipboardList },
   { href: '/admin/schedule', label: 'Schedule', icon: CalendarDays },
   { href: '/admin/members', label: 'Members', icon: Users },
+  { href: '/admin/cars', label: 'Cars', icon: Car },
   { href: '/admin/services', label: 'Services', icon: Wrench },
   { href: '/admin/settings', label: 'Settings', icon: SettingsIcon },
 ];

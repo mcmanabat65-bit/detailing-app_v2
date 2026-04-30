@@ -92,6 +92,51 @@ create table if not exists blocked_slots (
 
 create unique index if not exists blocked_slots_date_time_idx on blocked_slots (date, time);
 
+-- The cars table is a shared CATALOG of vehicles selectable at booking
+-- time. Membership ownership lives in the member_cars junction below.
+create table if not exists cars (
+  id uuid primary key default gen_random_uuid(),
+  make text not null,
+  year integer not null check (year >= 1900 and year <= 2100),
+  model text not null,
+  size text not null check (size in ('small', 'medium', 'large', 'xl')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+-- Migration: an earlier draft scoped cars per-member. If those structures
+-- still exist on this database, drop them so cars becomes a global catalog.
+do $$ begin
+  if exists (
+    select 1 from information_schema.table_constraints
+    where constraint_name = 'cars_member_id_fkey' and table_name = 'cars'
+  ) then
+    alter table cars drop constraint cars_member_id_fkey;
+  end if;
+end $$;
+drop index if exists cars_member_idx;
+drop index if exists cars_member_make_model_year_idx;
+alter table cars drop column if exists member_id;
+
+create index        if not exists cars_make_idx           on cars (lower(make));
+create index        if not exists cars_model_idx          on cars (lower(model));
+create unique index if not exists cars_make_model_year_idx
+  on cars (lower(make), lower(model), year);
+
+-- Junction: which catalog cars each member owns. Sort order determines
+-- the default-selected car in the booking flow.
+create table if not exists member_cars (
+  id uuid primary key default gen_random_uuid(),
+  member_id text not null references members(id) on delete cascade,
+  car_id uuid not null references cars(id) on delete cascade,
+  sort_order integer not null default 0,
+  created_at timestamptz not null default now(),
+  unique (member_id, car_id)
+);
+
+create index if not exists member_cars_member_idx on member_cars (member_id);
+create index if not exists member_cars_car_idx    on member_cars (car_id);
+
 -- ---------------------------------------------------------------------
 -- RPC: add_booking — atomic capacity-aware insert
 -- ---------------------------------------------------------------------
@@ -296,6 +341,8 @@ alter table members       enable row level security;
 alter table blocked_slots enable row level security;
 alter table settings      enable row level security;
 alter table services      enable row level security;
+alter table cars          enable row level security;
+alter table member_cars   enable row level security;
 
 drop policy if exists "anon all bookings"      on bookings;
 drop policy if exists "anon all members"       on members;
@@ -307,12 +354,16 @@ drop policy if exists "public all members"       on members;
 drop policy if exists "public all blocked_slots" on blocked_slots;
 drop policy if exists "public all settings"      on settings;
 drop policy if exists "public all services"      on services;
+drop policy if exists "public all cars"          on cars;
+drop policy if exists "public all member_cars"   on member_cars;
 
 create policy "public all bookings"      on bookings      for all to anon, authenticated using (true) with check (true);
 create policy "public all members"       on members       for all to anon, authenticated using (true) with check (true);
 create policy "public all blocked_slots" on blocked_slots for all to anon, authenticated using (true) with check (true);
 create policy "public all settings"      on settings      for all to anon, authenticated using (true) with check (true);
 create policy "public all services"      on services      for all to anon, authenticated using (true) with check (true);
+create policy "public all cars"          on cars          for all to anon, authenticated using (true) with check (true);
+create policy "public all member_cars"   on member_cars   for all to anon, authenticated using (true) with check (true);
 
 -- =====================================================================
 -- ADMIN USER SETUP

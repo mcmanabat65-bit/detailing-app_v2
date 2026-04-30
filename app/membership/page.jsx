@@ -10,8 +10,25 @@ import {
   Crown,
   Check,
   Sparkles,
+  Car,
+  Plus,
+  Trash2,
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
+
+const SIZE_OPTS = [
+  { id: 'small',  label: 'Small (compact, hatchback)' },
+  { id: 'medium', label: 'Medium (sedan, small SUV)' },
+  { id: 'large',  label: 'Large (SUV, pickup, van)' },
+  { id: 'xl',     label: 'Extra large (truck, oversized)' },
+];
+
+const emptyCar = () => ({
+  make: '',
+  model: '',
+  year: new Date().getFullYear(),
+  size: 'medium',
+});
 
 const perks = [
   {
@@ -42,9 +59,17 @@ const perks = [
 ];
 
 export default function MembershipPage() {
-  const { addMember, showToast, members } = useApp();
+  const { addMember, upsertCar, addCarToMember, showToast, members } = useApp();
   const [form, setForm] = useState({ name: '', email: '', phone: '' });
+  const [memberCars, setMemberCars] = useState([emptyCar()]);
+  const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState(null);
+
+  const updateCar = (i, key, value) =>
+    setMemberCars((cs) => cs.map((c, idx) => (idx === i ? { ...c, [key]: value } : c)));
+  const addCarRow = () => setMemberCars((cs) => [...cs, emptyCar()]);
+  const removeCarRow = (i) =>
+    setMemberCars((cs) => (cs.length === 1 ? cs : cs.filter((_, idx) => idx !== i)));
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -52,13 +77,42 @@ export default function MembershipPage() {
       showToast('Please complete the form.', 'error');
       return;
     }
+    // Cars are optional — but any partially-filled row must be complete.
+    const filled = memberCars.filter(
+      (c) => c.make.trim() || c.model.trim()
+    );
+    for (const c of filled) {
+      if (!c.make.trim() || !c.model.trim()) {
+        showToast('Each car needs both make and model.', 'error');
+        return;
+      }
+    }
+
+    setSubmitting(true);
     const m = await addMember(form);
     if (!m || m.error) {
+      setSubmitting(false);
       showToast(m?.error || 'Could not submit application.', 'error');
       return;
     }
+    // Link any cars provided. Failures are surfaced but don't roll back the
+    // member creation — admin can clean up from the dashboard.
+    for (const car of filled) {
+      const upserted = await upsertCar(car);
+      if (upserted?.error) {
+        showToast(`Could not save ${car.make} ${car.model}: ${upserted.error}`, 'error');
+        continue;
+      }
+      const linked = await addCarToMember(m.id, upserted.id);
+      if (linked?.error) {
+        showToast(`Could not link ${car.make} ${car.model}: ${linked.error}`, 'error');
+      }
+    }
+
+    setSubmitting(false);
     setSuccess(m);
     setForm({ name: '', email: '', phone: '' });
+    setMemberCars([emptyCar()]);
     showToast('Application submitted — pending review.', 'success');
   };
 
@@ -212,12 +266,91 @@ export default function MembershipPage() {
                     placeholder="0917 123 4567"
                   />
                 </Field>
+
+                {/* Cars (optional) */}
+                <div className="pt-2 border-t border-white/5">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="text-[11px] uppercase tracking-widest text-cream/70 flex items-center gap-1.5">
+                      <Car className="w-3 h-3 text-gold" />
+                      Your cars (optional)
+                    </div>
+                    <button
+                      type="button"
+                      onClick={addCarRow}
+                      className="text-xs text-gold hover:text-gold-light inline-flex items-center gap-1"
+                    >
+                      <Plus className="w-3 h-3" />
+                      Add another
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-muted mb-3 leading-relaxed">
+                    Add the cars you own — the first one becomes your default
+                    at booking.
+                  </p>
+                  <div className="space-y-3">
+                    {memberCars.map((car, i) => (
+                      <div
+                        key={i}
+                        className="bg-surface/50 border border-white/5 rounded-sm p-3 space-y-2"
+                      >
+                        <div className="grid grid-cols-2 gap-2">
+                          <input
+                            type="text"
+                            value={car.make}
+                            onChange={(e) => updateCar(i, 'make', e.target.value)}
+                            className="member-input"
+                            placeholder="Make (Toyota)"
+                          />
+                          <input
+                            type="text"
+                            value={car.model}
+                            onChange={(e) => updateCar(i, 'model', e.target.value)}
+                            className="member-input"
+                            placeholder="Model (Fortuner)"
+                          />
+                          <input
+                            type="number"
+                            min={1900}
+                            max={2100}
+                            value={car.year}
+                            onChange={(e) => updateCar(i, 'year', e.target.value)}
+                            className="member-input"
+                            placeholder="Year"
+                          />
+                          <select
+                            value={car.size}
+                            onChange={(e) => updateCar(i, 'size', e.target.value)}
+                            className="member-input"
+                          >
+                            {SIZE_OPTS.map((s) => (
+                              <option key={s.id} value={s.id}>
+                                {s.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        {memberCars.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => removeCarRow(i)}
+                            className="text-xs text-muted hover:text-danger inline-flex items-center gap-1"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                            Remove
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
                 <button
                   type="submit"
-                  className="w-full px-5 py-3.5 bg-gold text-obsidian font-semibold rounded-sm hover:bg-gold-light transition-colors inline-flex items-center justify-center gap-2"
+                  disabled={submitting}
+                  className="w-full px-5 py-3.5 bg-gold text-obsidian font-semibold rounded-sm hover:bg-gold-light transition-colors inline-flex items-center justify-center gap-2 disabled:opacity-50"
                 >
                   <Crown className="w-4 h-4" />
-                  Activate Membership
+                  {submitting ? 'Submitting…' : 'Activate Membership'}
                 </button>
                 <p className="text-[11px] text-muted text-center leading-relaxed">
                   Free to join. No commitment. Cancel anytime.

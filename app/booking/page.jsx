@@ -141,6 +141,7 @@ function BookingFlow() {
     blockedSlots,
     settings,
     findApprovedMemberByEmail,
+    getCarsForMember,
   } = useApp();
 
   const preSelectedId = searchParams.get('service');
@@ -174,6 +175,33 @@ function BookingFlow() {
     [details.email, findApprovedMemberByEmail]
   );
   const isVip = Boolean(vipMember);
+
+  // Member's owned cars (only available when an approved VIP is detected).
+  const memberOwnedCars = useMemo(
+    () => (vipMember ? getCarsForMember(vipMember.id) : []),
+    [vipMember, getCarsForMember]
+  );
+
+  // Track which car the user picked. `null` = use the manual vehicle field.
+  // When VIP is detected and they have cars, default to the first.
+  const [selectedCarId, setSelectedCarId] = useState(null);
+
+  useEffect(() => {
+    if (memberOwnedCars.length > 0) {
+      setSelectedCarId((prev) =>
+        prev && memberOwnedCars.some((c) => c.id === prev)
+          ? prev
+          : memberOwnedCars[0].id
+      );
+    } else {
+      setSelectedCarId(null);
+    }
+  }, [memberOwnedCars]);
+
+  const selectedCar = useMemo(
+    () => memberOwnedCars.find((c) => c.id === selectedCarId) || null,
+    [memberOwnedCars, selectedCarId]
+  );
 
   // Live slot availability — recomputes when the bookings list or settings
   // change so the slot grid reflects detailer capacity as it shifts.
@@ -231,12 +259,21 @@ function BookingFlow() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    // Resolve vehicle from selected car (VIP) or the manual fields.
+    const vehicleStr = selectedCar
+      ? `${selectedCar.make} ${selectedCar.model}`
+      : details.vehicle;
+    const vehicleYearStr = selectedCar
+      ? String(selectedCar.year)
+      : details.vehicleYear;
+
     if (
       !details.customerName ||
       !details.email ||
       !details.phone ||
-      !details.vehicle ||
-      !details.vehicleYear
+      !vehicleStr ||
+      !vehicleYearStr
     ) {
       showToast('Please fill in all required fields.', 'error');
       return;
@@ -261,8 +298,8 @@ function BookingFlow() {
       customerName: details.customerName,
       email: details.email,
       phone: details.phone,
-      vehicle: details.vehicle,
-      vehicleYear: details.vehicleYear,
+      vehicle: vehicleStr,
+      vehicleYear: vehicleYearStr,
       notes: details.notes,
       isVip,
       memberId: vipMember?.id || null,
@@ -532,34 +569,84 @@ function BookingFlow() {
                 </Field>
               </div>
 
-              <div className="grid md:grid-cols-[1fr_120px] gap-5">
-                <Field label="Vehicle Make & Model *">
-                  <input
-                    type="text"
-                    required
-                    value={details.vehicle}
-                    onChange={(e) =>
-                      setDetails((d) => ({ ...d, vehicle: e.target.value }))
-                    }
-                    className="input"
-                    placeholder="Toyota Fortuner"
-                  />
-                </Field>
-                <Field label="Year *">
-                  <input
-                    type="text"
-                    required
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    value={details.vehicleYear}
-                    onChange={(e) =>
-                      setDetails((d) => ({ ...d, vehicleYear: e.target.value }))
-                    }
-                    className="input"
-                    placeholder="2022"
-                  />
-                </Field>
-              </div>
+              {memberOwnedCars.length > 0 ? (
+                <div>
+                  <Field label="Pick a car *">
+                    <select
+                      value={selectedCarId || ''}
+                      onChange={(e) => setSelectedCarId(e.target.value || null)}
+                      className="input"
+                    >
+                      {memberOwnedCars.map((c, i) => (
+                        <option key={c.id} value={c.id}>
+                          {c.year} {c.make} {c.model} ({c.size})
+                          {i === 0 ? ' — default' : ''}
+                        </option>
+                      ))}
+                      <option value="">+ Use a different car (manual entry)</option>
+                    </select>
+                  </Field>
+                  {!selectedCarId && (
+                    <div className="grid md:grid-cols-[1fr_120px] gap-5 mt-3">
+                      <Field label="Vehicle Make & Model *">
+                        <input
+                          type="text"
+                          required
+                          value={details.vehicle}
+                          onChange={(e) =>
+                            setDetails((d) => ({ ...d, vehicle: e.target.value }))
+                          }
+                          className="input"
+                          placeholder="Toyota Fortuner"
+                        />
+                      </Field>
+                      <Field label="Year *">
+                        <input
+                          type="text"
+                          required
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          value={details.vehicleYear}
+                          onChange={(e) =>
+                            setDetails((d) => ({ ...d, vehicleYear: e.target.value }))
+                          }
+                          className="input"
+                          placeholder="2022"
+                        />
+                      </Field>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="grid md:grid-cols-[1fr_120px] gap-5">
+                  <Field label="Vehicle Make & Model *">
+                    <input
+                      type="text"
+                      required
+                      value={details.vehicle}
+                      onChange={(e) =>
+                        setDetails((d) => ({ ...d, vehicle: e.target.value }))
+                      }
+                      className="input"
+                      placeholder="Toyota Fortuner"
+                    />
+                  </Field>
+                  <Field label="Year *">
+                    <input
+                      type="text"
+                      required
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      value={details.vehicleYear}
+                      onChange={(e) =>
+                        setDetails((d) => ({ ...d, vehicleYear: e.target.value }))
+                      }
+                      className="input"
+                      placeholder="2022"
+                    />
+                  </Field>
+                </div>
+              )}
 
               <Field label="Special Notes">
                 <textarea

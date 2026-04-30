@@ -33,6 +33,8 @@ export function AppProvider({ children }) {
   const [bookings, setBookings] = useState([]);
   const [members, setMembers] = useState([]);
   const [blockedSlots, setBlockedSlots] = useState([]);
+  const [cars, setCars] = useState([]);
+  const [memberCars, setMemberCars] = useState([]);
   const [settings, setSettings] = useState({ ...DEFAULT_SETTINGS });
   const [adminSession, setAdminSessionState] = useState(false);
   const [hydrated, setHydrated] = useState(false);
@@ -91,6 +93,36 @@ export function AppProvider({ children }) {
     setBlockedSlots((data || []).map(fromRow));
   }, []);
 
+  const refetchCars = useCallback(async () => {
+    if (!supabase) return;
+    const { data, error } = await supabase
+      .from('cars')
+      .select('*')
+      .order('make', { ascending: true })
+      .order('model', { ascending: true })
+      .order('year', { ascending: false });
+    if (error) {
+      console.error('[cars] fetch error', error);
+      return;
+    }
+    setCars((data || []).map(fromRow));
+  }, []);
+
+  const refetchMemberCars = useCallback(async () => {
+    if (!supabase) return;
+    const { data, error } = await supabase
+      .from('member_cars')
+      .select('*')
+      .order('member_id', { ascending: true })
+      .order('sort_order', { ascending: true })
+      .order('created_at', { ascending: true });
+    if (error) {
+      console.error('[member_cars] fetch error', error);
+      return;
+    }
+    setMemberCars((data || []).map(fromRow));
+  }, []);
+
   const refetchSettings = useCallback(async () => {
     if (!supabase) return;
     const { data, error } = await supabase
@@ -127,11 +159,13 @@ export function AppProvider({ children }) {
       refetchBookings(),
       refetchMembers(),
       refetchBlockedSlots(),
+      refetchCars(),
+      refetchMemberCars(),
       refetchSettings(),
     ]).finally(() => setHydrated(true));
 
     return () => subscription.unsubscribe();
-  }, [refetchServices, refetchBookings, refetchMembers, refetchBlockedSlots, refetchSettings]);
+  }, [refetchServices, refetchBookings, refetchMembers, refetchBlockedSlots, refetchCars, refetchMemberCars, refetchSettings]);
 
   // ===== Services =====
   const upsertService = useCallback(
@@ -381,6 +415,155 @@ export function AppProvider({ children }) {
     [blockedSlots, refetchBlockedSlots]
   );
 
+  // ===== Cars (catalog) =====
+  /**
+   * Upserts a car into the shared catalog. Catalog rows are de-duplicated
+   * by (lower(make), lower(model), year) — repeated submissions of the
+   * same vehicle just return the existing row.
+   */
+  const upsertCar = useCallback(
+    async (car) => {
+      if (!supabase) return { error: 'Database not connected.' };
+      const trimmedMake = (car.make || '').trim();
+      const trimmedModel = (car.model || '').trim();
+      const yearNum = Number(car.year);
+      if (!trimmedMake) return { error: 'Make is required.' };
+      if (!trimmedModel) return { error: 'Model is required.' };
+      if (!Number.isFinite(yearNum) || yearNum < 1900 || yearNum > 2100) {
+        return { error: 'Year must be between 1900 and 2100.' };
+      }
+      if (!['small', 'medium', 'large', 'xl'].includes(car.size)) {
+        return { error: 'Size must be small, medium, large, or xl.' };
+      }
+      const row = {
+        make: trimmedMake,
+        year: yearNum,
+        model: trimmedModel,
+        size: car.size,
+        updated_at: new Date().toISOString(),
+      };
+      // Try to find an existing catalog row first so duplicate submissions
+      // collapse into one car_id.
+      if (!car.id) {
+        const { data: existing } = await supabase
+          .from('cars')
+          .select('*')
+          .ilike('make', trimmedMake)
+          .ilike('model', trimmedModel)
+          .eq('year', yearNum)
+          .maybeSingle();
+        if (existing) {
+          // Update size/case in case admin tweaked it
+          if (existing.size !== car.size) {
+            await supabase.from('cars').update({ size: car.size }).eq('id', existing.id);
+          }
+          await refetchCars();
+          return fromRow({ ...existing, size: car.size });
+        }
+      }
+      let query;
+      if (car.id) {
+        query = supabase.from('cars').update(row).eq('id', car.id).select().single();
+      } else {
+        query = supabase.from('cars').insert(row).select().single();
+      }
+      const { data, error } = await query;
+      if (error) return { error: error.message };
+      await refetchCars();
+      return fromRow(data);
+    },
+    [refetchCars]
+  );
+
+  const deleteCar = useCallback(
+    async (id) => {
+      if (!supabase) return { error: 'Database not connected.' };
+      const { error } = await supabase.from('cars').delete().eq('id', id);
+      if (error) return { error: error.message };
+      await refetchCars();
+      await refetchMemberCars();
+      return { ok: true };
+    },
+    [refetchCars, refetchMemberCars]
+  );
+
+  // ===== Member ↔ Cars =====
+  const addCarToMember = useCallback(
+    async (memberId, carId) => {
+      if (!supabase) return { error: 'Database not connected.' };
+      if (!memberId || !carId) {
+        return { error: 'memberId and carId are required.' };
+      }
+      // Append at the end — sort_order = max(existing) + 1
+      const existing = memberCars.filter((mc) => mc.memberId === memberId);
+      const nextOrder = existing.length
+        ? Math.max(...existing.map((mc) => mc.sortOrder ?? 0)) + 1
+        : 0;
+      const { data, error } = await supabase
+        .from('member_cars')
+        .insert({ member_id: memberId, car_id: carId, sort_order: nextOrder })
+        .select()
+        .single();
+      if (error) return { error: error.message };
+      await refetchMemberCars();
+      return fromRow(data);
+    },
+    [memberCars, refetchMemberCars]
+  );
+
+  const removeCarFromMember = useCallback(
+    async (memberCarId) => {
+      if (!supabase) return { error: 'Database not connected.' };
+      const { error } = await supabase
+        .from('member_cars')
+        .delete()
+        .eq('id', memberCarId);
+      if (error) return { error: error.message };
+      await refetchMemberCars();
+      return { ok: true };
+    },
+    [refetchMemberCars]
+  );
+
+  const setMemberCarOrder = useCallback(
+    async (memberCarId, sortOrder) => {
+      if (!supabase) return { error: 'Database not connected.' };
+      const { error } = await supabase
+        .from('member_cars')
+        .update({ sort_order: sortOrder })
+        .eq('id', memberCarId);
+      if (error) return { error: error.message };
+      await refetchMemberCars();
+      return { ok: true };
+    },
+    [refetchMemberCars]
+  );
+
+  /**
+   * Returns a member's owned cars in display order, joined to the catalog.
+   * Each item has the member_cars row id (`linkId`), sort order, and the
+   * full catalog car object spread on top.
+   */
+  const getCarsForMember = useCallback(
+    (memberId) => {
+      if (!memberId) return [];
+      return memberCars
+        .filter((mc) => mc.memberId === memberId)
+        .map((mc) => {
+          const car = cars.find((c) => c.id === mc.carId);
+          if (!car) return null;
+          return {
+            linkId: mc.id,
+            sortOrder: mc.sortOrder ?? 0,
+            ...car,
+          };
+        })
+        .filter(Boolean)
+        .sort((a, b) => a.sortOrder - b.sortOrder);
+    },
+    [memberCars, cars]
+  );
+
   // ===== Settings =====
   const updateSettings = useCallback(
     async (next) => {
@@ -434,6 +617,8 @@ export function AppProvider({ children }) {
       bookings,
       members,
       blockedSlots,
+      cars,
+      memberCars,
       settings,
       adminSession,
       hydrated,
@@ -448,6 +633,12 @@ export function AppProvider({ children }) {
       deleteMember,
       findApprovedMemberByEmail,
       toggleBlockedSlot,
+      upsertCar,
+      deleteCar,
+      addCarToMember,
+      removeCarFromMember,
+      setMemberCarOrder,
+      getCarsForMember,
       updateSettings,
       setAdminSession,
       signOut,
@@ -462,6 +653,8 @@ export function AppProvider({ children }) {
       bookings,
       members,
       blockedSlots,
+      cars,
+      memberCars,
       settings,
       adminSession,
       hydrated,
@@ -475,6 +668,12 @@ export function AppProvider({ children }) {
       deleteMember,
       findApprovedMemberByEmail,
       toggleBlockedSlot,
+      upsertCar,
+      deleteCar,
+      addCarToMember,
+      removeCarFromMember,
+      setMemberCarOrder,
+      getCarsForMember,
       updateSettings,
       setAdminSession,
       signOut,

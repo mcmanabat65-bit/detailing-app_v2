@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import Link from 'next/link';
 import {
   Search,
   Download,
@@ -158,6 +159,21 @@ function BookingsTable() {
 
   return (
     <AdminLayout title="Bookings">
+      {/* Top actions */}
+      <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+        <div className="text-muted text-sm">
+          Manage all customer bookings — review, reassign detailers, cancel, or
+          create new bookings on behalf of a customer.
+        </div>
+        <Link
+          href="/booking"
+          className="inline-flex items-center gap-2 px-4 py-2.5 bg-gold text-obsidian font-semibold rounded-sm hover:bg-gold-light transition-colors"
+        >
+          <Plus className="w-4 h-4" />
+          New booking
+        </Link>
+      </div>
+
       {/* Filters */}
       <div className="glass-card rounded-md p-4 md:p-5 mb-6">
         <div className="grid md:grid-cols-[1fr_auto_auto_auto] gap-3 items-stretch">
