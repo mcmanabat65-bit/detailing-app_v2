@@ -38,6 +38,7 @@ export function AppProvider({ children }) {
   const [settings, setSettings] = useState({ ...DEFAULT_SETTINGS });
   const [adminSession, setAdminSessionState] = useState(false);
   const [hydrated, setHydrated] = useState(false);
+  const [supabaseError, setSupabaseError] = useState(null);
   const [toasts, setToasts] = useState([]);
 
   // ===== Refetch helpers =====
@@ -146,13 +147,21 @@ export function AppProvider({ children }) {
     }
 
     // Sync admin session from Supabase Auth
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setAdminSessionState(!!session);
-    });
+    supabase.auth.getSession()
+      .then(({ data: { session } }) => setAdminSessionState(!!session))
+      .catch(() => {});
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (_event, session) => setAdminSessionState(!!session)
     );
+
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (!settled) {
+        setSupabaseError('Database is not responding. Check your connection and reload.');
+        setHydrated(true);
+      }
+    }, 10_000);
 
     Promise.allSettled([
       refetchServices(),
@@ -162,7 +171,11 @@ export function AppProvider({ children }) {
       refetchCars(),
       refetchMemberCars(),
       refetchSettings(),
-    ]).finally(() => setHydrated(true));
+    ]).finally(() => {
+      settled = true;
+      clearTimeout(timer);
+      setHydrated(true);
+    });
 
     return () => subscription.unsubscribe();
   }, [refetchServices, refetchBookings, refetchMembers, refetchBlockedSlots, refetchCars, refetchMemberCars, refetchSettings]);
@@ -622,6 +635,7 @@ export function AppProvider({ children }) {
       settings,
       adminSession,
       hydrated,
+      supabaseError,
       toasts,
       isSupabaseConfigured,
       addBooking,
@@ -658,6 +672,7 @@ export function AppProvider({ children }) {
       settings,
       adminSession,
       hydrated,
+      supabaseError,
       toasts,
       addBooking,
       updateBookingStatus,

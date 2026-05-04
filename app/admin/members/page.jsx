@@ -24,6 +24,8 @@ import {
 import { AdminLayout } from '@/components/AdminLayout';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { useApp } from '@/context/AppContext';
+import { sendEmail } from '@/lib/sendEmail';
+import { membershipStatusHtml } from '@/lib/emailTemplates';
 import { formatCurrency } from '@/data/services';
 import { formatDateLong, formatDateShort } from '@/utils/bookingUtils';
 
@@ -95,13 +97,22 @@ function MembersAdmin() {
     return bookingsByEmail.get(historyMember.email?.trim().toLowerCase()) || [];
   }, [historyMember, bookingsByEmail]);
 
-  const decide = async (id, status, name) => {
+  const decide = async (id, status, member) => {
     const result = await updateMemberStatus(id, status);
     if (result?.error) { showToast(result.error, 'error'); return; }
+    if ((status === 'approved' || status === 'rejected') && member.email) {
+      sendEmail(
+        member.email,
+        status === 'approved'
+          ? 'Your VIP membership has been approved'
+          : 'Your membership application update',
+        membershipStatusHtml(member, status)
+      );
+    }
     showToast(
-      status === 'approved' ? `${name} approved.`
-        : status === 'rejected' ? `${name} rejected.`
-        : `${name} reset to pending.`,
+      status === 'approved' ? `${member.name} approved.`
+        : status === 'rejected' ? `${member.name} rejected.`
+        : `${member.name} reset to pending.`,
       status === 'approved' ? 'success' : 'info'
     );
   };
@@ -224,13 +235,13 @@ function MembersAdmin() {
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-1">
                         {status !== 'approved' && (
-                          <button onClick={() => decide(m.id, 'approved', m.name)} aria-label="Approve" title="Approve"
+                          <button onClick={() => decide(m.id, 'approved', m)} aria-label="Approve" title="Approve"
                             className="p-2 text-success hover:bg-success/10 rounded-sm transition-colors">
                             <UserCheck className="w-4 h-4" />
                           </button>
                         )}
                         {status !== 'rejected' && (
-                          <button onClick={() => decide(m.id, 'rejected', m.name)} aria-label="Reject"
+                          <button onClick={() => decide(m.id, 'rejected', m)} aria-label="Reject"
                             title={status === 'approved' ? 'Revoke approval' : 'Reject'}
                             className="p-2 text-cream/70 hover:text-danger hover:bg-danger/10 rounded-sm transition-colors">
                             <UserX className="w-4 h-4" />

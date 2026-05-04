@@ -1,7 +1,7 @@
 'use client';
 
 import { usePathname } from 'next/navigation';
-import { AppProvider } from '@/context/AppContext';
+import { AppProvider, useApp } from '@/context/AppContext';
 import { Navbar } from '@/components/Navbar';
 import { Footer } from '@/components/Footer';
 import { ToastContainer } from '@/components/Toast';
@@ -14,11 +14,29 @@ export function Providers({ children }) {
   return (
     <AppProvider>
       {!isSupabaseConfigured && <SupabaseBanner />}
+      <SupabaseErrorBanner />
       {!isAdmin && <Navbar />}
       {children}
       {!isAdmin && <Footer />}
       <ToastContainer />
     </AppProvider>
+  );
+}
+
+function SupabaseErrorBanner() {
+  const { supabaseError } = useApp();
+  if (!supabaseError) return null;
+  return (
+    <div className="bg-danger/15 border-b border-danger/40 text-center text-xs px-4 py-2 text-cream/90">
+      <span className="font-semibold text-danger">Database unreachable.</span>{' '}
+      {supabaseError}{' '}
+      <button
+        onClick={() => window.location.reload()}
+        className="underline text-gold/90 hover:text-gold ml-1"
+      >
+        Reload
+      </button>
+    </div>
   );
 }
 
