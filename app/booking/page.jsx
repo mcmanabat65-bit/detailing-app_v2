@@ -442,7 +442,8 @@ function BookingFlow() {
           vehicleYear: vehicleYearStr,
           isVip,
           coffeeOrder: isVip ? details.coffeeOrder : '',
-        })
+        }),
+        (err) => showToast(`Confirmation email failed: ${err}`, 'error')
       );
       router.push(`/confirmation/${booking.id}`);
     } finally {
