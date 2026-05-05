@@ -88,6 +88,15 @@ export default function MembershipPage() {
       }
     }
 
+    const emailLower = form.email.trim().toLowerCase();
+    const duplicate = members.some(
+      (m) => (m.email || '').trim().toLowerCase() === emailLower
+    );
+    if (duplicate) {
+      showToast('This email is already registered.', 'error');
+      return;
+    }
+
     setSubmitting(true);
     const m = await addMember(form);
     if (!m || m.error) {

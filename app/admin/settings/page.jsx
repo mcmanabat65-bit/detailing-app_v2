@@ -136,7 +136,7 @@ function SettingsForm() {
           <div className="flex items-center gap-3 pt-2">
             <button
               type="submit"
-              disabled={!dirty}
+              disabled={!dirty || Number(poolSize) < peakUsage.peak}
               className="inline-flex items-center gap-2 px-5 py-2.5 bg-gold text-obsidian font-semibold rounded-sm hover:bg-gold-light transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <Save className="w-4 h-4" />

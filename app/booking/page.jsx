@@ -13,6 +13,7 @@ import {
   Clock,
   Coffee,
   Crown,
+  Loader2,
   Users,
   User,
   X,
@@ -26,6 +27,8 @@ import {
   toIsoDate,
 } from '@/utils/bookingUtils';
 import { useApp } from '@/context/AppContext';
+import { sendEmail } from '@/lib/sendEmail';
+import { bookingConfirmationHtml } from '@/lib/emailTemplates';
 
 // --- Mini calendar (one month) ---
 function MiniCalendar({ monthDate, selected, onSelect }) {
@@ -291,6 +294,7 @@ function BookingFlow() {
   // Track which car the user picked. `null` = use the manual vehicle field.
   // When VIP is detected and they have cars, default to the first.
   const [selectedCarId, setSelectedCarId] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (memberOwnedCars.length > 0) {
@@ -384,7 +388,7 @@ function BookingFlow() {
       showToast('Please fill in all required fields.', 'error');
       return;
     }
-    if (isVip && !details.coffeeOrder) {
+    if (isVip && !coffeeOptions.includes(details.coffeeOrder)) {
       showToast("Pick a coffee — it's on us.", 'error');
       return;
     }
@@ -393,37 +397,57 @@ function BookingFlow() {
       minDetailers,
       settings?.defaultDetailersPerBooking ?? 1
     );
-    const booking = await addBooking({
-      serviceId: service.id,
-      serviceName: service.name,
-      servicePrice: service.price,
-      serviceDuration: service.duration,
-      serviceCategory: service.category,
-      date,
-      time,
-      customerName: details.customerName,
-      email: details.email,
-      phone: details.phone,
-      vehicle: vehicleStr,
-      vehicleYear: vehicleYearStr,
-      notes: details.notes,
-      isVip,
-      memberId: vipMember?.id || null,
-      coffeeOrder: isVip ? details.coffeeOrder : '',
-      detailersAssigned: requested,
-    });
-    if (!booking || booking.error) {
-      showToast(
-        booking?.error || 'Could not confirm booking — please try again.',
-        'error'
+    setSubmitting(true);
+    try {
+      const booking = await addBooking({
+        serviceId: service.id,
+        serviceName: service.name,
+        servicePrice: service.price,
+        serviceDuration: service.duration,
+        serviceCategory: service.category,
+        date,
+        time,
+        customerName: details.customerName,
+        email: details.email,
+        phone: details.phone,
+        vehicle: vehicleStr,
+        vehicleYear: vehicleYearStr,
+        notes: details.notes,
+        isVip,
+        memberId: vipMember?.id || null,
+        coffeeOrder: isVip ? details.coffeeOrder : '',
+        detailersAssigned: requested,
+      });
+      if (!booking || booking.error) {
+        showToast(
+          booking?.error || 'Could not confirm booking — please try again.',
+          'error'
+        );
+        setTime('');
+        setStep(2);
+        return;
+      }
+      showToast('Booking confirmed. See you soon.', 'success');
+      sendEmail(
+        details.email,
+        `Booking confirmed — ${service.name} on ${date}`,
+        bookingConfirmationHtml({
+          id: booking.id,
+          customerName: details.customerName,
+          serviceName: service.name,
+          servicePrice: service.price,
+          date,
+          time,
+          vehicle: vehicleStr,
+          vehicleYear: vehicleYearStr,
+          isVip,
+          coffeeOrder: isVip ? details.coffeeOrder : '',
+        })
       );
-      // Bounce back to step 2 so they can pick a different slot.
-      setTime('');
-      setStep(2);
-      return;
+      router.push(`/confirmation/${booking.id}`);
+    } finally {
+      setSubmitting(false);
     }
-    showToast('Booking confirmed. See you soon.', 'success');
-    router.push(`/confirmation/${booking.id}`);
   };
 
   return (
@@ -484,7 +508,7 @@ function BookingFlow() {
 
         {/* STEP 2 — DATE & TIME */}
         {step === 2 && (
-          <div className="grid lg:grid-cols-[1fr_320px] gap-6">
+          <div className="grid lg:grid-cols-[1fr_320px] gap-6 lg:items-start">
             <div className="space-y-5">
               <div className="flex items-center justify-between">
                 <button
@@ -534,14 +558,16 @@ function BookingFlow() {
                     setTime('');
                   }}
                 />
-                <MiniCalendar
-                  monthDate={nextMonth}
-                  selected={date}
-                  onSelect={(d) => {
-                    setDate(d);
-                    setTime('');
-                  }}
-                />
+                <div className="hidden md:block">
+                  <MiniCalendar
+                    monthDate={nextMonth}
+                    selected={date}
+                    onSelect={(d) => {
+                      setDate(d);
+                      setTime('');
+                    }}
+                  />
+                </div>
               </div>
             </div>
 
@@ -833,10 +859,20 @@ function BookingFlow() {
               </div>
               <button
                 type="submit"
-                className="w-full mt-6 px-5 py-3.5 bg-gold text-obsidian font-semibold rounded-sm hover:bg-gold-light transition-colors inline-flex items-center justify-center gap-2"
+                disabled={submitting}
+                className="w-full mt-6 px-5 py-3.5 bg-gold text-obsidian font-semibold rounded-sm hover:bg-gold-light transition-colors inline-flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                <User className="w-4 h-4" />
-                Confirm Booking
+                {submitting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Confirming…
+                  </>
+                ) : (
+                  <>
+                    <User className="w-4 h-4" />
+                    Confirm Booking
+                  </>
+                )}
               </button>
             </aside>
           </form>

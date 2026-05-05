@@ -297,12 +297,17 @@ function Schedule() {
                             onClick={() =>
                               setDrawer({ type: 'block', data: cell.block })
                             }
-                            className="block w-full rounded-sm text-left p-1.5 text-[11px] text-cream/70 bg-white/5 border border-white/10 hover:bg-white/10 transition-colors"
+                            title={cell.block.label || 'Blocked'}
+                            className="block w-full rounded-sm text-left p-1.5 text-[11px] text-cream/90 hover:opacity-80 transition-opacity"
+                            style={{
+                              background: '#3a3a40',
+                              borderLeft: '3px solid #6B6B72',
+                            }}
                           >
                             <div className="flex items-center gap-1">
-                              <Lock className="w-2.5 h-2.5" />
-                              <span className="truncate">
-                                {cell.block.label}
+                              <Lock className="w-2.5 h-2.5 text-cream/50 shrink-0" />
+                              <span className="truncate font-medium">
+                                {cell.block.label || 'Blocked'}
                               </span>
                             </div>
                           </button>
