@@ -92,6 +92,31 @@ create table if not exists blocked_slots (
 
 create unique index if not exists blocked_slots_date_time_idx on blocked_slots (date, time);
 
+create table if not exists coffees (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  available boolean not null default true,
+  sort_order integer not null default 0,
+  created_at timestamptz not null default now()
+);
+
+create unique index if not exists coffees_name_lower_idx on coffees (lower(name));
+create index if not exists coffees_sort_idx on coffees (sort_order);
+
+-- Service categories — admin-managed list that populates the category
+-- dropdown when adding / editing services.
+create table if not exists service_categories (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  slug text not null,
+  color text not null default 'bg-white/10 text-cream',
+  sort_order integer not null default 0,
+  created_at timestamptz not null default now()
+);
+
+create unique index if not exists service_categories_slug_idx on service_categories (lower(slug));
+create index if not exists service_categories_sort_idx on service_categories (sort_order);
+
 -- The cars table is a shared CATALOG of vehicles selectable at booking
 -- time. Membership ownership lives in the member_cars junction below.
 create table if not exists cars (
@@ -336,34 +361,40 @@ $$;
 -- ---------------------------------------------------------------------
 -- Row Level Security
 -- ---------------------------------------------------------------------
-alter table bookings      enable row level security;
-alter table members       enable row level security;
-alter table blocked_slots enable row level security;
-alter table settings      enable row level security;
-alter table services      enable row level security;
-alter table cars          enable row level security;
-alter table member_cars   enable row level security;
+alter table bookings           enable row level security;
+alter table members            enable row level security;
+alter table blocked_slots      enable row level security;
+alter table settings           enable row level security;
+alter table services           enable row level security;
+alter table cars               enable row level security;
+alter table member_cars        enable row level security;
+alter table coffees            enable row level security;
+alter table service_categories enable row level security;
 
-drop policy if exists "anon all bookings"      on bookings;
-drop policy if exists "anon all members"       on members;
-drop policy if exists "anon all blocked_slots" on blocked_slots;
-drop policy if exists "anon all settings"      on settings;
-drop policy if exists "anon all services"      on services;
-drop policy if exists "public all bookings"      on bookings;
-drop policy if exists "public all members"       on members;
-drop policy if exists "public all blocked_slots" on blocked_slots;
-drop policy if exists "public all settings"      on settings;
-drop policy if exists "public all services"      on services;
-drop policy if exists "public all cars"          on cars;
-drop policy if exists "public all member_cars"   on member_cars;
+drop policy if exists "anon all bookings"            on bookings;
+drop policy if exists "anon all members"             on members;
+drop policy if exists "anon all blocked_slots"       on blocked_slots;
+drop policy if exists "anon all settings"            on settings;
+drop policy if exists "anon all services"            on services;
+drop policy if exists "public all bookings"          on bookings;
+drop policy if exists "public all members"           on members;
+drop policy if exists "public all blocked_slots"     on blocked_slots;
+drop policy if exists "public all settings"          on settings;
+drop policy if exists "public all services"          on services;
+drop policy if exists "public all cars"              on cars;
+drop policy if exists "public all member_cars"       on member_cars;
+drop policy if exists "public all coffees"           on coffees;
+drop policy if exists "public all service_categories" on service_categories;
 
-create policy "public all bookings"      on bookings      for all to anon, authenticated using (true) with check (true);
-create policy "public all members"       on members       for all to anon, authenticated using (true) with check (true);
-create policy "public all blocked_slots" on blocked_slots for all to anon, authenticated using (true) with check (true);
-create policy "public all settings"      on settings      for all to anon, authenticated using (true) with check (true);
-create policy "public all services"      on services      for all to anon, authenticated using (true) with check (true);
-create policy "public all cars"          on cars          for all to anon, authenticated using (true) with check (true);
-create policy "public all member_cars"   on member_cars   for all to anon, authenticated using (true) with check (true);
+create policy "public all bookings"           on bookings           for all to anon, authenticated using (true) with check (true);
+create policy "public all members"            on members            for all to anon, authenticated using (true) with check (true);
+create policy "public all blocked_slots"      on blocked_slots      for all to anon, authenticated using (true) with check (true);
+create policy "public all settings"           on settings           for all to anon, authenticated using (true) with check (true);
+create policy "public all services"           on services           for all to anon, authenticated using (true) with check (true);
+create policy "public all cars"               on cars               for all to anon, authenticated using (true) with check (true);
+create policy "public all coffees"            on coffees            for all to anon, authenticated using (true) with check (true);
+create policy "public all member_cars"        on member_cars        for all to anon, authenticated using (true) with check (true);
+create policy "public all service_categories" on service_categories for all to anon, authenticated using (true) with check (true);
 
 -- =====================================================================
 -- ADMIN USER SETUP
