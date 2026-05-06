@@ -27,7 +27,7 @@ import {
 } from '@/utils/bookingUtils';
 import { useApp } from '@/context/AppContext';
 import { sendEmail } from '@/lib/sendEmail';
-import { bookingConfirmationHtml } from '@/lib/emailTemplates';
+import { bookingReceivedHtml } from '@/lib/emailTemplates';
 
 // --- Mini calendar (one month) ---
 function MiniCalendar({ monthDate, selected, onSelect }) {
@@ -321,11 +321,11 @@ function BookingFlow() {
         setStep(2);
         return;
       }
-      showToast('Booking confirmed. See you soon.', 'success');
+      showToast('Booking received — awaiting admin confirmation.', 'success');
       sendEmail(
         details.email,
-        `Booking confirmed — ${service.name} on ${date}`,
-        bookingConfirmationHtml({
+        `Booking received — ${service.name} on ${date}`,
+        bookingReceivedHtml({
           id: booking.id,
           customerName: details.customerName,
           serviceName: service.name,
@@ -334,8 +334,6 @@ function BookingFlow() {
           time,
           vehicle: vehicleStr,
           vehicleYear: vehicleYearStr,
-          isVip,
-          coffeeOrder: isVip ? details.coffeeOrder : '',
         })
       );
       router.push(`/confirmation/${booking.id}`);

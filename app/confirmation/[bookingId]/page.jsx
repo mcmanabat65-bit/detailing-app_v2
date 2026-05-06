@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import {
   Check,
+  Hourglass,
   Calendar,
   Clock,
   Car,
@@ -54,19 +55,41 @@ export default function ConfirmationPage() {
     );
   }
 
+  const isPending = booking.status === 'pending';
+
   return (
     <div className="page-enter pt-28 md:pt-36 pb-20">
       <div className="max-w-2xl mx-auto px-5">
         <div className="text-center mb-10 no-print">
-          <div className="w-16 h-16 rounded-full bg-success/15 border border-success/30 flex items-center justify-center mx-auto mb-5">
-            <Check className="w-7 h-7 text-success" />
+          <div
+            className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-5 ${
+              isPending
+                ? 'bg-gold/15 border border-gold/30'
+                : 'bg-success/15 border border-success/30'
+            }`}
+          >
+            {isPending ? (
+              <Hourglass className="w-7 h-7 text-gold" />
+            ) : (
+              <Check className="w-7 h-7 text-success" />
+            )}
           </div>
           <h1 className="font-serif text-4xl md:text-5xl text-cream mb-3">
-            Reservation Confirmed
+            {isPending ? 'Booking Received' : 'Reservation Confirmed'}
           </h1>
           <p className="text-muted">
-            We&apos;ve sent a copy to{' '}
-            <strong className="text-cream/80">{booking.email}</strong>.
+            {isPending ? (
+              <>
+                Your request is <strong className="text-gold">pending admin confirmation</strong>.
+                We&apos;ll email you at{' '}
+                <strong className="text-cream/80">{booking.email}</strong> once approved.
+              </>
+            ) : (
+              <>
+                We&apos;ve sent a copy to{' '}
+                <strong className="text-cream/80">{booking.email}</strong>.
+              </>
+            )}
           </p>
         </div>
 

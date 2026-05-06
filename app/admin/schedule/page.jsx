@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import {
+  AlertTriangle,
   ChevronLeft,
   ChevronRight,
   X,
@@ -58,7 +59,7 @@ function Schedule() {
       const iso = toIsoDate(d);
       map[iso] = {};
       for (const t of timeSlots) {
-        map[iso][t] = { bookings: [], block: null, used: 0 };
+        map[iso][t] = { bookings: [], block: null, used: 0, minNeeded: 0 };
       }
     }
     for (const b of bookings) {
@@ -68,12 +69,14 @@ function Schedule() {
       const startIdx = timeSlots.indexOf(b.time);
       if (startIdx === -1) continue;
       const headcount = Number(b.detailersAssigned) || 1;
+      const minReq = Number(b.minDetailers) || 1;
       for (let i = 0; i < consumed; i++) {
         const t = timeSlots[startIdx + i];
         if (!t) break;
         const cell = map[b.date][t];
         cell.bookings.push({ booking: b, isStart: i === 0, span: consumed });
         cell.used += headcount;
+        cell.minNeeded += minReq;
       }
     }
     for (const blk of blockedSlots) {
@@ -206,7 +209,9 @@ function Schedule() {
                     const iso = toIsoDate(d);
                     const cell = cells[iso]?.[time];
                     const used = cell?.used || 0;
+                    const minNeeded = cell?.minNeeded || 0;
                     const remaining = Math.max(0, poolSize - used);
+                    const understaffed = used > 0 && used < minNeeded;
                     const startsHere = (cell?.bookings || []).filter(
                       (e) => e.isStart
                     );
@@ -220,15 +225,30 @@ function Schedule() {
                       >
                         {used > 0 && (
                           <div
-                            title={`${used}/${poolSize} detailers in use, ${remaining} free`}
+                            title={
+                              understaffed
+                                ? `${used}/${poolSize} assigned — below minimum ${minNeeded} required`
+                                : `${used}/${poolSize} detailers in use, ${remaining} free`
+                            }
                             className="flex items-center gap-1 text-[9px] uppercase tracking-widest text-muted"
                           >
-                            <Users className="w-2.5 h-2.5 text-gold/70" />
-                            <span className="text-gold/80">{used}</span>
+                            {understaffed ? (
+                              <AlertTriangle className="w-2.5 h-2.5 text-amber-400 shrink-0" />
+                            ) : (
+                              <Users className="w-2.5 h-2.5 text-gold/70" />
+                            )}
+                            <span className={understaffed ? 'text-amber-400' : 'text-gold/80'}>
+                              {used}
+                            </span>
                             <span>/{poolSize}</span>
+                            {understaffed && (
+                              <span className="text-amber-400/80">
+                                (min {minNeeded})
+                              </span>
+                            )}
                             <div className="flex-1 h-1 rounded-full bg-white/5 overflow-hidden ml-1">
                               <div
-                                className="h-full bg-gold/60"
+                                className={`h-full ${understaffed ? 'bg-amber-400/70' : 'bg-gold/60'}`}
                                 style={{
                                   width: `${Math.min(100, (used / poolSize) * 100)}%`,
                                 }}
@@ -237,7 +257,11 @@ function Schedule() {
                           </div>
                         )}
 
-                        {startsHere.map(({ booking, span }) => (
+                        {startsHere.map(({ booking, span }) => {
+                          const assigned = booking.detailersAssigned ?? 1;
+                          const minDet = booking.minDetailers ?? 1;
+                          const bookingUnderstaffed = assigned < minDet;
+                          return (
                           <button
                             key={booking.id}
                             onClick={() =>
@@ -253,8 +277,10 @@ function Schedule() {
                                 '#00704A'
                               }15)`,
                               borderLeft: `3px solid ${
-                                categoryColors[booking.serviceCategory] ||
-                                '#00704A'
+                                bookingUnderstaffed
+                                  ? '#f59e0b'
+                                  : categoryColors[booking.serviceCategory] ||
+                                    '#00704A'
                               }`,
                             }}
                           >
@@ -268,14 +294,29 @@ function Schedule() {
                               <span className="truncate">
                                 {booking.serviceName}
                               </span>
-                              <span className="inline-flex items-center gap-0.5 shrink-0 text-gold/85">
+                              <span
+                                className={`inline-flex items-center gap-0.5 shrink-0 ${
+                                  bookingUnderstaffed ? 'text-amber-400' : 'text-gold/85'
+                                }`}
+                                title={
+                                  bookingUnderstaffed
+                                    ? `${assigned} assigned — needs at least ${minDet}`
+                                    : `${assigned} detailer${assigned === 1 ? '' : 's'} assigned`
+                                }
+                              >
                                 <Users className="w-2.5 h-2.5" />
-                                {booking.detailersAssigned ?? 1}
+                                {assigned}
+                                {minDet > 1 && (
+                                  <span className="text-[8px] opacity-70">
+                                    /{minDet}min
+                                  </span>
+                                )}
                                 {span > 1 ? ` · ${span}h` : ''}
                               </span>
                             </div>
                           </button>
-                        ))}
+                          );
+                        })}
 
                         {passThrough.map(({ booking }) => (
                           <div

@@ -9,7 +9,6 @@ import {
   useCallback,
 } from 'react';
 import {
-  STORAGE_KEYS,
   DEFAULT_SETTINGS,
   generateBookingId,
   getSlotsConsumed,
@@ -260,7 +259,7 @@ export function AppProvider({ children }) {
           isVip: booking.isVip,
           memberId: booking.memberId,
           coffeeOrder: booking.coffeeOrder,
-          status: booking.status || 'confirmed',
+          status: booking.status || 'pending',
           detailersAssigned: requested,
         }),
         min_detailers: minDetailers,

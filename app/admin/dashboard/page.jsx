@@ -14,21 +14,28 @@ import {
   Hourglass,
   Mail,
   Phone,
+  PhilippinePeso,
+  ClipboardCheck,
+  XCircle,
 } from 'lucide-react';
 import { AdminLayout } from '@/components/AdminLayout';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { useApp } from '@/context/AppContext';
-import { categoryColors } from '@/data/services';
-import { formatDateLong, toIsoDate } from '@/utils/bookingUtils';
+import { categoryColors, formatCurrency } from '@/data/services';
+import { formatDateLong, formatDateShort, toIsoDate } from '@/utils/bookingUtils';
 import { timeSlots } from '@/data/timeSlots';
+import { sendEmail } from '@/lib/sendEmail';
+import { bookingConfirmationHtml } from '@/lib/emailTemplates';
 
 function Dashboard() {
-  const { bookings, members, updateMemberStatus, showToast } = useApp();
+  const { bookings, members, updateMemberStatus, updateBookingStatus, showToast } = useApp();
   const today = toIsoDate(new Date());
 
   const stats = useMemo(() => {
     const confirmed = bookings.filter((b) => b.status === 'confirmed');
-    const todayB = confirmed.filter((b) => b.date === today);
+    const completed = bookings.filter((b) => b.status === 'completed');
+    const todayConfirmed = confirmed.filter((b) => b.date === today);
+    const todayCompleted = completed.filter((b) => b.date === today);
     const start = new Date();
     start.setHours(0, 0, 0, 0);
     const end = new Date(start);
@@ -42,19 +49,59 @@ function Dashboard() {
     const pendingMembers = members.filter(
       (m) => (m.status ?? 'approved') === 'pending'
     );
+    const pendingBookings = bookings
+      .filter((b) => b.status === 'pending')
+      .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
     const approvedMembers = members.filter(
       (m) => (m.status ?? 'approved') === 'approved'
     );
+    const todayEarnings = todayCompleted.reduce(
+      (sum, b) => sum + (b.servicePrice || 0), 0
+    );
+    const todayProjected = todayConfirmed.reduce(
+      (sum, b) => sum + (b.servicePrice || 0), 0
+    );
     return {
-      today: todayB.length,
+      today: todayConfirmed.length + todayCompleted.length,
       week: weekB.length,
       confirmed: confirmed.length,
       cancelled,
       vip,
       pendingMembers,
+      pendingBookings,
       approvedMembers: approvedMembers.length,
+      todayEarnings,
+      todayProjected,
     };
   }, [bookings, today, members]);
+
+  const confirmBooking = async (booking) => {
+    const result = await updateBookingStatus(booking.id, 'confirmed');
+    if (result?.error) { showToast(result.error, 'error'); return; }
+    sendEmail(
+      booking.email,
+      `Booking confirmed — ${booking.serviceName} on ${booking.date}`,
+      bookingConfirmationHtml({
+        id: booking.id,
+        customerName: booking.customerName,
+        serviceName: booking.serviceName,
+        servicePrice: booking.servicePrice,
+        date: booking.date,
+        time: booking.time,
+        vehicle: booking.vehicle,
+        vehicleYear: booking.vehicleYear,
+        isVip: booking.isVip,
+        coffeeOrder: booking.coffeeOrder,
+      })
+    );
+    showToast(`Booking confirmed for ${booking.customerName}. Confirmation email sent.`, 'success');
+  };
+
+  const rejectBooking = async (booking) => {
+    const result = await updateBookingStatus(booking.id, 'cancelled', 'Not confirmed by admin');
+    if (result?.error) { showToast(result.error, 'error'); return; }
+    showToast(`Booking from ${booking.customerName} declined.`, 'info');
+  };
 
   const decideMember = async (id, status, name) => {
     const result = await updateMemberStatus(id, status);
@@ -101,26 +148,98 @@ function Dashboard() {
           sub={`${stats.cancelled} cancelled`}
         />
         <StatCard
-          icon={Crown}
-          label="VIP Bookings"
-          value={stats.vip}
-          accent="text-gold"
-          sub={`${stats.approvedMembers} approved members`}
+          icon={PhilippinePeso}
+          label="Today's Revenue"
+          value={formatCurrency(stats.todayEarnings)}
+          accent="text-success"
+          sub={
+            stats.todayProjected > 0
+              ? `+${formatCurrency(stats.todayProjected)} projected`
+              : 'No confirmed jobs today'
+          }
         />
         <StatCard
           icon={Hourglass}
-          label="Pending VIP"
-          value={stats.pendingMembers.length}
+          label="Pending Approval"
+          value={stats.pendingBookings.length + stats.pendingMembers.length}
           accent={
-            stats.pendingMembers.length > 0 ? 'text-gold' : 'text-cream/60'
+            stats.pendingBookings.length + stats.pendingMembers.length > 0
+              ? 'text-gold'
+              : 'text-cream/60'
           }
           sub={
-            stats.pendingMembers.length > 0
-              ? 'Awaiting your approval'
+            stats.pendingBookings.length > 0
+              ? `${stats.pendingBookings.length} booking${stats.pendingBookings.length === 1 ? '' : 's'} awaiting`
               : 'Inbox clear'
           }
         />
       </div>
+
+      {stats.pendingBookings.length > 0 && (
+        <section className="glass-card rounded-md p-6 mb-6 border border-gold/30 animate-fade-in">
+          <div className="flex items-center justify-between mb-5 gap-3 flex-wrap">
+            <div>
+              <h2 className="font-serif text-2xl text-cream flex items-center gap-2">
+                <ClipboardCheck className="w-5 h-5 text-gold" />
+                Pending Booking Approvals
+              </h2>
+              <div className="text-muted text-sm mt-1">
+                Review and confirm or decline each request. Customers receive a
+                confirmation email only after you approve.
+              </div>
+            </div>
+            <span className="text-xs px-3 py-1 rounded-full bg-gold/15 border border-gold/40 text-gold">
+              {stats.pendingBookings.length} waiting
+            </span>
+          </div>
+
+          <ul className="divide-y divide-white/5">
+            {stats.pendingBookings.map((b) => (
+              <li
+                key={b.id}
+                className="py-4 grid md:grid-cols-[1fr_auto] gap-3 items-center"
+              >
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <span className="text-cream font-medium">{b.customerName}</span>
+                    {b.isVip && <Crown className="w-3.5 h-3.5 text-gold" />}
+                  </div>
+                  <div className="text-xs text-muted flex flex-wrap gap-x-4 gap-y-1 mt-1">
+                    <span className="inline-flex items-center gap-1.5">
+                      <Mail className="w-3 h-3 text-gold" />
+                      {b.email}
+                    </span>
+                    <span className="inline-flex items-center gap-1.5">
+                      <Calendar className="w-3 h-3 text-gold" />
+                      {formatDateShort(b.date)} &middot; {b.time}
+                    </span>
+                    <span className="inline-flex items-center gap-1.5">
+                      <Clock className="w-3 h-3 text-gold" />
+                      {b.serviceName} &middot; {formatCurrency(b.servicePrice)}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 justify-end">
+                  <button
+                    onClick={() => rejectBooking(b)}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 text-xs border border-white/10 rounded-sm text-cream/85 hover:border-danger/50 hover:text-danger transition-colors"
+                  >
+                    <XCircle className="w-3.5 h-3.5" />
+                    Decline
+                  </button>
+                  <button
+                    onClick={() => confirmBooking(b)}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 text-xs bg-gold text-obsidian font-semibold rounded-sm hover:bg-gold-light transition-colors"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    Confirm
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {stats.pendingMembers.length > 0 && (
         <section className="glass-card rounded-md p-6 mb-6 border border-gold/30 animate-fade-in">

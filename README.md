@@ -295,3 +295,13 @@ original themecolor:
 carlos.bautista@email.com
 
 0917 990 8877
+
+
+
+
+## NOTE:
+run line 12-15 in /supabase/migrations 
+
+-added admin confirmation flow
+-Earnings on dashboard
+-added about page
