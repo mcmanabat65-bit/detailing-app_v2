@@ -1,11 +1,12 @@
 'use client';
 
-import { Suspense, useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   ArrowLeft,
   ArrowRight,
   Calendar,
+  Car,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -15,9 +16,9 @@ import {
   Loader2,
   Users,
   User,
+  X,
 } from 'lucide-react';
 import { formatCurrency } from '@/data/services';
-import { coffeeOptions } from '@/data/timeSlots';
 import {
   formatDateLong,
   getSlotStatuses,
@@ -131,21 +132,126 @@ function StepDots({ step }) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// CarCombobox — searchable dropdown over the shared cars catalog.
+// Selecting a catalog entry auto-fills make/model/year. Typing a custom
+// value that doesn't match the catalog is still allowed (free-text fallback).
+// ---------------------------------------------------------------------------
+function CarCombobox({ cars, vehicle, vehicleYear, onChange }) {
+  const [query, setQuery] = useState(vehicle || '');
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  // Keep query in sync if parent clears the value externally
+  useEffect(() => { if (!vehicle) setQuery(''); }, [vehicle]);
+
+  // Close on outside click
+  useEffect(() => {
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const suggestions = useMemo(() => {
+    if (!query.trim()) return cars.slice(0, 8);
+    const q = query.toLowerCase();
+    return cars
+      .filter((c) =>
+        `${c.make} ${c.model} ${c.year}`.toLowerCase().includes(q)
+      )
+      .slice(0, 8);
+  }, [query, cars]);
+
+  const handleSelect = (car) => {
+    const label = `${car.make} ${car.model}`;
+    setQuery(label);
+    setOpen(false);
+    onChange({ vehicle: label, vehicleYear: String(car.year) });
+  };
+
+  const handleChange = (e) => {
+    const val = e.target.value;
+    setQuery(val);
+    setOpen(true);
+    onChange({ vehicle: val, vehicleYear });
+  };
+
+  const handleClear = () => {
+    setQuery('');
+    setOpen(false);
+    onChange({ vehicle: '', vehicleYear: '' });
+  };
+
+  return (
+    <div ref={ref} className="relative">
+      <Car className="w-4 h-4 text-gold absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none z-10" />
+      <input
+        type="text"
+        value={query}
+        onChange={handleChange}
+        onFocus={() => setOpen(true)}
+        className="w-full bg-[rgba(20,20,22,0.7)] border border-white/[0.08] rounded-[4px] py-[11px] pl-10 pr-8 text-[14px] text-[var(--color-cream)] placeholder-[var(--color-muted)] transition-colors focus:outline-none focus:border-gold/50"
+        placeholder="Search or type (e.g. Toyota Fortuner)"
+        autoComplete="off"
+      />
+      {query && (
+        <button
+          type="button"
+          onClick={handleClear}
+          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted hover:text-cream transition-colors"
+          aria-label="Clear"
+        >
+          <X className="w-3.5 h-3.5" />
+        </button>
+      )}
+      {open && suggestions.length > 0 && (
+        <ul className="absolute z-30 left-0 right-0 top-full mt-1 bg-surface border border-white/10 rounded-sm shadow-xl max-h-52 overflow-y-auto">
+          {suggestions.map((car) => (
+            <li key={car.id}>
+              <button
+                type="button"
+                onMouseDown={() => handleSelect(car)}
+                className="w-full text-left px-4 py-2.5 text-sm text-cream hover:bg-gold/10 hover:text-gold transition-colors flex items-center justify-between gap-3"
+              >
+                <span>{car.year} {car.make} {car.model}</span>
+                <span className="text-[10px] uppercase tracking-widest text-muted shrink-0">{car.size}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function BookingFlow() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const {
     services,
     getServiceById,
+    serviceCategories,
     addBooking,
     showToast,
     hydrated,
     bookings,
     blockedSlots,
     settings,
+    cars,
+    coffees,
     findApprovedMemberByEmail,
     getCarsForMember,
   } = useApp();
+
+  // Available coffees: only show enabled ones, sorted. Fall back to static list if DB not loaded yet.
+  const coffeeOptions = coffees.filter((c) => c.available !== false).map((c) => c.name);
+
+  // Category lookup: slug → { name, color }
+  const catMap = useMemo(() => {
+    const m = {};
+    serviceCategories.forEach((c) => { m[c.slug] = c; });
+    return m;
+  }, [serviceCategories]);
 
   const preSelectedId = searchParams.get('service');
   const [step, setStep] = useState(1);
@@ -334,7 +440,10 @@ function BookingFlow() {
           time,
           vehicle: vehicleStr,
           vehicleYear: vehicleYearStr,
-        })
+          isVip,
+          coffeeOrder: isVip ? details.coffeeOrder : '',
+        }),
+        (err) => showToast(`Confirmation email failed: ${err}`, 'error')
       );
       router.push(`/confirmation/${booking.id}`);
     } finally {
@@ -373,8 +482,8 @@ function BookingFlow() {
                   }`}
                 >
                   <div className="flex items-start justify-between mb-3">
-                    <span className="text-xs uppercase tracking-widest text-gold/80">
-                      {s.category}
+                    <span className={`text-xs uppercase tracking-widest px-2 py-0.5 rounded-sm ${catMap[s.category]?.color ?? 'text-gold/80'}`}>
+                      {catMap[s.category]?.name ?? s.category}
                     </span>
                     {selected && (
                       <div className="w-6 h-6 rounded-full bg-gold text-obsidian flex items-center justify-center">
@@ -512,7 +621,7 @@ function BookingFlow() {
                       <span>{s.time}</span>
                       {s.available && (
                         <span
-                          className={`block text-[10px] mt-0.5 inline-flex items-center gap-1 justify-center w-full ${
+                          className={`flex text-[10px] mt-0.5 items-center gap-1 justify-center w-full ${
                             selected ? 'text-obsidian/70' : 'text-gold/80'
                           }`}
                         >
@@ -613,15 +722,13 @@ function BookingFlow() {
                   {!selectedCarId && (
                     <div className="grid md:grid-cols-[1fr_120px] gap-5 mt-3">
                       <Field label="Vehicle Make & Model *">
-                        <input
-                          type="text"
-                          required
-                          value={details.vehicle}
-                          onChange={(e) =>
-                            setDetails((d) => ({ ...d, vehicle: e.target.value }))
+                        <CarCombobox
+                          cars={cars}
+                          vehicle={details.vehicle}
+                          vehicleYear={details.vehicleYear}
+                          onChange={({ vehicle, vehicleYear }) =>
+                            setDetails((d) => ({ ...d, vehicle, vehicleYear }))
                           }
-                          className="input"
-                          placeholder="Toyota Fortuner"
                         />
                       </Field>
                       <Field label="Year *">
@@ -644,15 +751,13 @@ function BookingFlow() {
               ) : (
                 <div className="grid md:grid-cols-[1fr_120px] gap-5">
                   <Field label="Vehicle Make & Model *">
-                    <input
-                      type="text"
-                      required
-                      value={details.vehicle}
-                      onChange={(e) =>
-                        setDetails((d) => ({ ...d, vehicle: e.target.value }))
+                    <CarCombobox
+                      cars={cars}
+                      vehicle={details.vehicle}
+                      vehicleYear={details.vehicleYear}
+                      onChange={({ vehicle, vehicleYear }) =>
+                        setDetails((d) => ({ ...d, vehicle, vehicleYear }))
                       }
-                      className="input"
-                      placeholder="Toyota Fortuner"
                     />
                   </Field>
                   <Field label="Year *">
@@ -694,11 +799,11 @@ function BookingFlow() {
                   </div>
                   <p className="text-xs text-cream/70 mb-4">
                     Welcome back, {vipMember.name.split(' ')[0]}. Your coffee
-                    is on us, and the 10% member discount has been applied.
+                    is on us.
                   </p>
-                  <Field label="Your coffee while you wait">
+                  <Field label="Select your coffee while you wait">
                     <div className="relative">
-                      <Coffee className="w-4 h-4 text-gold absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                      <Coffee className="w-4 h-4 text-gold absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none z-10" />
                       <select
                         value={details.coffeeOrder}
                         onChange={(e) =>
@@ -707,7 +812,7 @@ function BookingFlow() {
                             coffeeOrder: e.target.value,
                           }))
                         }
-                        className="input pl-10"
+                        className="w-full appearance-none bg-[rgba(20,20,22,0.7)] border border-white/[0.08] rounded-[4px] py-[11px] pl-10 pr-4 text-[14px] text-[var(--color-cream)] focus:outline-none focus:border-gold/50 transition-colors"
                       >
                         <option value="">Choose a drink…</option>
                         {coffeeOptions.map((c) => (

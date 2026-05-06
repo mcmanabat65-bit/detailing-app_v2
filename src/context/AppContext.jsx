@@ -34,6 +34,8 @@ export function AppProvider({ children }) {
   const [blockedSlots, setBlockedSlots] = useState([]);
   const [cars, setCars] = useState([]);
   const [memberCars, setMemberCars] = useState([]);
+  const [coffees, setCoffees] = useState([]);
+  const [serviceCategories, setServiceCategories] = useState([]);
   const [settings, setSettings] = useState({ ...DEFAULT_SETTINGS });
   const [adminSession, setAdminSessionState] = useState(false);
   const [hydrated, setHydrated] = useState(false);
@@ -123,6 +125,34 @@ export function AppProvider({ children }) {
     setMemberCars((data || []).map(fromRow));
   }, []);
 
+  const refetchCoffees = useCallback(async () => {
+    if (!supabase) return;
+    const { data, error } = await supabase
+      .from('coffees')
+      .select('*')
+      .order('sort_order', { ascending: true })
+      .order('name', { ascending: true });
+    if (error) {
+      console.error('[coffees] fetch error', error);
+      return;
+    }
+    setCoffees((data || []).map(fromRow));
+  }, []);
+
+  const refetchServiceCategories = useCallback(async () => {
+    if (!supabase) return;
+    const { data, error } = await supabase
+      .from('service_categories')
+      .select('*')
+      .order('sort_order', { ascending: true })
+      .order('name', { ascending: true });
+    if (error) {
+      console.error('[service_categories] fetch error', error);
+      return;
+    }
+    setServiceCategories((data || []).map(fromRow));
+  }, []);
+
   const refetchSettings = useCallback(async () => {
     if (!supabase) return;
     const { data, error } = await supabase
@@ -169,6 +199,8 @@ export function AppProvider({ children }) {
       refetchBlockedSlots(),
       refetchCars(),
       refetchMemberCars(),
+      refetchCoffees(),
+      refetchServiceCategories(),
       refetchSettings(),
     ]).finally(() => {
       settled = true;
@@ -177,7 +209,7 @@ export function AppProvider({ children }) {
     });
 
     return () => subscription.unsubscribe();
-  }, [refetchServices, refetchBookings, refetchMembers, refetchBlockedSlots, refetchCars, refetchMemberCars, refetchSettings]);
+  }, [refetchServices, refetchBookings, refetchMembers, refetchBlockedSlots, refetchCars, refetchMemberCars, refetchCoffees, refetchServiceCategories, refetchSettings]);
 
   // ===== Services =====
   const upsertService = useCallback(
@@ -576,6 +608,80 @@ export function AppProvider({ children }) {
     [memberCars, cars]
   );
 
+  // ===== Coffees =====
+  const upsertCoffee = useCallback(
+    async (coffee) => {
+      if (!supabase) return { error: 'Database not connected.' };
+      const row = {
+        name: (coffee.name || '').trim(),
+        available: coffee.available !== false,
+        sort_order: Number(coffee.sortOrder) || 0,
+      };
+      if (!row.name) return { error: 'Name is required.' };
+      let query;
+      if (coffee.id) {
+        query = supabase.from('coffees').update(row).eq('id', coffee.id).select().single();
+      } else {
+        query = supabase.from('coffees').insert(row).select().single();
+      }
+      const { data, error } = await query;
+      if (error) return { error: error.message };
+      await refetchCoffees();
+      return fromRow(data);
+    },
+    [refetchCoffees]
+  );
+
+  const deleteCoffee = useCallback(
+    async (id) => {
+      if (!supabase) return { error: 'Database not connected.' };
+      const { error } = await supabase.from('coffees').delete().eq('id', id);
+      if (error) return { error: error.message };
+      await refetchCoffees();
+      return { ok: true };
+    },
+    [refetchCoffees]
+  );
+
+  // ===== Service Categories =====
+  const upsertServiceCategory = useCallback(
+    async (cat) => {
+      if (!supabase) return { error: 'Database not connected.' };
+      const name = (cat.name || '').trim();
+      if (!name) return { error: 'Name is required.' };
+      const slug = (cat.slug || name).trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+      if (!slug) return { error: 'Slug is required.' };
+      const row = {
+        name,
+        slug,
+        color: (cat.color || '').trim() || 'bg-white/10 text-cream',
+        sort_order: Number(cat.sortOrder) || 0,
+      };
+      let query;
+      if (cat.id) {
+        query = supabase.from('service_categories').update(row).eq('id', cat.id).select().single();
+      } else {
+        query = supabase.from('service_categories').insert(row).select().single();
+      }
+      const { data, error } = await query;
+      if (error) return { error: error.message };
+      await refetchServiceCategories();
+      return fromRow(data);
+    },
+    [refetchServiceCategories]
+  );
+
+  const deleteServiceCategory = useCallback(
+    async (id) => {
+      if (!supabase) return { error: 'Database not connected.' };
+      const { error } = await supabase.from('service_categories').delete().eq('id', id);
+      if (error) return { error: error.message };
+      await refetchServiceCategories();
+      return { ok: true };
+    },
+    [refetchServiceCategories]
+  );
+
   // ===== Settings =====
   const updateSettings = useCallback(
     async (next) => {
@@ -631,6 +737,12 @@ export function AppProvider({ children }) {
       blockedSlots,
       cars,
       memberCars,
+      coffees,
+      upsertCoffee,
+      deleteCoffee,
+      serviceCategories,
+      upsertServiceCategory,
+      deleteServiceCategory,
       settings,
       adminSession,
       hydrated,
@@ -668,6 +780,12 @@ export function AppProvider({ children }) {
       blockedSlots,
       cars,
       memberCars,
+      coffees,
+      upsertCoffee,
+      deleteCoffee,
+      serviceCategories,
+      upsertServiceCategory,
+      deleteServiceCategory,
       settings,
       adminSession,
       hydrated,

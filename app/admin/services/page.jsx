@@ -15,28 +15,19 @@ import {
   ChevronUp,
   Check,
   AlertTriangle,
+  Search,
 } from 'lucide-react';
 import { AdminLayout } from '@/components/AdminLayout';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { useApp } from '@/context/AppContext';
 import { formatCurrency } from '@/data/services';
 
-const CATEGORIES = ['exterior', 'full', 'premium', 'specialty', 'interior'];
-
-const CATEGORY_COLORS = {
-  exterior:  'bg-blue-500/15 text-blue-400',
-  full:      'bg-success/15 text-success',
-  premium:   'bg-purple-500/15 text-purple-400',
-  specialty: 'bg-gold/15 text-gold',
-  interior:  'bg-orange-400/15 text-orange-300',
-};
-
 const EMPTY_FORM = {
   id: '',
   name: '',
   price: '',
   duration: '',
-  category: 'exterior',
+  category: '',
   popular: false,
   minDetailers: 1,
   recommendedDetailers: 1,
@@ -44,9 +35,23 @@ const EMPTY_FORM = {
   inclusions: [''],
 };
 
-function ServiceForm({ initial, onSave, onCancel, isSaving }) {
+function FormField({ label, children, error, hint }) {
+  return (
+    <label className="block">
+      <div className="text-[11px] uppercase tracking-widest text-cream/70 mb-1.5">{label}</div>
+      {children}
+      {hint && !error && <div className="text-[11px] text-muted mt-1">{hint}</div>}
+      {error && <div className="text-[11px] text-danger mt-1">{error}</div>}
+    </label>
+  );
+}
+
+function ServiceForm({ initial, onSave, onCancel, isSaving, categories }) {
+  const defaultCategory = categories[0]?.slug ?? '';
+
   const [form, setForm] = useState(() => ({
     ...EMPTY_FORM,
+    category: defaultCategory,
     ...initial,
     inclusions: initial?.inclusions?.length ? [...initial.inclusions] : [''],
   }));
@@ -160,15 +165,21 @@ function ServiceForm({ initial, onSave, onCancel, isSaving }) {
         </FormField>
 
         <FormField label="Category *">
-          <select
-            value={form.category}
-            onChange={(e) => set('category', e.target.value)}
-            className="admin-input"
-          >
-            {CATEGORIES.map((c) => (
-              <option key={c} value={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>
-            ))}
-          </select>
+          <div className="relative">
+            <select
+              value={form.category}
+              onChange={(e) => set('category', e.target.value)}
+              className="admin-input appearance-none pr-9"
+            >
+              {categories.length === 0 && (
+                <option value="">No categories — add one first</option>
+              )}
+              {categories.map((c) => (
+                <option key={c.id} value={c.slug}>{c.name}</option>
+              ))}
+            </select>
+            <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted" />
+          </div>
         </FormField>
 
         <FormField label="Sort Order" hint="Lower = appears first">
@@ -207,17 +218,17 @@ function ServiceForm({ initial, onSave, onCancel, isSaving }) {
         <button
           type="button"
           onClick={() => set('popular', !form.popular)}
-          className={`w-10 h-6 rounded-full transition-colors relative ${
+          className={`w-10 h-6 rounded-full transition-colors relative overflow-hidden shrink-0 ${
             form.popular ? 'bg-gold' : 'bg-white/10'
           }`}
         >
-          <span className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${
-            form.popular ? 'translate-x-5' : 'translate-x-1'
+          <span className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${
+            form.popular ? 'translate-x-4' : 'translate-x-0'
           }`} />
         </button>
         <div>
           <div className="text-sm text-cream">Mark as Popular</div>
-          <div className="text-xs text-muted">Shows a "Popular" badge on the public site</div>
+          <div className="text-xs text-muted">Shows a &quot;Popular&quot; badge on the public site</div>
         </div>
       </div>
 
@@ -289,21 +300,61 @@ function ServiceForm({ initial, onSave, onCancel, isSaving }) {
           )}
         </button>
       </div>
+
+      <style jsx>{`
+        .admin-input {
+          width: 100%;
+          background: rgba(20, 20, 22, 0.7);
+          border: 1px solid rgba(245, 240, 232, 0.08);
+          border-radius: 4px;
+          padding: 10px 12px;
+          color: var(--color-cream);
+          font-size: 14px;
+          transition: border-color 0.2s;
+        }
+        .admin-input:focus {
+          outline: none;
+          border-color: rgba(201, 168, 76, 0.5);
+        }
+        .admin-input::placeholder {
+          color: var(--color-muted);
+        }
+      `}</style>
     </form>
   );
 }
 
 function ServicesAdmin() {
-  const { services, upsertService, deleteService, showToast } = useApp();
+  const { services, upsertService, deleteService, serviceCategories, showToast } = useApp();
 
-  const [modal, setModal] = useState(null); // null | { mode: 'add' | 'edit', service?: {} }
+  const [modal, setModal] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [query, setQuery] = useState('');
 
   const sorted = useMemo(
     () => [...services].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)),
     [services]
   );
+
+  const catMap = useMemo(() => {
+    const m = {};
+    serviceCategories.forEach((c) => { m[c.slug] = c; });
+    return m;
+  }, [serviceCategories]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return sorted;
+    return sorted.filter(
+      (s) =>
+        s.name.toLowerCase().includes(q) ||
+        (s.category || '').toLowerCase().includes(q) ||
+        (catMap[s.category]?.name || '').toLowerCase().includes(q)
+    );
+  }, [sorted, query, catMap]);
+
+  const getCatColor = (slug) => catMap[slug]?.color ?? 'bg-white/10 text-cream';
 
   const openAdd = () => setModal({ mode: 'add' });
   const openEdit = (svc) => setModal({ mode: 'edit', service: svc });
@@ -317,10 +368,7 @@ function ServicesAdmin() {
       showToast(result.error, 'error');
       return;
     }
-    showToast(
-      modal?.mode === 'edit' ? 'Service updated.' : 'Service added.',
-      'success'
-    );
+    showToast(modal?.mode === 'edit' ? 'Service updated.' : 'Service added.', 'success');
     closeModal();
   };
 
@@ -335,34 +383,49 @@ function ServicesAdmin() {
   return (
     <AdminLayout title="Services">
       {/* Header row */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="text-sm text-muted">
-          <span className="text-cream">{services.length}</span> service{services.length !== 1 ? 's' : ''} configured
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-6">
+        {/* Search */}
+        <div className="relative flex-1 max-w-xs">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted pointer-events-none" />
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search services…"
+            className="w-full bg-surface/70 border border-white/10 rounded-sm py-2.5 pl-9 pr-3 text-sm text-cream placeholder-[var(--color-muted)] focus:outline-none focus:border-gold/50 transition-colors"
+          />
         </div>
-        <button
-          onClick={openAdd}
-          className="inline-flex items-center gap-2 px-4 py-2.5 bg-gold text-obsidian font-semibold text-sm rounded-sm hover:bg-gold-light transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          Add Service
-        </button>
+
+        <div className="flex items-center gap-3 sm:ml-auto">
+          {/* <div className="text-sm text-muted whitespace-nowrap">
+            <span className="text-cream">{filtered.length}</span>
+            {query ? ` of ${services.length}` : ''} service{services.length !== 1 ? 's' : ''}
+          </div> */}
+          <button
+            onClick={openAdd}
+            className="inline-flex items-center gap-2 px-4 py-2.5 bg-gold text-obsidian font-semibold text-sm rounded-sm hover:bg-gold-light transition-colors whitespace-nowrap"
+          >
+            <Plus className="w-4 h-4" />
+            Add Service
+          </button>
+        </div>
       </div>
 
       {/* Service cards */}
-      {sorted.length === 0 ? (
+      {filtered.length === 0 ? (
         <div className="glass-card rounded-md py-20 text-center text-muted">
-          No services yet. Add your first service package.
+          {query ? `No services match "${query}".` : 'No services yet. Add your first service package.'}
         </div>
       ) : (
         <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {sorted.map((svc) => (
+          {filtered.map((svc) => (
             <div key={svc.id} className="glass-card rounded-md p-5 flex flex-col gap-4">
               {/* Top */}
               <div className="flex items-start justify-between gap-2">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                    <span className={`text-[10px] uppercase tracking-widest px-2 py-0.5 rounded-sm ${CATEGORY_COLORS[svc.category] ?? 'bg-white/10 text-cream'}`}>
-                      {svc.category}
+                    <span className={`text-[10px] uppercase tracking-widest px-2 py-0.5 rounded-sm ${getCatColor(svc.category)}`}>
+                      {catMap[svc.category]?.name ?? svc.category}
                     </span>
                     {svc.popular && (
                       <span className="text-[10px] uppercase tracking-widest px-2 py-0.5 rounded-sm bg-gold/15 text-gold flex items-center gap-1">
@@ -457,6 +520,7 @@ function ServicesAdmin() {
               onSave={handleSave}
               onCancel={closeModal}
               isSaving={saving}
+              categories={serviceCategories}
             />
           </div>
         </div>
@@ -507,38 +571,7 @@ function ServicesAdmin() {
           </div>
         </div>
       )}
-
-      <style jsx>{`
-        .admin-input {
-          width: 100%;
-          background: rgba(20, 20, 22, 0.7);
-          border: 1px solid rgba(245, 240, 232, 0.08);
-          border-radius: 4px;
-          padding: 10px 12px;
-          color: var(--color-cream);
-          font-size: 14px;
-          transition: border-color 0.2s;
-        }
-        .admin-input:focus {
-          outline: none;
-          border-color: rgba(0, 112, 74, 0.5);
-        }
-        .admin-input::placeholder {
-          color: var(--color-muted);
-        }
-      `}</style>
     </AdminLayout>
-  );
-}
-
-function FormField({ label, children, error, hint }) {
-  return (
-    <label className="block">
-      <div className="text-[11px] uppercase tracking-widest text-cream/70 mb-1.5">{label}</div>
-      {children}
-      {hint && !error && <div className="text-[11px] text-muted mt-1">{hint}</div>}
-      {error && <div className="text-[11px] text-danger mt-1">{error}</div>}
-    </label>
   );
 }
 

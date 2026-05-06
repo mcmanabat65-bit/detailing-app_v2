@@ -5,6 +5,28 @@
 -- =====================================================================
 
 -- ---------------------------------------------------------------------
+-- Service Categories
+-- ---------------------------------------------------------------------
+insert into service_categories (name, slug, color, sort_order) values
+  ('Exterior',  'exterior',  'bg-blue-500/15 text-blue-400',     1),
+  ('Full',      'full',      'bg-success/15 text-success',       2),
+  ('Premium',   'premium',   'bg-purple-500/15 text-purple-400', 3),
+  ('Specialty', 'specialty', 'bg-gold/15 text-gold',             4),
+  ('Interior',  'interior',  'bg-orange-400/15 text-orange-300', 5)
+on conflict (lower(slug)) do nothing;
+
+-- ---------------------------------------------------------------------
+-- Coffees
+-- ---------------------------------------------------------------------
+insert into coffees (name, available, sort_order) values
+  ('Macchiato',    true, 1),
+  ('Brewed Coffee',true, 2),
+  ('Cappuccino',   true, 3),
+  ('Americano',    true, 4),
+  ('Latte',        true, 5)
+on conflict (lower(name)) do nothing;
+
+-- ---------------------------------------------------------------------
 -- Members (7 — mixed pending / approved / rejected)
 -- ---------------------------------------------------------------------
 insert into members (id, name, email, phone, member_since, status, decided_at) values
