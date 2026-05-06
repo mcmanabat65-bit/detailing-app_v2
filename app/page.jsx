@@ -19,13 +19,21 @@ import { fetchServices } from '@/lib/supabase-server';
 const features = [
   {
     icon: Award,
-    title: 'Certified Detailers',
-    body: 'Our team is trained and certified by international detailing institutes — every wash is artistry, not assembly-line.',
+    title: 'Experienced Detailers',
+    bullets: [
+      { heading: 'Masters of the Shine', desc: 'Our seasoned pros bring years of expertise to every vehicle, delivering flawless finishes and showroom-level care.' },
+      { heading: 'Detail Obsessed', desc: 'From hidden crevices to paint perfection, nothing escapes their trained eye.' },
+      { heading: 'Trusted Results', desc: 'Passion, skill, and precision — your car deserves nothing less.' },
+    ],
   },
   {
     icon: Sparkles,
     title: 'Premium Products',
-    body: "Only Koch-Chemie, Gyeon, and Meguiar's flagship lines touch your paintwork. No supermarket shampoos. Ever.",
+    bullets: [
+      { heading: 'Top-Tier Care', desc: 'We use only premium-grade products for unmatched shine and protection.' },
+      { heading: 'Built to Last', desc: 'Advanced coatings and finishes keep your car looking new, longer.' },
+      { heading: 'Safe & Effective', desc: 'Gentle on your vehicle, tough on dirt.' },
+    ],
   },
   {
     icon: Crown,
@@ -147,7 +155,21 @@ export default async function LandingPage() {
                 <h3 className="font-serif text-2xl text-cream mb-3">
                   {f.title}
                 </h3>
-                <p className="text-muted leading-relaxed text-sm">{f.body}</p>
+                {f.bullets ? (
+                  <ul className="space-y-3">
+                    {f.bullets.map((b) => (
+                      <li key={b.heading} className="flex items-start gap-2.5">
+                        <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-gold shrink-0" />
+                        <div>
+                          <span className="text-cream text-sm font-medium">{b.heading}</span>
+                          <p className="text-muted text-sm leading-relaxed mt-0.5">{b.desc}</p>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-muted leading-relaxed text-sm">{f.body}</p>
+                )}
               </div>
             );
           })}

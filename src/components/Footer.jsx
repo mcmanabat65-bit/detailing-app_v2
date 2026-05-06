@@ -29,18 +29,18 @@ export function Footer() {
             <li className="flex items-start gap-2">
               <MapPin className="w-4 h-4 mt-0.5 text-gold shrink-0" />
               <span>
-                Unit 12, Acacia Estates Drive,
+                Brgy. San Francisco Halang Rd,
                 <br />
-                Taguig City, Metro Manila
+                Biñan, Philippines 4024
               </span>
             </li>
             <li className="flex items-center gap-2">
               <Phone className="w-4 h-4 text-gold" />
-              +63 917 555 0123
+              +63 927 691 4863
             </li>
             <li className="flex items-center gap-2">
               <Mail className="w-4 h-4 text-gold" />
-              hello@donmigueldetailing.ph
+              mcmanabat@yahoo.com
             </li>
           </ul>
         </div>
@@ -78,8 +78,7 @@ export function Footer() {
             Hours
           </h4>
           <ul className="space-y-2 text-sm text-muted">
-            <li>Mon – Sat &middot; 8:00 AM – 5:00 PM</li>
-            <li>Sun &middot; Closed</li>
+            <li>Mon – Sun &middot; 7:00 AM – 5:00 PM</li>
           </ul>
           <div className="flex items-center gap-3 mt-5">
             <a
