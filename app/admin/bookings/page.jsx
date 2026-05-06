@@ -7,6 +7,7 @@ import {
   Download,
   Trash2,
   CheckCircle2,
+  BadgeCheck,
   XCircle,
   Crown,
   Coffee,
@@ -19,6 +20,8 @@ import {
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react';
+import { sendEmail } from '@/lib/sendEmail';
+import { bookingConfirmationHtml } from '@/lib/emailTemplates';
 import { AdminLayout } from '@/components/AdminLayout';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { useApp } from '@/context/AppContext';
@@ -135,9 +138,29 @@ function BookingsTable() {
   };
 
   const setStatus = async (id, status, successMessage) => {
+    const booking = bookings.find((b) => b.id === id);
+    const wasPending = booking?.status === 'pending';
     const result = await updateBookingStatus(id, status);
-    if (result?.error) showToast(result.error, 'error');
-    else if (successMessage) showToast(successMessage, 'info');
+    if (result?.error) { showToast(result.error, 'error'); return; }
+    if (status === 'confirmed' && wasPending && booking) {
+      sendEmail(
+        booking.email,
+        `Booking confirmed — ${booking.serviceName} on ${booking.date}`,
+        bookingConfirmationHtml({
+          id: booking.id,
+          customerName: booking.customerName,
+          serviceName: booking.serviceName,
+          servicePrice: booking.servicePrice,
+          date: booking.date,
+          time: booking.time,
+          vehicle: booking.vehicle,
+          vehicleYear: booking.vehicleYear,
+          isVip: booking.isVip,
+          coffeeOrder: booking.coffeeOrder,
+        })
+      );
+    }
+    if (successMessage) showToast(successMessage, 'info');
   };
 
   const openCancelModal = (booking) => {
@@ -209,7 +232,9 @@ function BookingsTable() {
             className="bg-surface/70 border border-white/10 rounded-sm py-2.5 px-3 text-sm text-cream"
           >
             <option value="all">All status</option>
+            <option value="pending">Pending</option>
             <option value="confirmed">Confirmed</option>
+            <option value="completed">Completed</option>
             <option value="cancelled">Cancelled</option>
             <option value="no_show">No-show</option>
           </select>
@@ -256,8 +281,9 @@ function BookingsTable() {
                 const count = b.detailersAssigned ?? 1;
                 const svc = getServiceById(b.serviceId);
                 const minDetailers = svc?.minDetailers ?? 1;
-                const canAdd = b.status === 'confirmed' && count < headroom;
-                const canRemove = b.status === 'confirmed' && count > minDetailers;
+                const isEditable = b.status === 'confirmed' || b.status === 'pending';
+                const canAdd = isEditable && count < headroom;
+                const canRemove = isEditable && count > minDetailers;
 
                 return (
                   <tr key={b.id} className="border-b border-white/5 hover:bg-white/[0.02]">
@@ -324,7 +350,7 @@ function BookingsTable() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-1">
-                        {b.status !== 'confirmed' && (
+                        {b.status !== 'confirmed' && b.status !== 'completed' && (
                           <button
                             onClick={() => setStatus(b.id, 'confirmed')}
                             aria-label="Mark confirmed"
@@ -334,7 +360,17 @@ function BookingsTable() {
                             <CheckCircle2 className="w-4 h-4" />
                           </button>
                         )}
-                        {b.status !== 'no_show' && (
+                        {b.status === 'confirmed' && (
+                          <button
+                            onClick={() => setStatus(b.id, 'completed', 'Marked as completed.')}
+                            aria-label="Mark completed"
+                            title="Mark as completed"
+                            className="p-2 text-gold hover:bg-gold/10 rounded-sm transition-colors"
+                          >
+                            <BadgeCheck className="w-4 h-4" />
+                          </button>
+                        )}
+                        {b.status !== 'no_show' && b.status !== 'completed' && (
                           <button
                             onClick={() => setStatus(b.id, 'no_show', 'Marked as no-show — detailers freed.')}
                             aria-label="Mark no-show"
@@ -576,14 +612,23 @@ function Pagination({ page, totalPages, onPageChange }) {
 }
 
 function StatusBadge({ status }) {
+  if (status === 'pending') return (
+    <span className="text-[10px] uppercase tracking-widest px-2 py-1 rounded-sm bg-gold/15 text-gold border border-gold/30">Pending</span>
+  );
+  if (status === 'confirmed') return (
+    <span className="text-[10px] uppercase tracking-widest px-2 py-1 rounded-sm bg-success/15 text-success">Confirmed</span>
+  );
+  if (status === 'completed') return (
+    <span className="text-[10px] uppercase tracking-widest px-2 py-1 rounded-sm bg-success/25 text-success border border-success/40">Completed</span>
+  );
   if (status === 'cancelled') return (
     <span className="text-[10px] uppercase tracking-widest px-2 py-1 rounded-sm bg-danger/15 text-danger">Cancelled</span>
   );
   if (status === 'no_show') return (
-    <span className="text-[10px] uppercase tracking-widest px-2 py-1 rounded-sm bg-gold/15 text-gold">No-show</span>
+    <span className="text-[10px] uppercase tracking-widest px-2 py-1 rounded-sm bg-muted/20 text-muted">No-show</span>
   );
   return (
-    <span className="text-[10px] uppercase tracking-widest px-2 py-1 rounded-sm bg-success/15 text-success">Confirmed</span>
+    <span className="text-[10px] uppercase tracking-widest px-2 py-1 rounded-sm bg-white/5 text-muted">{status}</span>
   );
 }
 

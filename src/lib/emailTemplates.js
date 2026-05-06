@@ -7,7 +7,7 @@ const shell = (content) => `<!DOCTYPE html>
 <body style="margin:0;padding:0;background:#0A0A0B;font-family:Arial,sans-serif">
 <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:40px 16px">
 <table width="100%" cellpadding="0" cellspacing="0" style="max-width:560px">
-<tr><td style="background:#141416;border:1px solid rgba(201,168,76,0.25);border-radius:8px;padding:36px 32px">
+<tr><td style="background:#141416;border:1px solid rgba(0,112,74,0.25);border-radius:8px;padding:36px 32px">
 ${content}
 <p style="color:#6B6B72;font-size:12px;text-align:center;margin:24px 0 0">
   Samahuzai Carwash and Auto Detailing
@@ -21,6 +21,54 @@ const row = (label, value) =>
     <td style="color:#6B6B72;font-size:13px;padding:5px 0;width:40%">${e(label)}</td>
     <td style="color:#F5F0E8;font-size:13px;padding:5px 0;text-align:right">${value}</td>
   </tr>`;
+
+export const bookingReceivedHtml = ({
+  id,
+  customerName,
+  serviceName,
+  servicePrice,
+  date,
+  time,
+  vehicle,
+  vehicleYear,
+}) => {
+  const price = `&#8369;${Number(servicePrice ?? 0).toLocaleString('en-PH')}`;
+  const firstName = e(customerName).split(' ')[0];
+
+  return shell(`
+    <div style="text-align:center;margin-bottom:28px">
+      <div style="color:#00704A;font-size:10px;letter-spacing:0.3em;text-transform:uppercase;margin-bottom:8px">
+        Received
+      </div>
+      <h1 style="color:#F5F0E8;font-size:26px;font-family:Georgia,serif;margin:0">
+        We received your request.
+      </h1>
+    </div>
+
+    <div style="background:#1C1C1F;border-radius:6px;padding:20px;margin-bottom:20px">
+      <p style="color:#00704A;font-size:10px;letter-spacing:0.2em;text-transform:uppercase;margin:0 0 12px">
+        Booking Details
+      </p>
+      <table width="100%" cellpadding="0" cellspacing="0">
+        ${row('Reference', `<span style="font-family:monospace;font-size:12px">${e(id)}</span>`)}
+        ${row('Package', e(serviceName))}
+        ${row('Date', e(date))}
+        ${row('Time', e(time))}
+        ${row('Vehicle', `${e(vehicleYear)} ${e(vehicle)}`)}
+        ${row('Total', `<span style="color:#00704A;font-size:15px;font-weight:600">${price}</span>`)}
+      </table>
+    </div>
+
+    <div style="background:rgba(0,112,74,0.06);border:1px solid rgba(0,112,74,0.25);border-radius:6px;padding:14px 16px;margin-bottom:20px">
+      <p style="color:#00704A;font-size:13px;margin:0;line-height:1.6">
+        &#8987; Your booking is <strong>pending confirmation</strong>. We&rsquo;ll send you another email once it&rsquo;s approved.
+      </p>
+    </div>
+
+    <p style="color:#F5F0E8;font-size:14px;text-align:center;margin:0">
+      Thank you, ${firstName}. We&rsquo;ll be in touch shortly.
+    </p>`);
+};
 
 export const bookingConfirmationHtml = ({
   id,
@@ -39,7 +87,7 @@ export const bookingConfirmationHtml = ({
 
   return shell(`
     <div style="text-align:center;margin-bottom:28px">
-      <div style="color:#C9A84C;font-size:10px;letter-spacing:0.3em;text-transform:uppercase;margin-bottom:8px">
+      <div style="color:#00704A;font-size:10px;letter-spacing:0.3em;text-transform:uppercase;margin-bottom:8px">
         Confirmed
       </div>
       <h1 style="color:#F5F0E8;font-size:26px;font-family:Georgia,serif;margin:0">
@@ -48,7 +96,7 @@ export const bookingConfirmationHtml = ({
     </div>
 
     <div style="background:#1C1C1F;border-radius:6px;padding:20px;margin-bottom:20px">
-      <p style="color:#C9A84C;font-size:10px;letter-spacing:0.2em;text-transform:uppercase;margin:0 0 12px">
+      <p style="color:#00704A;font-size:10px;letter-spacing:0.2em;text-transform:uppercase;margin:0 0 12px">
         Booking Details
       </p>
       <table width="100%" cellpadding="0" cellspacing="0">
@@ -57,8 +105,8 @@ export const bookingConfirmationHtml = ({
         ${row('Date', e(date))}
         ${row('Time', e(time))}
         ${row('Vehicle', `${e(vehicleYear)} ${e(vehicle)}`)}
-        ${row('Total', `<span style="color:#C9A84C;font-size:15px;font-weight:600">${price}</span>`)}
-        ${isVip && coffeeOrder ? row('Coffee', `<span style="color:#C9A84C">&#9749; ${e(coffeeOrder)} &mdash; on us</span>`) : ''}
+        ${row('Total', `<span style="color:#00704A;font-size:15px;font-weight:600">${price}</span>`)}
+        ${isVip && coffeeOrder ? row('Coffee', `<span style="color:#00704A">&#9749; ${e(coffeeOrder)} &mdash; on us</span>`) : ''}
       </table>
     </div>
 
@@ -79,9 +127,9 @@ export const membershipStatusHtml = (member, status) => {
        time. You are welcome to reapply in the future.`;
 
   const perksBlock = isApproved
-    ? `<div style="background:rgba(201,168,76,0.08);border:1px solid rgba(201,168,76,0.25);
+    ? `<div style="background:rgba(0,112,74,0.08);border:1px solid rgba(0,112,74,0.25);
                    border-radius:6px;padding:16px;margin:20px 0">
-        <p style="color:#C9A84C;font-size:10px;letter-spacing:0.2em;text-transform:uppercase;margin:0 0 10px">
+        <p style="color:#00704A;font-size:10px;letter-spacing:0.2em;text-transform:uppercase;margin:0 0 10px">
           Your perks
         </p>
         <ul style="color:#F5F0E8;font-size:13px;margin:0;padding-left:18px;line-height:2">

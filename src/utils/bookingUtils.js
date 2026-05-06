@@ -29,7 +29,8 @@ export const isActiveBooking = (b) =>
  */
 export const getSlotsConsumed = (duration = '') => {
   const d = duration.toLowerCase();
-  if (d.includes('day')) return timeSlots.length; // entire day
+  // Day-based services use timeSlots.length as a sentinel meaning "rest of day from start".
+  if (d.includes('day')) return timeSlots.length;
   const slotsPerHour = 60 / SLOT_MINUTES;
   // Range: "1.5–2 hrs" or "4-5 hrs" — take upper bound
   const range = d.match(/(\d+(?:\.\d+)?)\s*[–-]\s*(\d+(?:\.\d+)?)/);
@@ -46,12 +47,58 @@ export const getSlotsConsumed = (duration = '') => {
   return 1;
 };
 
+/**
+ * Parse the upper-bound number of calendar days from a duration string.
+ * Returns 0 for hour-based durations, N for day-based ones.
+ * "1–2 days" → 2, "2 days" → 2, "4–5 hrs" → 0.
+ */
+export const getDaysConsumed = (duration = '') => {
+  const d = duration.toLowerCase();
+  if (!d.includes('day')) return 0;
+  const range = d.match(/(\d+)\s*[–-]\s*(\d+)\s*day/);
+  if (range) return parseInt(range[2], 10);
+  const single = d.match(/(\d+)\s*day/);
+  if (single) return parseInt(single[1], 10);
+  return 1;
+};
+
+const _fmtDate = (d) => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+};
+
+/**
+ * Returns ISO date strings for days 2, 3, … of a multi-day booking.
+ * Day 1 (the start date) is not included — only the additional blocked dates.
+ * e.g. startDate="2026-05-06", daysConsumed=2 → ["2026-05-07"]
+ */
+export const getMultiDayBlockedDates = (startDate, daysConsumed) => {
+  if (daysConsumed <= 1) return [];
+  const [y, m, d] = startDate.split('-').map(Number);
+  const base = new Date(y, m - 1, d);
+  const result = [];
+  for (let i = 1; i < daysConsumed; i++) {
+    const next = new Date(base);
+    next.setDate(base.getDate() + i);
+    result.push(_fmtDate(next));
+  }
+  return result;
+};
+
 const slotIndex = (time) => timeSlots.indexOf(time);
 
-/** Returns the array of slot strings occupied if a booking starts at `time`. */
+/**
+ * Returns the array of slot strings occupied if a booking starts at `time`.
+ * For day-length services (slotsConsumed === timeSlots.length), the booking
+ * runs from the chosen start time through the end of the day — any start time
+ * is valid, and the range is "rest of day" rather than a fixed count ahead.
+ */
 const occupiedRange = (time, slotsConsumed) => {
   const i = slotIndex(time);
   if (i === -1) return [];
+  if (slotsConsumed >= timeSlots.length) return timeSlots.slice(i);
   return timeSlots.slice(i, i + slotsConsumed);
 };
 
@@ -69,10 +116,19 @@ export const computeDetailersUsedAt = (date, time, bookings = []) => {
   let used = 0;
   for (const b of bookings) {
     if (!isActiveBooking(b)) continue;
-    if (b.date !== date) continue;
-    const consumed = getSlotsConsumed(b.serviceDuration || '1 hr');
-    const range = occupiedRange(b.time, consumed);
-    if (range.includes(time)) used += detailersFor(b);
+    if (b.date === date) {
+      // Same day: check which slots this booking occupies.
+      const consumed = getSlotsConsumed(b.serviceDuration || '1 hr');
+      const range = occupiedRange(b.time, consumed);
+      if (range.includes(time)) used += detailersFor(b);
+    } else {
+      // Multi-day: if this booking's subsequent dates cover `date`,
+      // its detailers are committed for every slot that day.
+      const days = getDaysConsumed(b.serviceDuration || '');
+      if (days > 1 && getMultiDayBlockedDates(b.date, days).includes(date)) {
+        used += detailersFor(b);
+      }
+    }
   }
   return used;
 };
@@ -98,7 +154,11 @@ export const getMinRemainingForRange = (
   const pool = settings.detailerPoolSize ?? DEFAULT_SETTINGS.detailerPoolSize;
   const slotsConsumed = getSlotsConsumed(serviceDuration);
   const range = occupiedRange(time, slotsConsumed);
-  if (range.length < slotsConsumed) return -1; // overflows the day
+  // For hour-based services: reject if there aren't enough slots left in the day.
+  // For day-based services (slotsConsumed === timeSlots.length): any non-empty
+  // range is valid — the booking simply runs to end of day from the chosen start.
+  if (range.length === 0) return -1;
+  if (slotsConsumed < timeSlots.length && range.length < slotsConsumed) return -1;
 
   const list = bookings.filter((b) => b.id !== excludeBookingId);
 
@@ -126,7 +186,17 @@ export const isSlotAvailable = (date, time, serviceDuration, opts = {}) => {
 
   const slotsConsumed = getSlotsConsumed(serviceDuration);
   const range = occupiedRange(time, slotsConsumed);
-  if (range.length < slotsConsumed) return false;
+  if (range.length === 0) return false;
+  if (slotsConsumed < timeSlots.length && range.length < slotsConsumed) return false;
+
+  // If this date is itself a subsequent day of an existing multi-day booking,
+  // it is fully committed and cannot host a new booking start.
+  const isSubsequentDay = bookings.some((b) => {
+    if (!isActiveBooking(b) || b.id === excludeBookingId) return false;
+    const days = getDaysConsumed(b.serviceDuration || '');
+    return days > 1 && getMultiDayBlockedDates(b.date, days).includes(date);
+  });
+  if (isSubsequentDay) return false;
 
   for (const blk of blockedSlots) {
     if (blk.date !== date) continue;
@@ -155,18 +225,30 @@ export const getSlotStatuses = (date, serviceDuration, opts = {}) => {
     settings = DEFAULT_SETTINGS,
   } = opts;
   const slotsConsumed = getSlotsConsumed(serviceDuration);
+  const isDayService = slotsConsumed >= timeSlots.length;
   const pool = settings.detailerPoolSize ?? DEFAULT_SETTINGS.detailerPoolSize;
   const list = bookings;
   const blocked = blockedSlots.filter((b) => b.date === date);
 
+  // Subsequent days of an existing multi-day booking are fully committed —
+  // no new bookings can start on those dates.
+  const isSubsequentDay = list.some((b) => {
+    if (!isActiveBooking(b)) return false;
+    const days = getDaysConsumed(b.serviceDuration || '');
+    return days > 1 && getMultiDayBlockedDates(b.date, days).includes(date);
+  });
+
   return timeSlots.map((t) => {
     const range = occupiedRange(t, slotsConsumed);
-    if (range.length < slotsConsumed) {
+    // Day-based services never overflow: any start time consumes "rest of day".
+    // Hour-based services overflow when there aren't enough slots remaining.
+    const overflow = isDayService ? range.length === 0 : range.length < slotsConsumed;
+    if (overflow || isSubsequentDay) {
       const used = computeDetailersUsedAt(date, t, list);
       return {
         time: t,
         available: false,
-        reason: 'overflow',
+        reason: isSubsequentDay ? 'multiday' : 'overflow',
         remaining: Math.max(0, pool - used),
         slotsConsumed,
       };

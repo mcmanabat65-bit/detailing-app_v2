@@ -56,3 +56,11 @@ on conflict (lower(slug)) do nothing;
 
 -- Reload PostgREST schema cache after column additions
 notify pgrst, 'reload schema';
+
+
+-- Expand booking statuses: add pending (awaiting admin confirmation) and completed (service done)
+-- Phase 2 — Admin Confirmation + Earnings Tracking
+alter table bookings drop constraint if exists bookings_status_check;
+alter table bookings add constraint bookings_status_check
+  check (status in ('pending', 'confirmed', 'cancelled', 'no_show', 'completed'));
+alter table bookings alter column status set default 'pending';

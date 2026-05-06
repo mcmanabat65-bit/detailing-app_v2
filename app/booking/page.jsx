@@ -21,6 +21,9 @@ import {
 import { formatCurrency } from '@/data/services';
 import {
   formatDateLong,
+  formatDateShort,
+  getDaysConsumed,
+  getMultiDayBlockedDates,
   getSlotStatuses,
   isDateSelectable,
   isSunday,
@@ -28,7 +31,7 @@ import {
 } from '@/utils/bookingUtils';
 import { useApp } from '@/context/AppContext';
 import { sendEmail } from '@/lib/sendEmail';
-import { bookingConfirmationHtml } from '@/lib/emailTemplates';
+import { bookingReceivedHtml } from '@/lib/emailTemplates';
 
 // --- Mini calendar (one month) ---
 function MiniCalendar({ monthDate, selected, onSelect }) {
@@ -328,6 +331,15 @@ function BookingFlow() {
     [date, service, hydrated, bookings, blockedSlots, settings]
   );
 
+  // For multi-day services, compute which additional dates will be occupied
+  // so we can show an informational callout in the time slot panel.
+  const multiDaySpan = useMemo(() => {
+    const days = getDaysConsumed(service?.duration || '');
+    if (days <= 1 || !date) return null;
+    const extra = getMultiDayBlockedDates(date, days);
+    return { days, lastDate: extra[extra.length - 1] };
+  }, [service, date]);
+
   useEffect(() => {
     if (preSelectedId && getServiceById(preSelectedId)) {
       setServiceId(Number(preSelectedId));
@@ -427,11 +439,11 @@ function BookingFlow() {
         setStep(2);
         return;
       }
-      showToast('Booking confirmed. See you soon.', 'success');
+      showToast('Booking received — awaiting admin confirmation.', 'success');
       sendEmail(
         details.email,
-        `Booking confirmed — ${service.name} on ${date}`,
-        bookingConfirmationHtml({
+        `Booking received — ${service.name} on ${date}`,
+        bookingReceivedHtml({
           id: booking.id,
           customerName: details.customerName,
           serviceName: service.name,
@@ -584,6 +596,17 @@ function BookingFlow() {
                 </div>
               )}
 
+              {multiDaySpan && (
+                <div className="flex items-start gap-2 text-[11px] text-cream/70 bg-white/5 border border-white/10 rounded-sm px-3 py-2.5 mb-4 leading-relaxed">
+                  <Clock className="w-3 h-3 text-gold shrink-0 mt-0.5" />
+                  <span>
+                    Multi-day service — your vehicle will be with us from your chosen start time through{' '}
+                    <span className="text-cream">{formatDateShort(multiDaySpan.lastDate)}</span>.
+                    Pick any available start time below.
+                  </span>
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-2">
                 {slotStatuses.length === 0 && (
                   <div className="col-span-2 text-muted text-sm py-6 text-center">
@@ -596,12 +619,14 @@ function BookingFlow() {
                     ? s.reason === 'blocked'
                       ? 'Blocked by shop'
                       : s.reason === 'overflow'
-                        ? "Not enough hours remaining for this service"
-                        : s.reason === 'capacity'
-                          ? `All detailers busy (need ${
-                              service.minDetailers ?? 1
-                            }, ${s.remaining} left)`
-                          : 'Unavailable'
+                        ? 'Not enough hours remaining for this service'
+                        : s.reason === 'multiday'
+                          ? 'This date is occupied by a multi-day booking'
+                          : s.reason === 'capacity'
+                            ? `All detailers busy (need ${
+                                service.minDetailers ?? 1
+                              }, ${s.remaining} left)`
+                            : 'Unavailable'
                     : `${s.remaining} detailer${s.remaining === 1 ? '' : 's'} available`;
                   return (
                     <button

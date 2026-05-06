@@ -71,7 +71,7 @@ create table if not exists bookings (
   is_vip boolean not null default false,
   member_id text,
   coffee_order text,
-  status text not null default 'confirmed' check (status in ('confirmed', 'cancelled', 'no_show')),
+  status text not null default 'pending' check (status in ('pending', 'confirmed', 'cancelled', 'no_show', 'completed')),
   cancellation_reason text,
   detailers_assigned integer not null default 1 check (detailers_assigned >= 1),
   occupies_slots text[] not null default '{}',
@@ -234,7 +234,7 @@ begin
     coalesce((p->>'is_vip')::boolean, false),
     nullif(p->>'member_id', ''),
     p->>'coffee_order',
-    coalesce(nullif(p->>'status', ''), 'confirmed'),
+    coalesce(nullif(p->>'status', ''), 'pending'),
     v_clamped,
     p_occupies_slots
   )
