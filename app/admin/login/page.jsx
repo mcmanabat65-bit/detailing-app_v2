@@ -25,21 +25,25 @@ function LoginForm() {
       return;
     }
 
-    const { error: authError } = await supabase.auth.signInWithPassword({
+    const { data, error: authError } = await supabase.auth.signInWithPassword({
       email: creds.email.trim(),
       password: creds.password,
     });
 
     setLoading(false);
 
-    if (authError) {
+    if (authError || !data.session) {
       setError('Invalid credentials. Try again.');
       return;
     }
 
+    // Wait for onAuthStateChange to fire and AppContext to update adminSession
+    // before navigating — prevents ProtectedRoute from bouncing us back to login.
+    await supabase.auth.getSession();
+
     showToast('Welcome back, Admin.', 'success');
     const next = searchParams.get('next') || '/admin/dashboard';
-    window.location.href = next;
+    router.replace(next);
   };
 
   return (

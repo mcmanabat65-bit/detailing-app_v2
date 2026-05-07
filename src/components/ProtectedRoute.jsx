@@ -38,10 +38,15 @@ export function ProtectedRoute({ children }) {
   }, [adminSession, signOut]);
 
   useEffect(() => {
-    if (hydrated && !adminSession) {
-      const next = encodeURIComponent(pathname || '/admin/dashboard');
-      router.replace(`/admin/login?next=${next}`);
-    }
+    if (!hydrated) return;
+    // Small delay lets onAuthStateChange update adminSession before we redirect.
+    const id = setTimeout(() => {
+      if (!adminSession) {
+        const next = encodeURIComponent(pathname || '/admin/dashboard');
+        router.replace(`/admin/login?next=${next}`);
+      }
+    }, 200);
+    return () => clearTimeout(id);
   }, [hydrated, adminSession, pathname, router]);
 
   if (!hydrated || !adminSession) return null;

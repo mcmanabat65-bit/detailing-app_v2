@@ -48,12 +48,13 @@ export function AppProvider({ children }) {
     const { data, error } = await supabase
       .from('services')
       .select('*')
-      .order('sort_order', { ascending: true });
+      .order('sort_order', { ascending: true })
+      .limit(500);
     if (error) {
       console.error('[services] fetch error', error);
       return;
     }
-    if (data && data.length > 0) setServices(data.map(fromRow));
+    if (data) setServices(data.length > 0 ? data.map(fromRow) : []);
   }, []);
 
   const refetchBookings = useCallback(async () => {
@@ -61,7 +62,8 @@ export function AppProvider({ children }) {
     const { data, error } = await supabase
       .from('bookings')
       .select('*')
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .limit(1000);
     if (error) {
       console.error('[bookings] fetch error', error);
       return;
@@ -74,7 +76,8 @@ export function AppProvider({ children }) {
     const { data, error } = await supabase
       .from('members')
       .select('*')
-      .order('member_since', { ascending: false });
+      .order('member_since', { ascending: false })
+      .limit(1000);
     if (error) {
       console.error('[members] fetch error', error);
       return;
@@ -102,7 +105,8 @@ export function AppProvider({ children }) {
       .select('*')
       .order('make', { ascending: true })
       .order('model', { ascending: true })
-      .order('year', { ascending: false });
+      .order('year', { ascending: false })
+      .limit(1000);
     if (error) {
       console.error('[cars] fetch error', error);
       return;
