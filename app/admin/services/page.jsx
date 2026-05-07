@@ -23,7 +23,6 @@ import { useApp } from '@/context/AppContext';
 import { formatCurrency } from '@/data/services';
 
 const EMPTY_FORM = {
-  id: '',
   name: '',
   price: '',
   duration: '',
@@ -31,7 +30,6 @@ const EMPTY_FORM = {
   popular: false,
   minDetailers: 1,
   recommendedDetailers: 1,
-  sortOrder: 0,
   inclusions: [''],
 };
 
@@ -90,8 +88,6 @@ function ServiceForm({ initial, onSave, onCancel, isSaving, categories }) {
     if (!form.price || isNaN(Number(form.price)) || Number(form.price) <= 0)
       e.price = 'Must be a positive number';
     if (!form.duration.trim()) e.duration = 'Required';
-    if (!form.id || isNaN(Number(form.id)) || Number(form.id) <= 0)
-      e.id = 'Must be a positive integer';
     if (Number(form.minDetailers) < 1) e.minDetailers = 'Min 1';
     if (Number(form.recommendedDetailers) < Number(form.minDetailers))
       e.recommendedDetailers = 'Must be ≥ min detailers';
@@ -104,11 +100,9 @@ function ServiceForm({ initial, onSave, onCancel, isSaving, categories }) {
     if (!validate()) return;
     onSave({
       ...form,
-      id: Number(form.id),
       price: Number(form.price),
       minDetailers: Number(form.minDetailers),
       recommendedDetailers: Number(form.recommendedDetailers),
-      sortOrder: Number(form.sortOrder) || 0,
       inclusions: form.inclusions.filter((s) => s.trim()),
     });
   };
@@ -119,22 +113,10 @@ function ServiceForm({ initial, onSave, onCancel, isSaving, categories }) {
     <form onSubmit={handleSubmit} className="space-y-6">
       {/* Basic info */}
       <div className="grid md:grid-cols-2 gap-4">
-        <FormField label="Service ID *" error={errors.id}
-          hint={isEdit ? 'Cannot change ID of existing service' : 'Unique integer (e.g. 7)'}>
-          <input
-            type="number"
-            min="1"
-            value={form.id}
-            onChange={(e) => set('id', e.target.value)}
-            disabled={isEdit}
-            className="admin-input disabled:opacity-50 disabled:cursor-not-allowed"
-            placeholder="7"
-          />
-        </FormField>
-
         <FormField label="Service Name *" error={errors.name}>
           <input
             type="text"
+            autoFocus
             value={form.name}
             onChange={(e) => set('name', e.target.value)}
             className="admin-input"
@@ -180,16 +162,6 @@ function ServiceForm({ initial, onSave, onCancel, isSaving, categories }) {
             </select>
             <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted" />
           </div>
-        </FormField>
-
-        <FormField label="Sort Order" hint="Lower = appears first">
-          <input
-            type="number"
-            min="0"
-            value={form.sortOrder}
-            onChange={(e) => set('sortOrder', e.target.value)}
-            className="admin-input"
-          />
         </FormField>
 
         <FormField label="Min Detailers *" error={errors.minDetailers}>
@@ -380,7 +352,7 @@ function ServicesAdmin() {
 
   const handleSave = async (data) => {
     setSaving(true);
-    const result = await upsertService(data);
+    const result = await upsertService(modal?.mode === 'edit' ? { ...data, id: modal.service.id } : data);
     setSaving(false);
     if (result?.error) {
       showToast(result.error, 'error');

@@ -32,7 +32,7 @@ create unique index if not exists members_email_lower_idx on members (lower(emai
 create index if not exists members_status_idx on members (status);
 
 create table if not exists services (
-  id integer primary key,
+  id integer primary key generated always as identity,
   name text not null,
   price integer not null,
   duration text not null,

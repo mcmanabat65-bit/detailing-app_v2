@@ -54,6 +54,29 @@ insert into service_categories (name, slug, color, sort_order) values
   ('Interior',  'interior',  'bg-orange-400/15 text-orange-300', 5)
 on conflict (lower(slug)) do nothing;
 
+-- Auto-increment services.id (Phase 1.4)
+-- services.id was a plain integer primary key — convert to auto-incrementing
+-- so new services get their id assigned by the database automatically.
+-- Also add a trigger to auto-assign sort_order = max(sort_order) + 1 on insert
+-- so new services always appear last without the admin setting it manually.
+alter table services alter column id add generated always as identity;
+select setval(pg_get_serial_sequence('services', 'id'), (select coalesce(max(id), 0) from services));
+
+create or replace function services_auto_sort_order()
+returns trigger language plpgsql as $$
+begin
+  if new.sort_order = 0 or new.sort_order is null then
+    select coalesce(max(sort_order), 0) + 1 into new.sort_order from services;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists services_auto_sort_order_trigger on services;
+create trigger services_auto_sort_order_trigger
+  before insert on services
+  for each row execute function services_auto_sort_order();
+
 -- Reload PostgREST schema cache after column additions
 notify pgrst, 'reload schema';
 

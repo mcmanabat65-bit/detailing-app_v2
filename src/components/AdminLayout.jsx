@@ -50,7 +50,7 @@ export function AdminLayout({ children, title }) {
   return (
     <div className="min-h-screen bg-obsidian flex">
       {/* Sidebar (desktop) */}
-      <aside className="hidden md:flex w-64 shrink-0 flex-col border-r border-white/5 bg-surface/30">
+      <aside className="hidden md:flex w-64 shrink-0 flex-col border-r border-white/5 bg-surface/30 sticky top-0 h-screen overflow-y-auto">
         <Link
           href="/admin/dashboard"
           className="flex items-center gap-2 px-6 h-20 border-b border-white/5"

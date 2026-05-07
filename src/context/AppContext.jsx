@@ -219,8 +219,10 @@ export function AppProvider({ children }) {
   const upsertService = useCallback(
     async (service) => {
       if (!supabase) return { error: 'Database not connected.' };
-      const row = toRow({
-        id: service.id,
+      const isEdit = Boolean(service.id);
+
+      // Fields sent on both insert and update
+      const fields = toRow({
         name: service.name,
         price: Number(service.price),
         duration: service.duration,
@@ -229,13 +231,17 @@ export function AppProvider({ children }) {
         popular: Boolean(service.popular),
         minDetailers: Number(service.minDetailers) || 1,
         recommendedDetailers: Number(service.recommendedDetailers) || 1,
-        sortOrder: Number(service.sortOrder) || 0,
       });
-      const { data, error } = await supabase
-        .from('services')
-        .upsert(row, { onConflict: 'id' })
-        .select()
-        .single();
+
+      let query;
+      if (isEdit) {
+        query = supabase.from('services').update(fields).eq('id', service.id).select().single();
+      } else {
+        // id and sort_order are auto-assigned by the database
+        query = supabase.from('services').insert(fields).select().single();
+      }
+
+      const { data, error } = await query;
       if (error) return { error: error.message };
       await refetchServices();
       return fromRow(data);
