@@ -239,6 +239,22 @@ export function AppProvider({ children }) {
     [refetchServices]
   );
 
+  const reorderServices = useCallback(
+    async (orderedIds) => {
+      if (!supabase) return { error: 'Database not connected.' };
+      const results = await Promise.all(
+        orderedIds.map((id, i) =>
+          supabase.from('services').update({ sort_order: i + 1 }).eq('id', id)
+        )
+      );
+      const failed = results.find((r) => r.error);
+      if (failed) return { error: failed.error.message };
+      await refetchServices();
+      return { ok: true };
+    },
+    [refetchServices]
+  );
+
   const deleteService = useCallback(
     async (id) => {
       if (!supabase) return { error: 'Database not connected.' };
@@ -731,6 +747,7 @@ export function AppProvider({ children }) {
       services,
       getServiceById,
       upsertService,
+      reorderServices,
       deleteService,
       bookings,
       members,
@@ -774,6 +791,7 @@ export function AppProvider({ children }) {
       services,
       getServiceById,
       upsertService,
+      reorderServices,
       deleteService,
       bookings,
       members,

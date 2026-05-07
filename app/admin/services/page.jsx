@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   Plus,
   Pencil,
@@ -325,12 +325,16 @@ function ServiceForm({ initial, onSave, onCancel, isSaving, categories }) {
 }
 
 function ServicesAdmin() {
-  const { services, upsertService, deleteService, serviceCategories, showToast } = useApp();
+  const { services, upsertService, reorderServices, deleteService, serviceCategories, showToast } = useApp();
 
   const [modal, setModal] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [reordering, setReordering] = useState(false);
   const [query, setQuery] = useState('');
+  const [draggedIdx, setDraggedIdx] = useState(null);
+  const [dragOverIdx, setDragOverIdx] = useState(null);
+  const dragFromIdx = useRef(null);
 
   const sorted = useMemo(
     () => [...services].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)),
@@ -355,6 +359,20 @@ function ServicesAdmin() {
   }, [sorted, query, catMap]);
 
   const getCatColor = (slug) => catMap[slug]?.color ?? 'bg-white/10 text-cream';
+
+  const isSearching = query.trim() !== '';
+
+  const handleReorder = useCallback(async (fromIdx, toIdx) => {
+    if (fromIdx === toIdx || isSearching || reordering) return;
+    const reordered = [...sorted];
+    const [moved] = reordered.splice(fromIdx, 1);
+    reordered.splice(toIdx, 0, moved);
+    setReordering(true);
+    const result = await reorderServices(reordered.map((s) => s.id));
+    setReordering(false);
+    if (result?.error) showToast(result.error, 'error');
+    else showToast('Service order saved.', 'success');
+  }, [sorted, isSearching, reordering, reorderServices, showToast]);
 
   const openAdd = () => setModal({ mode: 'add' });
   const openEdit = (svc) => setModal({ mode: 'edit', service: svc });
@@ -411,6 +429,14 @@ function ServicesAdmin() {
         </div>
       </div>
 
+      {/* Reorder hint */}
+      {isSearching && (
+        <p className="text-[11px] text-muted mb-4 flex items-center gap-1.5">
+          <AlertTriangle className="w-3 h-3 text-gold/70 shrink-0" />
+          Clear search to drag or reorder services.
+        </p>
+      )}
+
       {/* Service cards */}
       {filtered.length === 0 ? (
         <div className="glass-card rounded-md py-20 text-center text-muted">
@@ -418,10 +444,41 @@ function ServicesAdmin() {
         </div>
       ) : (
         <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {filtered.map((svc) => (
-            <div key={svc.id} className="glass-card rounded-md p-5 flex flex-col gap-4">
+          {filtered.map((svc, idx) => (
+            <div
+              key={svc.id}
+              draggable={!isSearching && !reordering}
+              onDragStart={() => { dragFromIdx.current = idx; setDraggedIdx(idx); }}
+              onDragEnd={() => { setDraggedIdx(null); setDragOverIdx(null); dragFromIdx.current = null; }}
+              onDragOver={(e) => { e.preventDefault(); if (dragFromIdx.current !== null) setDragOverIdx(idx); }}
+              onDragLeave={() => setDragOverIdx(null)}
+              onDrop={(e) => {
+                e.preventDefault();
+                if (dragFromIdx.current !== null && dragFromIdx.current !== idx) {
+                  handleReorder(dragFromIdx.current, idx);
+                }
+                dragFromIdx.current = null;
+                setDraggedIdx(null);
+                setDragOverIdx(null);
+              }}
+              className={`glass-card rounded-md p-5 flex flex-col gap-4 transition-all ${
+                draggedIdx === idx ? 'opacity-40 scale-[0.98]' : ''
+              } ${dragOverIdx === idx && draggedIdx !== idx ? 'ring-1 ring-gold' : ''}`}
+            >
               {/* Top */}
-              <div className="flex items-start justify-between gap-2">
+              <div className="flex items-start gap-2">
+                <button
+                  type="button"
+                  aria-label="Drag to reorder"
+                  disabled={isSearching || reordering}
+                  className={`mt-1 shrink-0 transition-colors ${
+                    isSearching || reordering
+                      ? 'text-muted/20 cursor-not-allowed'
+                      : 'text-muted/50 hover:text-gold cursor-grab active:cursor-grabbing'
+                  }`}
+                >
+                  <GripVertical className="w-4 h-4" />
+                </button>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-0.5 flex-wrap">
                     <span className={`text-[10px] uppercase tracking-widest px-2 py-0.5 rounded-sm ${getCatColor(svc.category)}`}>
@@ -477,6 +534,22 @@ function ServicesAdmin() {
 
               {/* Actions */}
               <div className="flex gap-2 mt-auto pt-2 border-t border-white/5">
+                <button
+                  onClick={() => handleReorder(idx, idx - 1)}
+                  disabled={idx === 0 || isSearching || reordering}
+                  aria-label="Move up"
+                  className="px-2.5 py-2 text-xs border border-white/10 text-cream/80 rounded-sm hover:border-gold/50 hover:text-gold transition-colors disabled:opacity-25 disabled:cursor-not-allowed"
+                >
+                  <ChevronUp className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  onClick={() => handleReorder(idx, idx + 1)}
+                  disabled={idx === filtered.length - 1 || isSearching || reordering}
+                  aria-label="Move down"
+                  className="px-2.5 py-2 text-xs border border-white/10 text-cream/80 rounded-sm hover:border-gold/50 hover:text-gold transition-colors disabled:opacity-25 disabled:cursor-not-allowed"
+                >
+                  <ChevronDown className="w-3.5 h-3.5" />
+                </button>
                 <button
                   onClick={() => openEdit(svc)}
                   className="flex-1 inline-flex items-center justify-center gap-1.5 py-2 text-xs border border-white/10 text-cream/80 rounded-sm hover:border-gold/50 hover:text-gold transition-colors"
