@@ -120,7 +120,7 @@ function Dashboard() {
   const todayBookings = useMemo(
     () =>
       bookings
-        .filter((b) => b.date === today && b.status !== 'cancelled')
+        .filter((b) => b.date === today && b.status !== 'cancelled' && b.status !== 'pending')
         .sort((a, b) => timeSlots.indexOf(a.time) - timeSlots.indexOf(b.time)),
     [bookings, today]
   );

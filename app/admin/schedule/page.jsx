@@ -63,7 +63,7 @@ function Schedule() {
       }
     }
     for (const b of bookings) {
-      if (b.status === 'cancelled' || b.status === 'no_show') continue;
+      if (b.status === 'cancelled' || b.status === 'no_show' || b.status === 'pending') continue;
       if (!map[b.date]) continue;
       const consumed = getSlotsConsumed(b.serviceDuration || '1 hr');
       const startIdx = timeSlots.indexOf(b.time);
