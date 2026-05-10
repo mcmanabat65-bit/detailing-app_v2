@@ -80,6 +80,21 @@ create trigger services_auto_sort_order_trigger
 -- Reload PostgREST schema cache after column additions
 notify pgrst, 'reload schema';
 
+-- Add detailers table (Phase 1.5)
+create table if not exists detailers (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  nickname text,
+  role text not null default 'Detailer',
+  is_active boolean not null default true,
+  sort_order integer not null default 0,
+  created_at timestamptz not null default now()
+);
+create index if not exists detailers_sort_idx on detailers (sort_order, name);
+alter table detailers enable row level security;
+drop policy if exists "public all detailers" on detailers;
+create policy "public all detailers" on detailers for all to anon, authenticated using (true) with check (true);
+-- end: detailers table
 
 -- Expand booking statuses: add pending (awaiting admin confirmation) and completed (service done)
 -- Phase 2 — Admin Confirmation + Earnings Tracking

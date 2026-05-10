@@ -36,6 +36,7 @@ export function AppProvider({ children }) {
   const [memberCars, setMemberCars] = useState([]);
   const [coffees, setCoffees] = useState([]);
   const [serviceCategories, setServiceCategories] = useState([]);
+  const [detailers, setDetailers] = useState([]);
   const [settings, setSettings] = useState({ ...DEFAULT_SETTINGS });
   const [adminSession, setAdminSessionState] = useState(false);
   const [hydrated, setHydrated] = useState(false);
@@ -157,6 +158,20 @@ export function AppProvider({ children }) {
     setServiceCategories((data || []).map(fromRow));
   }, []);
 
+  const refetchDetailers = useCallback(async () => {
+    if (!supabase) return;
+    const { data, error } = await supabase
+      .from('detailers')
+      .select('*')
+      .order('sort_order', { ascending: true })
+      .order('name', { ascending: true });
+    if (error) {
+      console.error('[detailers] fetch error', error);
+      return;
+    }
+    setDetailers((data || []).map(fromRow));
+  }, []);
+
   const refetchSettings = useCallback(async () => {
     if (!supabase) return;
     const { data, error } = await supabase
@@ -205,6 +220,7 @@ export function AppProvider({ children }) {
       refetchMemberCars(),
       refetchCoffees(),
       refetchServiceCategories(),
+      refetchDetailers(),
       refetchSettings(),
     ]).finally(() => {
       settled = true;
@@ -213,7 +229,7 @@ export function AppProvider({ children }) {
     });
 
     return () => subscription.unsubscribe();
-  }, [refetchServices, refetchBookings, refetchMembers, refetchBlockedSlots, refetchCars, refetchMemberCars, refetchCoffees, refetchServiceCategories, refetchSettings]);
+  }, [refetchServices, refetchBookings, refetchMembers, refetchBlockedSlots, refetchCars, refetchMemberCars, refetchCoffees, refetchServiceCategories, refetchDetailers, refetchSettings]);
 
   // ===== Services =====
   const upsertService = useCallback(
@@ -669,6 +685,44 @@ export function AppProvider({ children }) {
     [refetchCoffees]
   );
 
+  // ===== Detailers =====
+  const upsertDetailer = useCallback(
+    async (detailer) => {
+      if (!supabase) return { error: 'Database not connected.' };
+      const name = (detailer.name || '').trim();
+      if (!name) return { error: 'Name is required.' };
+      const row = {
+        name,
+        nickname: (detailer.nickname || '').trim() || null,
+        role: (detailer.role || 'Detailer').trim() || 'Detailer',
+        is_active: detailer.isActive !== false,
+        sort_order: Number(detailer.sortOrder) || 0,
+      };
+      let query;
+      if (detailer.id) {
+        query = supabase.from('detailers').update(row).eq('id', detailer.id).select().single();
+      } else {
+        query = supabase.from('detailers').insert(row).select().single();
+      }
+      const { data, error } = await query;
+      if (error) return { error: error.message };
+      await refetchDetailers();
+      return fromRow(data);
+    },
+    [refetchDetailers]
+  );
+
+  const deleteDetailer = useCallback(
+    async (id) => {
+      if (!supabase) return { error: 'Database not connected.' };
+      const { error } = await supabase.from('detailers').delete().eq('id', id);
+      if (error) return { error: error.message };
+      await refetchDetailers();
+      return { ok: true };
+    },
+    [refetchDetailers]
+  );
+
   // ===== Service Categories =====
   const upsertServiceCategory = useCallback(
     async (cat) => {
@@ -767,6 +821,9 @@ export function AppProvider({ children }) {
       coffees,
       upsertCoffee,
       deleteCoffee,
+      detailers,
+      upsertDetailer,
+      deleteDetailer,
       serviceCategories,
       upsertServiceCategory,
       deleteServiceCategory,
@@ -811,6 +868,9 @@ export function AppProvider({ children }) {
       coffees,
       upsertCoffee,
       deleteCoffee,
+      detailers,
+      upsertDetailer,
+      deleteDetailer,
       serviceCategories,
       upsertServiceCategory,
       deleteServiceCategory,

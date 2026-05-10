@@ -6,18 +6,22 @@ import { Check, Clock, ArrowRight, Star } from 'lucide-react';
 import { formatCurrency } from '@/data/services';
 import { useApp } from '@/context/AppContext';
 
-const categories = [
-  { id: 'all', label: 'All' },
-  { id: 'exterior', label: 'Exterior' },
-  { id: 'interior', label: 'Interior' },
-  { id: 'full', label: 'Full Detail' },
-  { id: 'specialty', label: 'Specialty' },
-  { id: 'premium', label: 'Premium' },
-];
-
 export default function ServicesPage() {
-  const { services } = useApp();
+  const { services, serviceCategories } = useApp();
   const [filter, setFilter] = useState('all');
+
+  const catMap = useMemo(() => {
+    const m = {};
+    serviceCategories.forEach((c) => { m[c.slug] = c; });
+    return m;
+  }, [serviceCategories]);
+
+  // Only show tabs for categories that have at least one service, in sort_order.
+  const filterTabs = useMemo(() => {
+    const used = new Set(services.map((s) => s.category));
+    const active = serviceCategories.filter((c) => used.has(c.slug));
+    return [{ slug: 'all', name: 'All' }, ...active];
+  }, [services, serviceCategories]);
 
   const visible = useMemo(
     () => (filter === 'all' ? services : services.filter((s) => s.category === filter)),
@@ -41,17 +45,17 @@ export default function ServicesPage() {
         </div>
 
         <div className="flex flex-wrap gap-2 mb-10">
-          {categories.map((c) => (
+          {filterTabs.map((c) => (
             <button
-              key={c.id}
-              onClick={() => setFilter(c.id)}
+              key={c.slug}
+              onClick={() => setFilter(c.slug)}
               className={`px-4 py-2 text-sm rounded-sm border transition-all ${
-                filter === c.id
+                filter === c.slug
                   ? 'bg-gold text-obsidian border-gold'
                   : 'border-white/10 text-cream/70 hover:border-gold/50 hover:text-gold'
               }`}
             >
-              {c.label}
+              {c.name}
             </button>
           ))}
         </div>
@@ -72,7 +76,7 @@ export default function ServicesPage() {
               )}
 
               <div className="text-xs uppercase tracking-widest text-gold/80 mb-2">
-                {s.category}
+                {catMap[s.category]?.name ?? s.category}
               </div>
               <h2 className="font-serif text-3xl text-cream mb-2">{s.name}</h2>
               <div className="flex items-center gap-2 text-muted text-sm mb-5">
