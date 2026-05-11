@@ -19,7 +19,8 @@
       "Bash(node -e \"require\\('dotenv'\\).config\\({ path: '.env' }\\); console.log\\('URL:', process.env.NEXT_PUBLIC_SUPABASE_URL\\); console.log\\('KEY starts with:', process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.slice\\(0,20\\)\\); console.log\\('KEY length:', process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.length\\);\")",
       "Bash(node -e ' *)",
       "Bash(curl -s http://localhost:3000)",
-      "Bash(grep -E \"\\\\.\\(jsx|js|tsx|ts\\)$\")"
+      "Bash(grep -E \"\\\\.\\(jsx|js|tsx|ts\\)$\")",
+      "Bash(git add *)"
     ]
   }
 }

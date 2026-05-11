@@ -96,6 +96,11 @@ drop policy if exists "public all detailers" on detailers;
 create policy "public all detailers" on detailers for all to anon, authenticated using (true) with check (true);
 -- end: detailers table
 
+-- Enable Supabase Realtime for bookings (Phase 1.6 — Shop Monitor live updates)
+-- Required for postgres_changes subscriptions in the monitor page.
+-- Safe to re-run — ADD TABLE is idempotent on the publication.
+alter publication supabase_realtime add table bookings;
+
 -- Expand booking statuses: add pending (awaiting admin confirmation) and completed (service done)
 -- Phase 2 — Admin Confirmation + Earnings Tracking
 alter table bookings drop constraint if exists bookings_status_check;

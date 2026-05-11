@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import {
   Car,
   CheckCircle2,
@@ -16,6 +16,7 @@ import {
 import { AdminLayout } from '@/components/AdminLayout';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { useApp } from '@/context/AppContext';
+import { supabase } from '@/lib/supabase';
 import { getDaysConsumed, getSlotsConsumed, toIsoDate } from '@/utils/bookingUtils';
 import { SLOT_MINUTES } from '@/data/timeSlots';
 
@@ -45,14 +46,23 @@ function getJobStatus(booking, nowMin) {
 }
 
 // ---------------------------------------------------------------------------
-// Live clock — updates every second
+// Live clock
+// Updates every second; immediately corrects on tab visibility restore
+// so the clock is accurate when a smart TV browser wakes the tab back up.
 // ---------------------------------------------------------------------------
 
 function LiveClock() {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(id);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') setNow(new Date());
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, []);
   return (
     <div className="text-right leading-none">
@@ -72,41 +82,41 @@ function LiveClock() {
 }
 
 // ---------------------------------------------------------------------------
-// Single booking card
+// Single booking card — memoized so it only re-renders when its own
+// data or status string actually changes, not on every nowMin tick.
 // ---------------------------------------------------------------------------
 
-function JobCard({ booking, catMap, nowMin }) {
-  const status = getJobStatus(booking, nowMin);
+const STATUS_META = {
+  upcoming: {
+    label: 'Upcoming',
+    dotClass: 'bg-white/30',
+    textClass: 'text-muted',
+    cardClass: '',
+  },
+  active: {
+    label: 'In Progress',
+    dotClass: 'bg-gold animate-pulse',
+    textClass: 'text-gold',
+    cardClass: 'ring-1 ring-gold/40 shadow-xl shadow-gold/10',
+  },
+  done: {
+    label: 'Done',
+    dotClass: 'bg-[var(--color-success)]',
+    textClass: 'text-[var(--color-success)]',
+    cardClass: 'opacity-50',
+  },
+};
+
+const JobCard = memo(function JobCard({ booking, catMap, status }) {
+  const meta = STATUS_META[status] ?? STATUS_META.upcoming;
   const cat = catMap[booking.serviceCategory];
   const catColor = cat?.color ?? 'bg-white/10 text-cream';
   const catName = cat?.name ?? booking.serviceCategory ?? '—';
-
-  const statusMeta = {
-    upcoming: {
-      label: 'Upcoming',
-      dotClass: 'bg-white/30',
-      textClass: 'text-muted',
-      cardClass: '',
-    },
-    active: {
-      label: 'In Progress',
-      dotClass: 'bg-gold animate-pulse',
-      textClass: 'text-gold',
-      cardClass: 'ring-1 ring-gold/40 shadow-xl shadow-gold/10',
-    },
-    done: {
-      label: 'Done',
-      dotClass: 'bg-[var(--color-success)]',
-      textClass: 'text-[var(--color-success)]',
-      cardClass: 'opacity-50',
-    },
-  }[status];
-
   const vehicle = [booking.vehicleYear, booking.vehicle].filter(Boolean).join(' ') || '—';
 
   return (
     <div
-      className={`glass-card rounded-md p-6 flex flex-col gap-5 transition-all duration-500 ${statusMeta.cardClass}`}
+      className={`glass-card rounded-md p-6 flex flex-col gap-5 transition-all duration-500 ${meta.cardClass}`}
     >
       {/* Service name + status */}
       <div className="flex items-start justify-between gap-3">
@@ -119,9 +129,9 @@ function JobCard({ booking, catMap, nowMin }) {
           </h2>
         </div>
         <div className="flex items-center gap-1.5 shrink-0 pt-0.5">
-          <span className={`w-2 h-2 rounded-full shrink-0 ${statusMeta.dotClass}`} />
-          <span className={`text-[11px] uppercase tracking-widest font-medium ${statusMeta.textClass}`}>
-            {statusMeta.label}
+          <span className={`w-2 h-2 rounded-full shrink-0 ${meta.dotClass}`} />
+          <span className={`text-[11px] uppercase tracking-widest font-medium ${meta.textClass}`}>
+            {meta.label}
           </span>
         </div>
       </div>
@@ -172,7 +182,7 @@ function JobCard({ booking, catMap, nowMin }) {
       </div>
     </div>
   );
-}
+});
 
 // ---------------------------------------------------------------------------
 // Empty state
@@ -193,24 +203,62 @@ function EmptyState() {
 }
 
 // ---------------------------------------------------------------------------
-// Monitor content (shared between normal and fullscreen view)
+// Monitor content
 // ---------------------------------------------------------------------------
 
 function MonitorContent({ isFullscreen, onToggle }) {
-  const { bookings, serviceCategories } = useApp();
+  const { bookings, serviceCategories, refetchBookings } = useApp();
+
   const [nowMin, setNowMin] = useState(() => {
     const n = new Date();
     return n.getHours() * 60 + n.getMinutes();
   });
 
-  // Recompute current-minute every 30 seconds to update card statuses
+  // Status badge refresh every 60 s.
+  // Skips the update while the page is hidden (TV browser sleep/background).
+  // Immediately recalculates when the page becomes visible again so badges
+  // are accurate the moment the screen wakes up.
   useEffect(() => {
-    const id = setInterval(() => {
+    function tick() {
+      if (document.visibilityState === 'hidden') return;
       const n = new Date();
       setNowMin(n.getHours() * 60 + n.getMinutes());
-    }, 30_000);
-    return () => clearInterval(id);
+    }
+    function onVisible() {
+      if (document.visibilityState === 'visible') {
+        const n = new Date();
+        setNowMin(n.getHours() * 60 + n.getMinutes());
+      }
+    }
+    const id = setInterval(tick, 60_000);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, []);
+
+  // Supabase Realtime — push-based booking updates.
+  // No polling: the monitor receives an event the instant any booking is
+  // inserted, updated, or deleted on any device, then re-fetches once.
+  // Falls back to a 5-minute safety poll when Realtime is unavailable.
+  useEffect(() => {
+    if (!supabase) {
+      const id = setInterval(() => refetchBookings(), 5 * 60_000);
+      return () => clearInterval(id);
+    }
+
+    const channel = supabase
+      .channel('monitor-bookings')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'bookings' },
+        () => { refetchBookings(); }
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [refetchBookings]);
 
   const today = toIsoDate(new Date());
 
@@ -220,16 +268,17 @@ function MonitorContent({ isFullscreen, onToggle }) {
     return m;
   }, [serviceCategories]);
 
-  const todayJobs = useMemo(() => {
-    return bookings
+  const todayJobs = useMemo(() =>
+    bookings
       .filter((b) => b.date === today && b.status !== 'cancelled' && b.status !== 'no_show')
-      .sort((a, b) => toMinutes(a.time) - toMinutes(b.time));
-  }, [bookings, today]);
+      .sort((a, b) => toMinutes(a.time) - toMinutes(b.time)),
+    [bookings, today]
+  );
 
   const counts = useMemo(() => ({
-    active: todayJobs.filter((b) => getJobStatus(b, nowMin) === 'active').length,
+    active:   todayJobs.filter((b) => getJobStatus(b, nowMin) === 'active').length,
     upcoming: todayJobs.filter((b) => getJobStatus(b, nowMin) === 'upcoming').length,
-    done: todayJobs.filter((b) => getJobStatus(b, nowMin) === 'done').length,
+    done:     todayJobs.filter((b) => getJobStatus(b, nowMin) === 'done').length,
   }), [todayJobs, nowMin]);
 
   return (
@@ -303,7 +352,12 @@ function MonitorContent({ isFullscreen, onToggle }) {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
             {todayJobs.map((b) => (
-              <JobCard key={b.id} booking={b} catMap={catMap} nowMin={nowMin} />
+              <JobCard
+                key={b.id}
+                booking={b}
+                catMap={catMap}
+                status={getJobStatus(b, nowMin)}
+              />
             ))}
           </div>
         )}
@@ -313,7 +367,7 @@ function MonitorContent({ isFullscreen, onToggle }) {
       {isFullscreen && (
         <div className="px-6 py-3 border-t border-white/5 flex items-center justify-between text-[11px] text-muted">
           <span>{todayJobs.length} job{todayJobs.length !== 1 ? 's' : ''} today</span>
-          <span>Status refreshes every 30 seconds</span>
+          <span>Live · Status refreshes every 60 s</span>
         </div>
       )}
     </div>
