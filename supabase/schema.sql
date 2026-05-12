@@ -73,7 +73,7 @@ create table if not exists bookings (
   coffee_order text,
   status text not null default 'pending' check (status in ('pending', 'confirmed', 'cancelled', 'no_show', 'completed')),
   cancellation_reason text,
-  detailers_assigned integer not null default 1 check (detailers_assigned >= 1),
+  detailers_assigned uuid[] not null default '{}',
   occupies_slots text[] not null default '{}',
   created_at timestamptz not null default now()
 );
@@ -177,8 +177,9 @@ declare
   v_min int := 2147483647;
   v_slot text;
   v_min_detailers int;
+  v_detailer_ids uuid[];
   v_requested int;
-  v_clamped int;
+  v_clamped_ids uuid[];
   v_id text;
   v_date date;
   v_row bookings;
@@ -188,10 +189,17 @@ begin
 
   select detailer_pool_size into v_pool from settings where id = 1;
   v_min_detailers := coalesce((p->>'min_detailers')::int, 1);
-  v_requested := coalesce((p->>'detailers_assigned')::int, 1);
+
+  -- Parse the detailer IDs array from the payload
+  v_detailer_ids := coalesce(
+    (select array_agg(v::uuid) from jsonb_array_elements_text(p->'detailers_assigned') v),
+    '{}'::uuid[]
+  );
+  v_requested := coalesce(array_length(v_detailer_ids, 1), 0);
+  if v_requested < 1 then v_requested := 1; end if;
 
   foreach v_slot in array p_occupies_slots loop
-    select coalesce(sum(detailers_assigned), 0) into v_used
+    select coalesce(sum(array_length(detailers_assigned, 1)), 0) into v_used
     from bookings
     where date = v_date
       and status not in ('cancelled', 'no_show')
@@ -206,7 +214,9 @@ begin
     );
   end if;
 
-  v_clamped := least(v_requested, v_min);
+  -- Clamp to available capacity
+  v_clamped_ids := v_detailer_ids[1:least(v_requested, v_min)];
+
   v_id := coalesce(
     nullif(p->>'id', ''),
     'OBS-' || to_char(v_date, 'YYYYMMDD') || '-' || lpad((1000 + floor(random() * 9000))::int::text, 4, '0')
@@ -235,7 +245,7 @@ begin
     nullif(p->>'member_id', ''),
     p->>'coffee_order',
     coalesce(nullif(p->>'status', ''), 'pending'),
-    v_clamped,
+    v_clamped_ids,
     p_occupies_slots
   )
   returning * into v_row;
@@ -249,7 +259,7 @@ $$;
 -- ---------------------------------------------------------------------
 create or replace function update_booking_detailers(
   p_id text,
-  p_count int,
+  p_detailer_ids uuid[],
   p_min_detailers int
 ) returns jsonb
 language plpgsql
@@ -258,12 +268,15 @@ declare
   v_pool int;
   v_used int;
   v_min int := 2147483647;
+  v_count int;
   v_slot text;
   v_booking bookings;
   v_row bookings;
 begin
-  if p_count < 1 then
-    return jsonb_build_object('error', 'Detailer count must be at least 1.');
+  v_count := coalesce(array_length(p_detailer_ids, 1), 0);
+
+  if v_count < 1 then
+    return jsonb_build_object('error', 'At least one detailer must be assigned.');
   end if;
 
   select * into v_booking from bookings where id = p_id;
@@ -271,7 +284,7 @@ begin
     return jsonb_build_object('error', 'Booking not found.');
   end if;
 
-  if p_count < p_min_detailers then
+  if v_count < p_min_detailers then
     return jsonb_build_object(
       'error',
       'Service requires at least ' || p_min_detailers || ' detailer(s).'
@@ -283,7 +296,7 @@ begin
   select detailer_pool_size into v_pool from settings where id = 1;
 
   foreach v_slot in array v_booking.occupies_slots loop
-    select coalesce(sum(detailers_assigned), 0) into v_used
+    select coalesce(sum(array_length(detailers_assigned, 1)), 0) into v_used
     from bookings
     where date = v_booking.date
       and id <> p_id
@@ -292,14 +305,14 @@ begin
     v_min := least(v_min, v_pool - v_used);
   end loop;
 
-  if p_count > v_min then
+  if v_count > v_min then
     return jsonb_build_object(
       'error',
       'Only ' || v_min || ' detailer(s) available across this booking''s hours.'
     );
   end if;
 
-  update bookings set detailers_assigned = p_count where id = p_id
+  update bookings set detailers_assigned = p_detailer_ids where id = p_id
     returning * into v_row;
 
   return to_jsonb(v_row);

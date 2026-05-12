@@ -100,13 +100,13 @@ export default function ServicesPage() {
                 ))}
               </ul>
 
-              <Link
+              {/* <Link
                 href={`/booking?service=${s.id}`}
                 className="group inline-flex items-center justify-center gap-2 w-full px-5 py-3 bg-gold text-obsidian font-semibold rounded-sm hover:bg-gold-light transition-colors"
               >
                 Book This Package
                 <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-              </Link>
+              </Link> */}
             </article>
           ))}
         </div>

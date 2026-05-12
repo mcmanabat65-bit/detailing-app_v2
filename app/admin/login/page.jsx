@@ -37,9 +37,9 @@ function LoginForm() {
       return;
     }
 
-    // Wait for onAuthStateChange to fire and AppContext to update adminSession
-    // before navigating — prevents ProtectedRoute from bouncing us back to login.
-    await supabase.auth.getSession();
+    // Mark that we just logged in so ProtectedRoute skips its redirect check
+    // for the brief window before onAuthStateChange updates adminSession.
+    sessionStorage.setItem('obsidian_just_logged_in', '1');
 
     showToast('Welcome back, Admin.', 'success');
     const next = searchParams.get('next') || '/admin/dashboard';

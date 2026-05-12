@@ -334,7 +334,7 @@ export function AppProvider({ children }) {
           memberId: booking.memberId,
           coffeeOrder: booking.coffeeOrder,
           status: booking.status || 'pending',
-          detailersAssigned: requested,
+          detailersAssigned: booking.assignedDetailerIds || [],
         }),
         min_detailers: minDetailers,
       };
@@ -371,11 +371,11 @@ export function AppProvider({ children }) {
   );
 
   const updateBookingDetailers = useCallback(
-    async (id, count) => {
+    async (id, detailerIds) => {
       if (!supabase) return { error: 'Database not connected.' };
-      const target = Number(count);
-      if (!Number.isFinite(target) || target < 1) {
-        return { error: 'Detailer count must be at least 1.' };
+      const ids = Array.isArray(detailerIds) ? detailerIds : [];
+      if (ids.length < 1) {
+        return { error: 'At least one detailer must be assigned.' };
       }
       const booking = bookings.find((b) => b.id === id);
       const svc = booking ? services.find((s) => s.id === Number(booking.serviceId)) : null;
@@ -383,14 +383,14 @@ export function AppProvider({ children }) {
 
       const { data, error } = await supabase.rpc('update_booking_detailers', {
         p_id: id,
-        p_count: target,
+        p_detailer_ids: ids,
         p_min_detailers: minDetailers,
       });
       if (error) return { error: error.message };
       if (data?.error) return { error: data.error };
 
       await refetchBookings();
-      return { ok: true, detailersAssigned: target };
+      return { ok: true, detailersAssigned: ids };
     },
     [services, bookings, refetchBookings]
   );

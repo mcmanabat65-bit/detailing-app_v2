@@ -242,6 +242,7 @@ function BookingFlow() {
     settings,
     cars,
     coffees,
+    detailers,
     findApprovedMemberByEmail,
     getCarsForMember,
   } = useApp();
@@ -277,6 +278,18 @@ function BookingFlow() {
     notes: '',
     coffeeOrder: '',
   });
+
+  const [selectedDetailerIds, setSelectedDetailerIds] = useState([]);
+
+  const activeDetailers = useMemo(
+    () => detailers.filter((d) => d.isActive !== false),
+    [detailers]
+  );
+
+  const toggleDetailer = (id) =>
+    setSelectedDetailerIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
 
   const service = useMemo(() => getServiceById(serviceId), [serviceId]);
 
@@ -429,6 +442,7 @@ function BookingFlow() {
         memberId: vipMember?.id || null,
         coffeeOrder: isVip ? details.coffeeOrder : '',
         detailersAssigned: requested,
+        assignedDetailerIds: selectedDetailerIds,
       });
       if (!booking || booking.error) {
         showToast(
@@ -802,6 +816,37 @@ function BookingFlow() {
                 </div>
               )}
 
+              {activeDetailers.length > 0 && (
+                <Field label="Preferred Detailer (optional)">
+                  <div className="flex flex-wrap gap-2 mt-1">
+                    {activeDetailers.map((d) => {
+                      const selected = selectedDetailerIds.includes(d.id);
+                      return (
+                        <button
+                          key={d.id}
+                          type="button"
+                          onClick={() => toggleDetailer(d.id)}
+                          className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm border transition-colors ${
+                            selected
+                              ? 'bg-gold/15 border-gold/60 text-gold'
+                              : 'bg-white/[0.04] border-white/10 text-cream/70 hover:border-white/20 hover:text-cream'
+                          }`}
+                        >
+                          <span className="w-5 h-5 rounded-full bg-white/10 flex items-center justify-center text-[10px] font-semibold shrink-0">
+                            {(d.name || '?').split(' ').slice(0, 2).map((w) => w[0]).join('')}
+                          </span>
+                          {d.nickname ? `"${d.nickname}"` : d.name.split(' ')[0]}
+                          {selected && <Check className="w-3 h-3 shrink-0" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="text-xs text-muted mt-2">
+                    We'll do our best to honor your preference. Subject to availability.
+                  </p>
+                </Field>
+              )}
+
               <Field label="Special Notes">
                 <textarea
                   rows={3}
@@ -980,10 +1025,48 @@ function Row({ label, value }) {
   );
 }
 
-export default function BookingPage() {
+function BookingUnavailable() {
+  return (
+    <div className="min-h-screen bg-obsidian flex items-center justify-center px-5 py-20">
+      <div className="max-w-lg w-full text-center">
+        <div className="w-16 h-16 rounded-full bg-gold/10 border border-gold/20 flex items-center justify-center mx-auto mb-6">
+          <Calendar className="w-7 h-7 text-gold" />
+        </div>
+        <h1 className="font-serif text-4xl text-cream mb-4">
+          Online Booking Unavailable
+        </h1>
+        <p className="text-muted text-lg leading-relaxed mb-8">
+          We're not accepting online bookings at the moment. To schedule an appointment, please visit us at the shop and our team will be happy to assist you.
+        </p>
+        <div className="glass-card rounded-md p-6 text-left space-y-4 mb-8">
+          <div className="flex items-start gap-3">
+            <Clock className="w-4 h-4 text-gold shrink-0 mt-0.5" />
+            <span className="text-cream/80 text-sm">Mon – Sun · 7:00 AM – 5:00 PM</span>
+          </div>
+        </div>
+        <a
+          href="/"
+          className="inline-flex items-center gap-2 px-6 py-3 bg-gold text-obsidian font-semibold rounded-sm hover:bg-gold-light transition-colors text-sm"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          Back to Home
+        </a>
+      </div>
+    </div>
+  );
+}
+
+function BookingGate() {
+  const { adminSession, hydrated } = useApp();
+  if (!hydrated) return null;
+  if (!adminSession) return <BookingUnavailable />;
   return (
     <Suspense fallback={null}>
       <BookingFlow />
     </Suspense>
   );
+}
+
+export default function BookingPage() {
+  return <BookingGate />;
 }

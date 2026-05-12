@@ -12,7 +12,6 @@ import {
   Crown,
   Coffee,
   Users,
-  Minus,
   Plus,
   UserX,
   X,
@@ -40,14 +39,20 @@ const CANCEL_REASONS = [
 function BookingsTable() {
   const {
     services,
-    getServiceById,
     bookings,
-    settings,
+    detailers,
     updateBookingStatus,
     updateBookingDetailers,
     deleteBooking,
     showToast,
   } = useApp();
+
+  const activeDetailers = useMemo(
+    () => (detailers || []).filter((d) => d.isActive !== false),
+    [detailers]
+  );
+
+  const [detailerPickerBookingId, setDetailerPickerBookingId] = useState(null);
 
   const [filters, setFilters] = useState({
     date: '',
@@ -84,33 +89,12 @@ function BookingsTable() {
     setPage(1);
   };
 
-  // Compute available detailer headroom per booking (pool minus others in overlapping slots)
-  const availableHeadroomFor = (booking) => {
-    if (!booking?.occupiesSlots?.length) return 0;
-    const pool = settings?.detailerPoolSize ?? 5;
-    let min = pool;
-    for (const slot of booking.occupiesSlots) {
-      const used = bookings
-        .filter(
-          (b) =>
-            b.id !== booking.id &&
-            b.date === booking.date &&
-            b.status !== 'cancelled' &&
-            b.status !== 'no_show' &&
-            b.occupiesSlots?.includes(slot)
-        )
-        .reduce((sum, b) => sum + (b.detailersAssigned ?? 1), 0);
-      min = Math.min(min, pool - used);
-    }
-    return min;
-  };
-
   const exportCsv = () => {
     if (filtered.length === 0) { showToast('Nothing to export.', 'info'); return; }
     const headers = ['Booking ID','Customer','Email','Phone','Service','Price','Date','Time','Detailers','Vehicle','VIP','Coffee','Status','Cancellation Reason'];
     const rows = filtered.map((b) => [
       b.id, b.customerName, b.email, b.phone, b.serviceName, b.servicePrice,
-      b.date, b.time, b.detailersAssigned ?? 1,
+      b.date, b.time, Array.isArray(b.detailersAssigned) ? b.detailersAssigned.length : 0,
       `${b.vehicleYear || ''} ${b.vehicle || ''}`.trim(),
       b.isVip ? 'Yes' : 'No', b.coffeeOrder || '', b.status,
       b.cancellationReason || '',
@@ -130,11 +114,15 @@ function BookingsTable() {
 
   const resetFilters = () => { setFilters({ date: '', serviceId: 'all', status: 'all', q: '' }); setPage(1); };
 
-  const adjustDetailers = async (booking, delta) => {
-    const next = (booking.detailersAssigned ?? 1) + delta;
+  const handleDetailerToggle = async (booking, detailerId) => {
+    const current = Array.isArray(booking.detailersAssigned) ? booking.detailersAssigned : [];
+    const next = current.includes(detailerId)
+      ? current.filter((id) => id !== detailerId)
+      : [...current, detailerId];
+    if (next.length === 0) { showToast('At least one detailer must be assigned.', 'error'); return; }
     const result = await updateBookingDetailers(booking.id, next);
     if (result?.error) showToast(result.error, 'error');
-    else if (result?.ok) showToast(`Assigned ${result.detailersAssigned} detailer${result.detailersAssigned === 1 ? '' : 's'}.`, 'success');
+    else showToast(`${next.length} detailer${next.length === 1 ? '' : 's'} assigned.`, 'success');
   };
 
   const setStatus = async (id, status, successMessage) => {
@@ -277,13 +265,9 @@ function BookingsTable() {
             </thead>
             <tbody>
               {paginated.map((b) => {
-                const headroom = availableHeadroomFor(b);
-                const count = b.detailersAssigned ?? 1;
-                const svc = getServiceById(b.serviceId);
-                const minDetailers = svc?.minDetailers ?? 1;
+                const assigned = Array.isArray(b.detailersAssigned) ? b.detailersAssigned : [];
                 const isEditable = b.status === 'confirmed' || b.status === 'pending';
-                const canAdd = isEditable && count < headroom;
-                const canRemove = isEditable && count > minDetailers;
+                const isPickerOpen = detailerPickerBookingId === b.id;
 
                 return (
                   <tr key={b.id} className="border-b border-white/5 hover:bg-white/[0.02]">
@@ -299,30 +283,44 @@ function BookingsTable() {
                     <td className="px-4 py-3 text-cream/85">{formatDateShort(b.date)}</td>
                     <td className="px-4 py-3 text-cream/85">{b.time}</td>
                     <td className="px-4 py-3">
-                      <div className="inline-flex items-center gap-1.5">
+                      <div className="relative">
                         <button
                           type="button"
-                          onClick={() => adjustDetailers(b, -1)}
-                          disabled={!canRemove}
-                          aria-label="Remove a detailer"
-                          className="w-6 h-6 rounded-sm border border-white/10 text-cream/80 hover:border-gold/50 hover:text-gold disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center transition-colors"
+                          disabled={!isEditable || activeDetailers.length === 0}
+                          onClick={() => setDetailerPickerBookingId(isPickerOpen ? null : b.id)}
+                          className="inline-flex items-center gap-1.5 text-sm text-cream/80 hover:text-gold disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                          title={activeDetailers.length === 0 ? 'No detailers in roster' : 'Assign detailers'}
                         >
-                          <Minus className="w-3 h-3" />
+                          <Users className="w-3.5 h-3.5 text-gold shrink-0" />
+                          {assigned.length === 0 ? (
+                            <span className="text-muted text-xs">None</span>
+                          ) : (
+                            <span>{assigned.length}</span>
+                          )}
                         </button>
-                        <span className="inline-flex items-center gap-1 min-w-[44px] justify-center text-cream text-sm">
-                          <Users className="w-3.5 h-3.5 text-gold" />
-                          {count}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => adjustDetailers(b, 1)}
-                          disabled={!canAdd}
-                          aria-label="Add a detailer"
-                          title={!canAdd && b.status === 'confirmed' ? 'No detailers available in this time slot' : undefined}
-                          className="w-6 h-6 rounded-sm border border-white/10 text-cream/80 hover:border-gold/50 hover:text-gold disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center transition-colors"
-                        >
-                          <Plus className="w-3 h-3" />
-                        </button>
+                        {isPickerOpen && (
+                          <div className="absolute left-0 top-7 z-20 bg-surface border border-white/10 rounded-sm shadow-xl p-3 min-w-[180px] space-y-1">
+                            {activeDetailers.map((d) => {
+                              const sel = assigned.includes(d.id);
+                              return (
+                                <button
+                                  key={d.id}
+                                  type="button"
+                                  onClick={() => handleDetailerToggle(b, d.id)}
+                                  className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-sm text-sm text-left transition-colors ${
+                                    sel ? 'bg-gold/10 text-gold' : 'text-cream/70 hover:bg-white/5 hover:text-cream'
+                                  }`}
+                                >
+                                  <span className="w-5 h-5 rounded-full bg-white/10 flex items-center justify-center text-[10px] font-semibold shrink-0">
+                                    {d.name.split(' ').slice(0, 2).map((w) => w[0]).join('')}
+                                  </span>
+                                  <span className="flex-1 truncate">{d.nickname ? `"${d.nickname}"` : d.name.split(' ')[0]}</span>
+                                  {sel && <X className="w-3 h-3 shrink-0" />}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
                     </td>
                     <td className="px-4 py-3 text-cream/85 max-w-[180px] truncate">

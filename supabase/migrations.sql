@@ -101,6 +101,166 @@ create policy "public all detailers" on detailers for all to anon, authenticated
 -- Safe to re-run — ADD TABLE is idempotent on the publication.
 alter publication supabase_realtime add table bookings;
 
+-- Phase 2.1 — Change detailers_assigned from integer count to uuid[] array
+-- This lets bookings record which specific detailers are assigned, enabling
+-- per-detailer task history tracking. Count is now array_length(detailers_assigned, 1).
+alter table bookings drop constraint if exists bookings_detailers_assigned_check;
+alter table bookings alter column detailers_assigned type uuid[] using '{}'::uuid[];
+alter table bookings alter column detailers_assigned set default '{}'::uuid[];
+
+-- Replace add_booking RPC: detailers_assigned now accepts a uuid[] in the payload
+create or replace function add_booking(
+  p jsonb,
+  p_occupies_slots text[]
+) returns jsonb
+language plpgsql
+as $$
+declare
+  v_pool int;
+  v_used int;
+  v_min int := 2147483647;
+  v_slot text;
+  v_min_detailers int;
+  v_detailer_ids uuid[];
+  v_requested int;
+  v_clamped_ids uuid[];
+  v_id text;
+  v_date date;
+  v_row bookings;
+begin
+  v_date := (p->>'date')::date;
+  perform pg_advisory_xact_lock(hashtext(v_date::text));
+
+  select detailer_pool_size into v_pool from settings where id = 1;
+  v_min_detailers := coalesce((p->>'min_detailers')::int, 1);
+
+  v_detailer_ids := coalesce(
+    (select array_agg(v::uuid) from jsonb_array_elements_text(p->'detailers_assigned') v),
+    '{}'::uuid[]
+  );
+  v_requested := coalesce(array_length(v_detailer_ids, 1), 0);
+  if v_requested < 1 then v_requested := 1; end if;
+
+  foreach v_slot in array p_occupies_slots loop
+    select coalesce(sum(array_length(detailers_assigned, 1)), 0) into v_used
+    from bookings
+    where date = v_date
+      and status not in ('cancelled', 'no_show')
+      and v_slot = any (occupies_slots);
+    v_min := least(v_min, v_pool - v_used);
+  end loop;
+
+  if v_min < v_min_detailers then
+    return jsonb_build_object(
+      'error',
+      'This time slot just filled up. Please choose another.'
+    );
+  end if;
+
+  v_clamped_ids := v_detailer_ids[1:least(v_requested, v_min)];
+
+  v_id := coalesce(
+    nullif(p->>'id', ''),
+    'OBS-' || to_char(v_date, 'YYYYMMDD') || '-' || lpad((1000 + floor(random() * 9000))::int::text, 4, '0')
+  );
+
+  insert into bookings (
+    id, service_id, service_name, service_price, service_duration, service_category,
+    date, time, customer_name, email, phone, vehicle, vehicle_year, notes,
+    is_vip, member_id, coffee_order, status, detailers_assigned, occupies_slots
+  ) values (
+    v_id,
+    (p->>'service_id')::int,
+    p->>'service_name',
+    (p->>'service_price')::int,
+    p->>'service_duration',
+    p->>'service_category',
+    v_date,
+    p->>'time',
+    p->>'customer_name',
+    p->>'email',
+    p->>'phone',
+    p->>'vehicle',
+    p->>'vehicle_year',
+    p->>'notes',
+    coalesce((p->>'is_vip')::boolean, false),
+    nullif(p->>'member_id', ''),
+    p->>'coffee_order',
+    coalesce(nullif(p->>'status', ''), 'pending'),
+    v_clamped_ids,
+    p_occupies_slots
+  )
+  returning * into v_row;
+
+  return to_jsonb(v_row);
+end;
+$$;
+
+-- Replace update_booking_detailers RPC: now accepts uuid[] instead of int count
+create or replace function update_booking_detailers(
+  p_id text,
+  p_detailer_ids uuid[],
+  p_min_detailers int
+) returns jsonb
+language plpgsql
+as $$
+declare
+  v_pool int;
+  v_used int;
+  v_min int := 2147483647;
+  v_count int;
+  v_slot text;
+  v_booking bookings;
+  v_row bookings;
+begin
+  v_count := coalesce(array_length(p_detailer_ids, 1), 0);
+
+  if v_count < 1 then
+    return jsonb_build_object('error', 'At least one detailer must be assigned.');
+  end if;
+
+  select * into v_booking from bookings where id = p_id;
+  if v_booking is null then
+    return jsonb_build_object('error', 'Booking not found.');
+  end if;
+
+  if v_count < p_min_detailers then
+    return jsonb_build_object(
+      'error',
+      'Service requires at least ' || p_min_detailers || ' detailer(s).'
+    );
+  end if;
+
+  perform pg_advisory_xact_lock(hashtext(v_booking.date::text));
+
+  select detailer_pool_size into v_pool from settings where id = 1;
+
+  foreach v_slot in array v_booking.occupies_slots loop
+    select coalesce(sum(array_length(detailers_assigned, 1)), 0) into v_used
+    from bookings
+    where date = v_booking.date
+      and id <> p_id
+      and status not in ('cancelled', 'no_show')
+      and v_slot = any (occupies_slots);
+    v_min := least(v_min, v_pool - v_used);
+  end loop;
+
+  if v_count > v_min then
+    return jsonb_build_object(
+      'error',
+      'Only ' || v_min || ' detailer(s) available across this booking''s hours.'
+    );
+  end if;
+
+  update bookings set detailers_assigned = p_detailer_ids where id = p_id
+    returning * into v_row;
+
+  return to_jsonb(v_row);
+end;
+$$;
+
+notify pgrst, 'reload schema';
+
 -- Expand booking statuses: add pending (awaiting admin confirmation) and completed (service done)
 -- Phase 2 — Admin Confirmation + Earnings Tracking
 alter table bookings drop constraint if exists bookings_status_check;

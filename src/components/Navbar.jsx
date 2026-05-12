@@ -9,7 +9,7 @@ const links = [
   { href: '/', label: 'Home' },
   // { href: '/about', label: 'About' },
   { href: '/services', label: 'Services' },
-  { href: '/booking', label: 'Book' },
+  // { href: '/booking', label: 'Book' },
   { href: '/membership', label: 'Membership' },
 ];
 
@@ -71,12 +71,12 @@ export function Navbar() {
               </Link>
             );
           })}
-          <Link
+          {/* <Link
             href="/booking"
             className="px-5 py-2 bg-gold text-obsidian text-sm font-semibold rounded-sm hover:bg-gold-light transition-colors"
           >
             Reserve
-          </Link>
+          </Link> */}
         </nav>
 
         {/* Mobile toggle */}

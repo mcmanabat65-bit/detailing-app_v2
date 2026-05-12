@@ -147,6 +147,20 @@ export default function MembershipPage() {
           </p>
         </div>
 
+        {/* Visit-first notice */}
+        <div className="max-w-3xl mx-auto mb-12 flex gap-4 bg-gold/5 border border-gold/20 rounded-md px-6 py-5">
+          <Crown className="w-5 h-5 text-gold shrink-0 mt-0.5" />
+          <div>
+            <p className="text-cream font-medium mb-1">Visit us in person first</p>
+            <p className="text-muted text-sm leading-relaxed">
+              For the time being, VIP membership begins with a personal visit to our shop. Come by, meet the team, and let us get to know you and your vehicle before we welcome you into the club. Walk-ins are always welcome during operating hours.
+            </p>
+            <p className="text-gold/80 text-xs mt-2.5 font-medium tracking-wide">
+              Brgy. San Francisco Halang Rd, Biñan, Philippines 4024 · Mon – Sun, 7:00 AM – 5:00 PM
+            </p>
+          </div>
+        </div>
+
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5 mb-20 stagger">
           {perks.map((p) => {
             const I = p.icon;

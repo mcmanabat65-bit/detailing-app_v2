@@ -45,9 +45,9 @@ const features = [
 const testimonials = [
   {
     name: 'Jehnsen Enrique',
-    car: 'Nissan GTR Owner',
+    car: 'Nissan Navara Owner',
     quote:
-      'I have been to every detailer in BGC. Samahuzai Carwash and Auto Detailing is the only one I trust with my GTR. The finish is mirror-grade.',
+      'I have been to every detailer in BGC. Samahuzai Carwash and Auto Detailing is the only one I trust with my Navara. The finish is mirror-grade.',
     rating: 5,
   },
   {
