@@ -24,6 +24,22 @@ import { SLOT_MINUTES } from '@/data/timeSlots';
 // Helpers
 // ---------------------------------------------------------------------------
 
+function computeEndTime(startTime, slotsConsumed) {
+  const m = startTime.match(/(\d+):(\d+)\s*(AM|PM)/i);
+  if (!m) return '—';
+  let h = parseInt(m[1]);
+  const min = parseInt(m[2]);
+  const period = m[3].toUpperCase();
+  if (period === 'PM' && h !== 12) h += 12;
+  if (period === 'AM' && h === 12) h = 0;
+  const total = h * 60 + min + slotsConsumed * SLOT_MINUTES;
+  const endH = Math.floor(total / 60) % 24;
+  const endM = total % 60;
+  const mer = endH >= 12 ? 'PM' : 'AM';
+  const display = endH % 12 === 0 ? 12 : endH % 12;
+  return `${display}:${String(endM).padStart(2, '0')} ${mer}`;
+}
+
 function toMinutes(timeStr = '') {
   const m = timeStr.match(/(\d+):(\d+)\s*(AM|PM)/i);
   if (!m) return 0;
@@ -150,11 +166,11 @@ const JobCard = memo(function JobCard({ booking, catMap, status }) {
         )}
       </div>
 
-      {/* Time + Duration */}
+      {/* Time block */}
       <div className="grid grid-cols-2 gap-3">
         <div className="bg-white/[0.04] rounded-sm px-3 py-3">
           <div className="text-[10px] uppercase tracking-widest text-muted mb-1.5">
-            Start Time
+            Start
           </div>
           <div className="flex items-center gap-1.5 text-cream font-semibold">
             <Clock className="w-3.5 h-3.5 text-gold shrink-0" />
@@ -163,13 +179,19 @@ const JobCard = memo(function JobCard({ booking, catMap, status }) {
         </div>
         <div className="bg-white/[0.04] rounded-sm px-3 py-3">
           <div className="text-[10px] uppercase tracking-widest text-muted mb-1.5">
-            Duration
+            Finish
           </div>
           <div className="flex items-center gap-1.5 text-cream font-semibold">
-            <Timer className="w-3.5 h-3.5 text-gold shrink-0" />
-            {booking.serviceDuration}
+            <Clock className="w-3.5 h-3.5 text-gold shrink-0" />
+            {computeEndTime(booking.time, getSlotsConsumed(booking.serviceDuration || '1 hr'))}
           </div>
         </div>
+      </div>
+
+      {/* Duration */}
+      <div className="flex items-center gap-2 text-cream/60">
+        <Timer className="w-3.5 h-3.5 text-gold/60 shrink-0" />
+        <span className="text-sm"><span className="text-muted">ETC</span> {booking.serviceDuration}</span>
       </div>
 
       {/* Detailers */}

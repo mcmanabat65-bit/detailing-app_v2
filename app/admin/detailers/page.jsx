@@ -151,9 +151,9 @@ function DetailerForm({ initial, onSave, onCancel, isSaving }) {
         <button
           type="button"
           onClick={() => set('isActive', !form.isActive)}
-          className={`relative w-11 h-6 rounded-full transition-colors ${form.isActive ? 'bg-gold' : 'bg-white/10'}`}
+          className={`relative w-11 h-6 rounded-full transition-colors overflow-hidden ${form.isActive ? 'bg-gold' : 'bg-white/10'}`}
         >
-          <span className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${form.isActive ? 'translate-x-6' : 'translate-x-1'}`} />
+          <span className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${form.isActive ? 'translate-x-5' : 'translate-x-0'}`} />
         </button>
         <span className="text-sm text-cream">
           {form.isActive ? 'Active — available for scheduling' : 'Inactive — not shown in scheduling'}
