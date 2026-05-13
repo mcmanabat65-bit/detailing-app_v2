@@ -292,7 +292,7 @@ function MonitorContent({ isFullscreen, onToggle }) {
 
   const todayJobs = useMemo(() =>
     bookings
-      .filter((b) => b.date === today && b.status !== 'cancelled' && b.status !== 'no_show')
+      .filter((b) => b.date === today && b.status !== 'cancelled' && b.status !== 'no_show' && b.status !== 'pending')
       .sort((a, b) => toMinutes(a.time) - toMinutes(b.time)),
     [bookings, today]
   );
