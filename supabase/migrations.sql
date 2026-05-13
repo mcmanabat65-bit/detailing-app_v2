@@ -265,5 +265,5 @@ notify pgrst, 'reload schema';
 -- Phase 2 — Admin Confirmation + Earnings Tracking
 alter table bookings drop constraint if exists bookings_status_check;
 alter table bookings add constraint bookings_status_check
-  check (status in ('pending', 'confirmed', 'cancelled', 'no_show', 'completed'));
+  check (status in ('pending', 'confirmed', 'on-going', 'cancelled', 'no_show', 'completed'));
 alter table bookings alter column status set default 'pending';

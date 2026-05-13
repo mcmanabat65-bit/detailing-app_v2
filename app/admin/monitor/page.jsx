@@ -17,8 +17,7 @@ import { AdminLayout } from '@/components/AdminLayout';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { useApp } from '@/context/AppContext';
 import { supabase } from '@/lib/supabase';
-import { getDaysConsumed, getSlotsConsumed, toIsoDate } from '@/utils/bookingUtils';
-import { SLOT_MINUTES } from '@/data/timeSlots';
+import { getSlotsConsumed, toIsoDate } from '@/utils/bookingUtils';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -32,7 +31,8 @@ function computeEndTime(startTime, slotsConsumed) {
   const period = m[3].toUpperCase();
   if (period === 'PM' && h !== 12) h += 12;
   if (period === 'AM' && h === 12) h = 0;
-  const total = h * 60 + min + slotsConsumed * SLOT_MINUTES;
+  const SLOT_MIN = 60;
+  const total = h * 60 + min + slotsConsumed * SLOT_MIN;
   const endH = Math.floor(total / 60) % 24;
   const endM = total % 60;
   const mer = endH >= 12 ? 'PM' : 'AM';
@@ -51,14 +51,12 @@ function toMinutes(timeStr = '') {
   return h * 60 + min;
 }
 
-function getJobStatus(booking, nowMin) {
-  const startMin = toMinutes(booking.time);
-  const slots = getSlotsConsumed(booking.serviceDuration || '1 hr');
-  const endMin = startMin + slots * SLOT_MINUTES;
-  const isMultiDay = getDaysConsumed(booking.serviceDuration || '') > 1;
-  if (nowMin < startMin) return 'upcoming';
-  if (nowMin < endMin || isMultiDay) return 'active';
-  return 'done';
+// Status is driven by the explicit booking status set by the admin,
+// not by clock time — so the monitor reflects the real shop floor state.
+function getJobStatus(booking) {
+  if (booking.status === 'on-going') return 'active';
+  if (booking.status === 'completed') return 'done';
+  return 'upcoming'; // confirmed
 }
 
 // ---------------------------------------------------------------------------
@@ -99,7 +97,7 @@ function LiveClock() {
 
 // ---------------------------------------------------------------------------
 // Single booking card — memoized so it only re-renders when its own
-// data or status string actually changes, not on every nowMin tick.
+// data or status string actually changes.
 // ---------------------------------------------------------------------------
 
 const STATUS_META = {
@@ -231,55 +229,12 @@ function EmptyState() {
 function MonitorContent({ isFullscreen, onToggle }) {
   const { bookings, serviceCategories, refetchBookings } = useApp();
 
-  const [nowMin, setNowMin] = useState(() => {
-    const n = new Date();
-    return n.getHours() * 60 + n.getMinutes();
-  });
-
-  // Status badge refresh every 60 s.
-  // Skips the update while the page is hidden (TV browser sleep/background).
-  // Immediately recalculates when the page becomes visible again so badges
-  // are accurate the moment the screen wakes up.
+  // Booking updates arrive via the global AppContext Realtime subscription.
+  // This fallback poll only activates when Supabase is unavailable.
   useEffect(() => {
-    function tick() {
-      if (document.visibilityState === 'hidden') return;
-      const n = new Date();
-      setNowMin(n.getHours() * 60 + n.getMinutes());
-    }
-    function onVisible() {
-      if (document.visibilityState === 'visible') {
-        const n = new Date();
-        setNowMin(n.getHours() * 60 + n.getMinutes());
-      }
-    }
-    const id = setInterval(tick, 60_000);
-    document.addEventListener('visibilitychange', onVisible);
-    return () => {
-      clearInterval(id);
-      document.removeEventListener('visibilitychange', onVisible);
-    };
-  }, []);
-
-  // Supabase Realtime — push-based booking updates.
-  // No polling: the monitor receives an event the instant any booking is
-  // inserted, updated, or deleted on any device, then re-fetches once.
-  // Falls back to a 5-minute safety poll when Realtime is unavailable.
-  useEffect(() => {
-    if (!supabase) {
-      const id = setInterval(() => refetchBookings(), 5 * 60_000);
-      return () => clearInterval(id);
-    }
-
-    const channel = supabase
-      .channel('monitor-bookings')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'bookings' },
-        () => { refetchBookings(); }
-      )
-      .subscribe();
-
-    return () => { supabase.removeChannel(channel); };
+    if (supabase) return;
+    const id = setInterval(() => refetchBookings(), 5 * 60_000);
+    return () => clearInterval(id);
   }, [refetchBookings]);
 
   const today = toIsoDate(new Date());
@@ -298,10 +253,10 @@ function MonitorContent({ isFullscreen, onToggle }) {
   );
 
   const counts = useMemo(() => ({
-    active:   todayJobs.filter((b) => getJobStatus(b, nowMin) === 'active').length,
-    upcoming: todayJobs.filter((b) => getJobStatus(b, nowMin) === 'upcoming').length,
-    done:     todayJobs.filter((b) => getJobStatus(b, nowMin) === 'done').length,
-  }), [todayJobs, nowMin]);
+    active:   todayJobs.filter((b) => getJobStatus(b) === 'active').length,
+    upcoming: todayJobs.filter((b) => getJobStatus(b) === 'upcoming').length,
+    done:     todayJobs.filter((b) => getJobStatus(b) === 'done').length,
+  }), [todayJobs]);
 
   return (
     <div className={`flex flex-col min-h-full ${isFullscreen ? 'bg-obsidian' : ''}`}>
@@ -378,7 +333,7 @@ function MonitorContent({ isFullscreen, onToggle }) {
                 key={b.id}
                 booking={b}
                 catMap={catMap}
-                status={getJobStatus(b, nowMin)}
+                status={getJobStatus(b)}
               />
             ))}
           </div>
@@ -389,7 +344,7 @@ function MonitorContent({ isFullscreen, onToggle }) {
       {isFullscreen && (
         <div className="px-6 py-3 border-t border-white/5 flex items-center justify-between text-[11px] text-muted">
           <span>{todayJobs.length} job{todayJobs.length !== 1 ? 's' : ''} today</span>
-          <span>Live · Status refreshes every 60 s</span>
+          <span>Live · Updates instantly when admin changes a booking status</span>
         </div>
       )}
     </div>

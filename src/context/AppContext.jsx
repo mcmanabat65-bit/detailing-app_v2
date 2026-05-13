@@ -231,6 +231,21 @@ export function AppProvider({ children }) {
     return () => subscription.unsubscribe();
   }, [refetchServices, refetchBookings, refetchMembers, refetchBlockedSlots, refetchCars, refetchMemberCars, refetchCoffees, refetchServiceCategories, refetchDetailers, refetchSettings]);
 
+  // Global Realtime subscription — one shared WebSocket channel for the entire
+  // app. Any page that reads `bookings` from context (bookings, schedule,
+  // dashboard, monitor) automatically receives live updates without each page
+  // managing its own channel.
+  useEffect(() => {
+    if (!supabase) return;
+    const channel = supabase
+      .channel('app-bookings')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bookings' }, () => {
+        refetchBookings();
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [refetchBookings]);
+
   // ===== Services =====
   const upsertService = useCallback(
     async (service) => {

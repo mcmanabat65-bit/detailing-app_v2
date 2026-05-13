@@ -18,6 +18,7 @@ import {
   AlertTriangle,
   ChevronLeft,
   ChevronRight,
+  Play,
 } from 'lucide-react';
 import { sendEmail } from '@/lib/sendEmail';
 import { bookingConfirmationHtml } from '@/lib/emailTemplates';
@@ -222,6 +223,7 @@ function BookingsTable() {
             <option value="all">All status</option>
             <option value="pending">Pending</option>
             <option value="confirmed">Confirmed</option>
+            <option value="on-going">On-going</option>
             <option value="completed">Completed</option>
             <option value="cancelled">Cancelled</option>
             <option value="no_show">No-show</option>
@@ -266,7 +268,7 @@ function BookingsTable() {
             <tbody>
               {paginated.map((b) => {
                 const assigned = Array.isArray(b.detailersAssigned) ? b.detailersAssigned : [];
-                const isEditable = b.status === 'confirmed' || b.status === 'pending';
+                const isEditable = b.status === 'confirmed' || b.status === 'pending' || b.status === 'on-going';
                 const isPickerOpen = detailerPickerBookingId === b.id;
 
                 return (
@@ -348,17 +350,30 @@ function BookingsTable() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-1">
-                        {b.status !== 'confirmed' && b.status !== 'completed' && (
+                        {/* Confirm — pending only */}
+                        {b.status === 'pending' && (
                           <button
                             onClick={() => setStatus(b.id, 'confirmed')}
                             aria-label="Mark confirmed"
-                            title="Mark confirmed"
+                            title="Confirm booking"
                             className="p-2 text-success hover:bg-success/10 rounded-sm transition-colors"
                           >
                             <CheckCircle2 className="w-4 h-4" />
                           </button>
                         )}
+                        {/* Mark On-going — confirmed only */}
                         {b.status === 'confirmed' && (
+                          <button
+                            onClick={() => setStatus(b.id, 'on-going', 'Marked as on-going.')}
+                            aria-label="Mark on-going"
+                            title="Mark as on-going"
+                            className="p-2 text-amber-400 hover:bg-amber-400/10 rounded-sm transition-colors"
+                          >
+                            <Play className="w-4 h-4" />
+                          </button>
+                        )}
+                        {/* Mark Completed — on-going only */}
+                        {b.status === 'on-going' && (
                           <button
                             onClick={() => setStatus(b.id, 'completed', 'Marked as completed.')}
                             aria-label="Mark completed"
@@ -368,7 +383,8 @@ function BookingsTable() {
                             <BadgeCheck className="w-4 h-4" />
                           </button>
                         )}
-                        {b.status !== 'no_show' && b.status !== 'completed' && (
+                        {/* No-show — pending or confirmed only */}
+                        {(b.status === 'pending' || b.status === 'confirmed') && (
                           <button
                             onClick={() => setStatus(b.id, 'no_show', 'Marked as no-show — detailers freed.')}
                             aria-label="Mark no-show"
@@ -378,7 +394,8 @@ function BookingsTable() {
                             <UserX className="w-4 h-4" />
                           </button>
                         )}
-                        {b.status !== 'cancelled' && (
+                        {/* Cancel — not already cancelled or completed */}
+                        {b.status !== 'cancelled' && b.status !== 'completed' && (
                           <button
                             onClick={() => openCancelModal(b)}
                             aria-label="Cancel booking"
@@ -615,6 +632,9 @@ function StatusBadge({ status }) {
   );
   if (status === 'confirmed') return (
     <span className="text-[10px] uppercase tracking-widest px-2 py-1 rounded-sm bg-success/15 text-success">Confirmed</span>
+  );
+  if (status === 'on-going') return (
+    <span className="text-[10px] uppercase tracking-widest px-2 py-1 rounded-sm bg-amber-400/15 text-amber-400 border border-amber-400/30">On-going</span>
   );
   if (status === 'completed') return (
     <span className="text-[10px] uppercase tracking-widest px-2 py-1 rounded-sm bg-success/25 text-success border border-success/40">Completed</span>
