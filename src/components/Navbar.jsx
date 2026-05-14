@@ -11,6 +11,7 @@ const links = [
   { href: '/services', label: 'Services' },
   // { href: '/booking', label: 'Book' },
   { href: '/membership', label: 'Membership' },
+  { href: '/live', label: 'Live', live: true },
 ];
 
 const isActiveLink = (pathname, href) =>
@@ -63,10 +64,13 @@ export function Navbar() {
               <Link
                 key={l.href}
                 href={l.href}
-                className={`text-sm tracking-wide transition-colors hover:text-gold ${
+                className={`text-sm tracking-wide transition-colors hover:text-gold flex items-center gap-1.5 ${
                   active ? 'text-gold' : 'text-cream/80'
                 }`}
               >
+                {l.live && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-gold animate-pulse shrink-0" />
+                )}
                 {l.label}
               </Link>
             );
@@ -102,10 +106,13 @@ export function Navbar() {
               <Link
                 key={l.href}
                 href={l.href}
-                className={`text-base py-2 border-b border-white/5 ${
+                className={`text-base py-2 border-b border-white/5 flex items-center gap-2 ${
                   active ? 'text-gold' : 'text-cream/85'
                 }`}
               >
+                {l.live && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-gold animate-pulse shrink-0" />
+                )}
                 {l.label}
               </Link>
             );
