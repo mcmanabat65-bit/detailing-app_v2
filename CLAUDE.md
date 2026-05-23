@@ -1,17 +1,19 @@
 # CLAUDE.md — Samahuzai Carwash and Auto Detailing
 
-> This file provides context, conventions, and instructions for AI coding agents (Claude Code, Copilot, etc.) working on this project. Read this before making any changes.
+> This file provides context, conventions, and instructions for AI coding agents working on this project. Read this before making any changes.
 
 ---
 
 ## Project Overview
 
-**Samahuzai Carwash and Auto Detailing** is a premium auto detailing shop web application built with React + Vite + Tailwind CSS. It features:
+**Samahuzai Carwash and Auto Detailing** is a premium auto detailing shop web application built with **Next.js 14 + Supabase + Tailwind CSS**. It features:
 
-- Public-facing site with service catalog and VIP membership
-- Multi-step appointment booking with conflict prevention
-- Separate admin dashboard for managing bookings and schedules
-- Full localStorage persistence (no backend)
+- Public-facing site with service catalog, VIP membership sign-up, and booking unavailable notice
+- Admin dashboard for managing bookings, members, services, schedule, detailers, and shop settings
+- Supabase PostgreSQL backend with Row Level Security and stored procedure RPCs
+- Supabase Auth for admin authentication
+- Resend SDK for transactional email (booking received, admin confirmation)
+- Real-time shop monitor display via Supabase Realtime
 
 ---
 
@@ -19,14 +21,15 @@
 
 | Layer | Technology |
 |---|---|
-| Framework | React 18 + Vite |
-| Routing | React Router v6 |
+| Framework | Next.js 14 (App Router) |
 | Styling | Tailwind CSS (utility-first) + custom CSS vars |
 | State | React Context API (`AppContext`) |
-| Persistence | `localStorage` only |
+| Database | Supabase (PostgreSQL + RLS) |
+| Auth | Supabase Auth |
+| Email | Resend SDK (`resend` npm package) |
 | Fonts | Google Fonts — Cormorant Garamond + DM Sans |
 | Icons | Lucide React |
-| Build | Vite |
+| Deployment | Vercel |
 
 > ⚠️ No external UI libraries (no shadcn, MUI, Chakra, Radix). Tailwind + custom CSS only.
 
@@ -35,45 +38,60 @@
 ## Project Structure
 
 ```
+/app                          # Next.js App Router pages
+├── page.jsx                  # Landing page
+├── services/page.jsx         # Public services catalog
+├── booking/page.jsx          # Booking flow (admin-only; public sees unavailable notice)
+├── membership/page.jsx       # VIP membership sign-up
+├── confirmation/[bookingId]/ # Booking confirmation receipt
+├── not-found.jsx             # 404 fallback page
+├── layout.jsx                # Root layout (Providers, Toast, Navbar, Footer)
+├── admin/
+│   ├── login/page.jsx        # Supabase Auth login
+│   ├── dashboard/page.jsx    # Stats, pending approvals, today's schedule
+│   ├── bookings/page.jsx     # Booking table — filters, status, detailer assignment, CSV export
+│   ├── schedule/page.jsx     # Weekly calendar grid (confirmed bookings only)
+│   ├── monitor/page.jsx      # Shop Monitor — TV/tablet live view with Realtime
+│   ├── members/page.jsx      # VIP member approval, car management
+│   ├── cars/page.jsx         # Shared car catalog CRUD
+│   ├── services/page.jsx     # Service package CRUD + drag reorder
+│   ├── categories/page.jsx   # Service category CRUD (slug, color)
+│   ├── coffees/page.jsx      # Coffee menu CRUD + availability toggle
+│   ├── detailers/page.jsx    # Detailer roster CRUD + drag reorder
+│   └── settings/page.jsx     # Detailer pool size + default per booking
+└── api/
+    └── send-email/route.js   # Resend API route (server-side)
+
 /src
 ├── components/
-│   ├── Navbar.jsx           # Top navigation, mobile hamburger
-│   ├── Footer.jsx           # Site footer
-│   ├── Toast.jsx            # Custom toast notification system
-│   └── ProtectedRoute.jsx   # Admin auth guard
-│
-├── pages/
-│   ├── LandingPage.jsx      # Hero, features, services teaser, membership CTA
-│   ├── ServicesPage.jsx     # Full service package grid
-│   ├── BookingPage.jsx      # 3-step booking flow
-│   ├── MembershipPage.jsx   # VIP perks + signup form
-│   ├── ConfirmationPage.jsx # Booking success page
-│   └── admin/
-│       ├── AdminLogin.jsx       # Hardcoded auth form
-│       ├── AdminDashboard.jsx   # Stats overview + today's schedule
-│       ├── AdminBookings.jsx    # Booking table with filters + CSV export
-│       └── AdminSchedule.jsx   # Weekly calendar grid view
-│
+│   ├── AdminLayout.jsx       # Sidebar nav + header for all admin pages
+│   ├── Navbar.jsx            # Public site top nav
+│   ├── Footer.jsx            # Public site footer
+│   ├── Toast.jsx             # Toast notification system
+│   ├── ProtectedRoute.jsx    # Admin auth guard (redirects to login if no session)
+│   └── Providers.jsx         # Wraps AppProvider + ToastProvider
 ├── context/
-│   └── AppContext.jsx       # Global state: bookings, members, blocked slots, admin auth
-│
+│   └── AppContext.jsx        # Global state — all DB fetches and mutations
 ├── data/
-│   ├── services.js          # Service package definitions
-│   └── timeSlots.js         # Available time slots config
-│
+│   ├── services.js           # Static fallback service definitions + formatCurrency
+│   └── timeSlots.js          # Time slot array (30-min increments) + SLOT_MINUTES
 ├── utils/
-│   └── bookingUtils.js      # Slot availability logic, ID generation
-│
-├── App.jsx                  # Route definitions
-├── main.jsx                 # React entry point
-└── index.css                # Tailwind directives + CSS vars + Google Fonts
+│   └── bookingUtils.js       # Slot logic, ID generation, date helpers
+└── lib/
+    ├── supabase.js           # Supabase client + fromRow/toRow camelCase helpers
+    ├── sendEmail.js          # Client-side sendEmail() wrapper
+    └── emailTemplates.js     # HTML email templates (bookingReceivedHtml, bookingConfirmationHtml)
+
+/supabase
+├── schema.sql                # Full DB schema — safe to re-run
+└── migrations.sql            # Incremental migrations for existing DBs
 ```
 
 ---
 
 ## Design System
 
-### CSS Variables (defined in `index.css`)
+### CSS Variables (defined in `app/globals.css` or `index.css`)
 
 ```css
 --color-obsidian: #0A0A0B      /* Primary background */
@@ -89,9 +107,9 @@
 
 ### Typography
 
-- **Headings**: `Cormorant Garamond` — elegant, editorial, serif
-- **Body**: `DM Sans` — clean, modern, readable
-- Never use Inter, Roboto, Arial, or system-ui as primary fonts in this project
+- **Headings**: `Cormorant Garamond` — elegant, editorial serif (`font-serif` Tailwind class)
+- **Body**: `DM Sans` — clean, modern, readable (default)
+- Never use Inter, Roboto, Arial, or system-ui as primary fonts
 
 ### Key CSS Classes
 
@@ -101,126 +119,187 @@
 | `.card-hover` | Subtle upward translate + gold glow on hover |
 | `.glass-card` | Frosted glass surface effect |
 | `.booking-step-indicator` | Gold connecting line between step numbers |
-| `.vip-badge` | Inline gold VIP badge icon |
+| `.admin-input` | Scoped via `<style jsx>` in admin forms |
 
 ---
 
-## State & Data
+## Database Schema
 
-### AppContext Shape
+### Tables
 
-```js
-{
-  bookings: [],          // All bookings array
-  members: [],           // VIP members array
-  blockedSlots: [],      // Admin-blocked time slots
-  adminSession: false,   // Admin auth boolean
-  
-  addBooking(booking),
-  updateBookingStatus(id, status),
-  deleteBooking(id),
-  addMember(member),
-  toggleBlockedSlot(date, time, label),
-  setAdminSession(bool)
-}
-```
-
-### localStorage Keys
-
-| Key | Contents |
+| Table | Purpose |
 |---|---|
-| `obsidian_bookings` | Array of booking objects |
-| `obsidian_members` | Array of VIP member objects |
-| `obsidian_blocked_slots` | Array of blocked time slot objects |
-| `obsidian_admin_session` | Boolean string `"true"` or `"false"` |
+| `bookings` | All customer appointments |
+| `members` | VIP membership applications |
+| `services` | Service packages (admin-managed, DB-driven) |
+| `service_categories` | Category definitions (name, slug, color) |
+| `cars` | Shared vehicle catalog |
+| `member_cars` | Junction: member ↔ car ownership |
+| `coffees` | Coffee menu items |
+| `detailers` | Shop detailer roster |
+| `blocked_slots` | Admin-blocked time slots |
+| `settings` | Singleton row: pool size, default detailers per booking |
 
-### Booking Object Shape
+### Stored Procedures (RPCs)
+
+| RPC | Purpose |
+|---|---|
+| `add_booking(p, p_occupies_slots)` | Atomic capacity-aware booking insert |
+| `update_booking_detailers(p_id, p_detailer_ids, p_min_detailers)` | Safely reassign detailers on a booking |
+| `update_settings(p_pool_size, p_default_per_booking)` | Validates and updates settings singleton |
+
+> `add_booking` uses `pg_advisory_xact_lock` to prevent race conditions when two customers book the same slot simultaneously.
+
+### Booking Object Shape (camelCase in JS)
 
 ```js
 {
-  id: "OBS-20240315-4821",       // generateBookingId()
+  id: "OBS-20240315-4821",
   serviceId: 2,
   serviceName: "The Executive",
   servicePrice: 3500,
-  date: "2024-03-15",            // ISO date string YYYY-MM-DD
+  serviceDuration: "4–5 hrs",
+  serviceCategory: "full",         // slug string
+  date: "2024-03-15",
   time: "10:00 AM",
   customerName: "Juan dela Cruz",
   email: "juan@email.com",
   phone: "09171234567",
-  vehicle: "2019 Toyota Fortuner",
+  vehicle: "Toyota Fortuner",
+  vehicleYear: "2019",
   notes: "Has a scratch on rear bumper",
   isVip: true,
+  memberId: "abc-123",
   coffeeOrder: "Macchiato",
-  status: "confirmed",           // "confirmed" | "cancelled"
+  status: "pending",               // pending | confirmed | cancelled | no_show | completed
+  cancellationReason: null,
+  detailersAssigned: ["uuid1"],    // uuid[] — actual detailer IDs
+  occupiesSlots: ["10:00 AM", "10:30 AM", "11:00 AM", "11:30 AM", "12:00 PM"],
   createdAt: "2024-03-10T09:30:00Z"
 }
+```
+
+### Key DB Conventions
+
+- `fromRow()` / `toRow()` in `src/lib/supabase.js` convert between snake_case (DB) and camelCase (JS) automatically
+- Always use these helpers — never manually map column names
+- Fetches use `.limit(500)` on services and `.limit(1000)` on bookings/members to override PostgREST defaults
+
+---
+
+## AppContext
+
+All DB fetches and mutations live in `src/context/AppContext.jsx`. Components never call Supabase directly.
+
+### State
+
+```js
+{
+  services, bookings, members, blockedSlots,
+  cars, memberCars, coffees, serviceCategories,
+  detailers, settings,
+  adminSession,   // boolean — true if Supabase Auth session exists
+  hydrated,       // boolean — true once initial fetches complete
+  toasts,
+}
+```
+
+### Key Actions
+
+```js
+addBooking(booking)                          // calls add_booking RPC
+updateBookingStatus(id, status, reason?)     // .update() on bookings
+updateBookingDetailers(id, detailerIds[])    // calls update_booking_detailers RPC
+deleteBooking(id)
+addMember(member)
+updateMemberStatus(id, status)
+upsertService(service)                       // insert (add) or update (edit)
+upsertServiceCategory(cat)
+deleteServiceCategory(id)
+upsertCar(car) / deleteCarFromCatalog(id)
+addCarToMember(memberId, carId)
+upsertCoffee(coffee) / deleteCoffee(id)
+upsertDetailer(detailer) / deleteDetailer(id)
+toggleBlockedSlot(date, time, label)
+updateSettings(poolSize, defaultPerBooking)
+signOut()
+showToast(message, type)
 ```
 
 ---
 
 ## Core Business Logic
 
-All booking conflict logic lives in `/src/utils/bookingUtils.js`.
+### Booking Rules
 
-### Rules
+1. **Capacity check**: Each time slot supports up to `detailerPoolSize` detailers total. A service's `minDetailers` is the minimum required — the slot is blocked if fewer are available.
+2. **Duration blocking**: `getSlotsConsumed(duration)` returns the number of 30-min slots a service occupies. All slots are stored in `occupies_slots[]` on the booking.
+3. **Multi-day services**: Services with "day" in duration block entire days.
+4. **Pending by default**: New public bookings land as `status = 'pending'`. Admin must confirm — only then does the booking appear on the schedule and the customer gets a confirmation email.
+5. **Disabled dates**: Past dates and Sundays are never selectable.
+6. **Operating hours**: 7:00 AM – 5:00 PM, Mon – Sun (slots defined in `timeSlots.js`).
 
-1. **No double booking**: A time slot on a given date can only hold ONE booking.
-2. **Duration blocking**: Services longer than 4 hours block the next consecutive slot too.
-3. **Disabled dates**: Past dates and Sundays are never selectable.
-4. **Operating hours**: 8:00 AM – 4:00 PM (Mon–Sat).
+### Booking Flow (public, currently admin-only)
 
-### Key Functions
+- `/booking` shows a "booking unavailable" page to unauthenticated users
+- Authenticated admin sees the full 3-step flow: Service → Date & Time → Details
+- Step 3 includes optional preferred detailer selection (chip buttons)
+- VIP detection is automatic via email match against approved members
 
-```js
-// Returns array of available time slot strings for a given date + service duration
-getAvailableSlots(date: string, serviceDuration: string): string[]
+### Admin Confirmation Flow
 
-// Returns boolean — true if slot is free
-isSlotAvailable(date: string, time: string, serviceDuration: string): boolean
-
-// Returns formatted booking ID e.g. "OBS-20240315-4821"
-generateBookingId(): string
-```
-
----
-
-## Admin Credentials
-
-> Hardcoded — no backend auth. For demo/prototype purposes only.
-
-```
-Username: obsidian_admin
-Password: detail2024!
-```
-
-Admin session is stored in localStorage as `obsidian_admin_session`. `ProtectedRoute.jsx` checks this before rendering any `/admin/*` route.
+- New bookings appear in "Pending Booking Approvals" on the dashboard
+- Confirming sends a confirmation email via Resend
+- Only confirmed (and completed) bookings appear on the Schedule and Shop Monitor
 
 ---
 
-## Services Reference
+## Auth
 
-Defined in `/src/data/services.js`. IDs are stable — do not change them as they're referenced in bookings.
-
-| ID | Name | Price | Duration | Category |
-|---|---|---|---|---|
-| 1 | The Essential | ₱1,500 | 2–3 hrs | exterior |
-| 2 | The Executive | ₱3,500 | 4–5 hrs | full |
-| 3 | The Obsidian Elite | ₱6,000 | 6–8 hrs | premium |
-| 4 | Paint Correction | ₱4,500 | 5–6 hrs | specialty |
-| 5 | Ceramic Coating | ₱12,000 | 1–2 days | specialty |
-| 6 | Interior Rescue | ₱2,500 | 3–4 hrs | interior |
+- Admin auth uses **Supabase Auth** (`supabase.auth.signInWithPassword`)
+- `ProtectedRoute` wraps all `/admin/*` pages — redirects to `/admin/login` if no session
+- A `obsidian_just_logged_in` sessionStorage flag prevents the 200ms race between login redirect and `onAuthStateChange` propagation
+- Session timeout: 1 hour absolute (enforced client-side in `ProtectedRoute`)
+- Create admin users in Supabase Dashboard → Authentication → Users
 
 ---
 
-## VIP Membership Perks
+## Email (Resend)
 
-- Free coffee while waiting (Macchiato, Brewed Coffee, Cappuccino, Americano, Latte)
-- 10% discount on all services
-- Priority scheduling access
-- Exclusive lounge with WiFi
-- Birthday month special offer
+- Server-side route: `app/api/send-email/route.js`
+- Client wrapper: `src/lib/sendEmail.js` — `sendEmail(to, subject, html, onError?)`
+- Templates: `src/lib/emailTemplates.js`
+- From address: `onboarding@resend.dev` (sandbox) — change to verified domain when ready
+- Env var: `RESEND_API_KEY` (server-only, no `NEXT_PUBLIC_` prefix)
 
-VIP members can select their coffee order in Step 3 of the booking flow.
+---
+
+## Services
+
+Services are stored in the DB and managed via the admin Services page. IDs are auto-incremented (`generated always as identity`). Sort order is auto-assigned via a DB trigger and reordered via drag-and-drop in the UI.
+
+Categories are a separate `service_categories` table (slug → name + color). The category dropdown in the Add/Edit Service modal pulls from DB.
+
+---
+
+## Shop Monitor (`/admin/monitor`)
+
+- Real-time TV/tablet display for shop staff
+- Shows today's confirmed + completed bookings as cards
+- Supabase Realtime (`postgres_changes`) pushes updates instantly — no polling
+- Fullscreen toggle for wall-mounted displays
+- Status badges: Upcoming / In Progress (pulsing gold) / Done
+- Start time + End time computed from slot duration
+
+---
+
+## VIP Membership
+
+- Members apply via `/membership` — applications land as `status = 'pending'`
+- Admin approves/rejects from `/admin/members`
+- VIP detection at booking time: email match against approved members
+- Perks: free coffee, 10% discount, priority scheduling, lounge access, birthday special
+- Visit-first policy: a notice on `/membership` tells users to visit in person first
 
 ---
 
@@ -228,97 +307,104 @@ VIP members can select their coffee order in Step 3 of the booking flow.
 
 ### Component Rules
 - Functional components only — no class components
-- Use named exports for all components
-- Co-locate component styles as Tailwind classes, not separate CSS files
-- Use `CSS variables` for colors, never hardcode hex values in JSX
+- `'use client'` directive on all interactive components
+- Named exports for all components except page default exports
+- Tailwind classes for all styling — no separate CSS files per component
+- CSS variables for brand colors — never hardcode hex values in JSX
 
 ### State Rules
-- All persistent state goes through `AppContext` — no local component state for booking/member data
+- All DB state goes through `AppContext` — components never call Supabase directly
 - UI state (modal open, step number, hover) can be local `useState`
 - Never mutate state directly — always use context action functions
 
 ### Naming Conventions
 ```
-Components:   PascalCase     → BookingPage.jsx
-Utilities:    camelCase      → bookingUtils.js
-Data files:   camelCase      → services.js
-CSS classes:  kebab-case     → .gold-shimmer
-Constants:    SCREAMING_SNAKE → MAX_SLOTS_PER_DAY
+Pages:        default export, PascalCase function name
+Components:   PascalCase, named export
+Utilities:    camelCase
+Data files:   camelCase
+CSS classes:  kebab-case
+Constants:    SCREAMING_SNAKE_CASE
 ```
 
 ### Do's ✅
 - Use Tailwind utility classes for layout and spacing
 - Use CSS variables for brand colors
-- Keep components under 300 lines — split if larger
 - Add `aria-label` to all icon-only buttons
-- Always handle empty states in lists/tables
+- Always handle empty states in lists and tables
+- Use `formatCurrency()` from `src/data/services.js` for all peso amounts
+- Use `fromRow()` / `toRow()` for all DB row mapping
 
 ### Don'ts ❌
 - Don't install UI component libraries
-- Don't use inline `style={{}}` for colors — use CSS vars + Tailwind
-- Don't hardcode Philippine Peso amounts as strings — use a `formatCurrency()` helper
+- Don't use inline `style={{}}` for brand colors
+- Don't hardcode peso amounts as plain strings
+- Don't call Supabase outside of `AppContext`
 - Don't skip loading/empty states in admin tables
-- Don't use `any` patterns — keep data shapes consistent with the schemas above
 
 ---
 
 ## Responsive Breakpoints
 
 ```
-Mobile:  < 768px   → Single column, stacked layout, hamburger nav
-Tablet:  768–1024px → 2-column grid, condensed sidebar
-Desktop: > 1024px  → Full layout, sidebar nav, multi-column grids
+Mobile:  < 768px    Single column, stacked layout, hamburger nav
+Tablet:  768–1024px 2-column grid, condensed sidebar
+Desktop: > 1024px   Full layout, sidebar nav, multi-column grids
 ```
 
 Admin tables must scroll horizontally on mobile (`overflow-x-auto`).
 
 ---
 
-## Seed Data
-
-On first load (empty localStorage), `AppContext` should auto-seed 5 sample bookings spread across the next 7 days so the admin dashboard has something to display. Seed data must use realistic Filipino names and vehicle models.
-
----
-
 ## Common Tasks for AI Agents
 
+### Adding a new admin page
+1. Create `app/admin/<name>/page.jsx`
+2. Wrap content in `<ProtectedRoute>` and `<AdminLayout title="...">`
+3. Add nav link to `src/components/AdminLayout.jsx` links array
+
 ### Adding a new service package
-1. Add entry to `/src/data/services.js` with a new unique `id`
-2. No other files need changing — components read from `services.js` dynamically
+- Use the Admin → Services UI (DB-driven, no code change needed)
+- Or insert directly via Supabase — ID and sort_order are auto-assigned
 
 ### Adding a new time slot
-1. Add to the array in `/src/data/timeSlots.js`
-2. Verify it doesn't break duration-blocking logic in `bookingUtils.js`
+1. Add to the array in `src/data/timeSlots.js`
+2. Verify it doesn't break `getSlotsConsumed` or multi-day logic in `bookingUtils.js`
 
-### Changing admin credentials
-1. Update the hardcoded check in `AdminLogin.jsx`
-2. Note: this is a frontend-only demo — not production-safe
+### Re-enabling public online booking
+In `app/booking/page.jsx`, change `BookingGate` to always render `<BookingFlow />` instead of checking `adminSession`.
 
-### Adding a new admin page
-1. Create component in `/src/pages/admin/`
-2. Wrap route in `<ProtectedRoute>` in `App.jsx`
-3. Add nav link to admin sidebar in `AdminDashboard.jsx`
+### Running DB migrations
+Paste the relevant block from `supabase/migrations.sql` into Supabase Dashboard → SQL Editor and run.
 
 ---
 
-## Known Limitations
+## Environment Variables
 
-- **No real backend** — all data is localStorage only; clears on browser data wipe
-- **Single device** — bookings don't sync across devices or users
-- **No real auth** — admin credentials are hardcoded in the client bundle
-- **No payment integration** — booking is a reservation only, no payment flow
-- **No email/SMS confirmation** — confirmation page is the only receipt
-
-These are intentional for the prototype. A production version would require a backend API, database, and auth service.
+| Variable | Where | Purpose |
+|---|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | Client + Server | Supabase project URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Client + Server | Supabase anon key |
+| `RESEND_API_KEY` | Server only | Resend email API key |
+| `EMAIL_FROM` | Server only | Sender address (default: `onboarding@resend.dev`) |
 
 ---
 
-## Future Roadmap (Out of Scope for This Build)
+## Known Limitations / Intentional Constraints
 
-- [ ] Laravel/FastAPI backend with PostgreSQL
-- [ ] SMS confirmation via Semaphore (PH SMS gateway)
-- [ ] Online payment via PayMongo
-- [ ] Real admin auth with JWT
-- [ ] Multi-branch support
-- [ ] Loyalty points system
-- [ ] WhatsApp/Messenger chatbot booking
+- **Online booking is disabled** for the public — shows an unavailable page. Admin can still access the booking flow.
+- **Visit-first membership** — VIP applications require an in-person visit; the online form is a secondary step.
+- **No payment integration** — booking is a reservation only.
+- **Single admin user** — auth is one Supabase Auth account, not role-based.
+- **Email sender unverified** — using Resend sandbox domain; verify `samahuzai.ph` in Resend to use custom from address.
+
+---
+
+## Shop Info
+
+| | |
+|---|---|
+| Address | Brgy. San Francisco Halang Rd, Biñan, Philippines 4024 |
+| Phone | +63 927 691 4863 |
+| Email | hello@samahuzai.ph |
+| Hours | Mon – Sun · 7:00 AM – 5:00 PM |

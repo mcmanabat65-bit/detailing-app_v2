@@ -24,9 +24,9 @@ import {
   formatDateShort,
   getDaysConsumed,
   getMultiDayBlockedDates,
-  getSlotStatuses,
+  getTimeAvailability,
   isDateSelectable,
-  isSunday,
+  minutesToTimeStr,
   toIsoDate,
 } from '@/utils/bookingUtils';
 import { useApp } from '@/context/AppContext';
@@ -66,7 +66,6 @@ function MiniCalendar({ monthDate, selected, onSelect }) {
           const iso = toIsoDate(c);
           const disabled = !isDateSelectable(c);
           const isSelected = selected === iso;
-          const sun = isSunday(c);
           return (
             <button
               key={i}
@@ -76,7 +75,7 @@ function MiniCalendar({ monthDate, selected, onSelect }) {
                 isSelected
                   ? 'bg-gold text-obsidian font-semibold'
                   : disabled
-                    ? `text-muted/40 cursor-not-allowed ${sun ? 'line-through' : ''}`
+                    ? 'text-muted/40 cursor-not-allowed line-through'
                     : 'text-cream hover:bg-gold/15 hover:text-gold'
               }`}
             >
@@ -280,6 +279,8 @@ function BookingFlow() {
   });
 
   const [selectedDetailerIds, setSelectedDetailerIds] = useState([]);
+  // 'extend' = service runs past closing, 'tomorrow' = move booking to next day
+  const [overflowMode, setOverflowMode] = useState(null);
 
   const activeDetailers = useMemo(
     () => detailers.filter((d) => d.isActive !== false),
@@ -329,19 +330,20 @@ function BookingFlow() {
     [memberOwnedCars, selectedCarId]
   );
 
-  // Live slot availability — recomputes when the bookings list or settings
-  // change so the slot grid reflects detailer capacity as it shifts.
-  const slotStatuses = useMemo(
+  // Live availability for the chosen time — recomputes when time, date, or
+  // bookings change so the indicator reflects current detailer capacity.
+  const timeAvailability = useMemo(
     () =>
-      hydrated && date && service
-        ? getSlotStatuses(date, service.duration, {
+      hydrated && date && time && service
+        ? getTimeAvailability(date, time, service.duration, {
             minDetailers: service.minDetailers ?? 1,
             bookings,
             blockedSlots,
             settings,
+            allowOverflow: overflowMode === 'extend',
           })
-        : [],
-    [date, service, hydrated, bookings, blockedSlots, settings]
+        : null,
+    [date, time, service, hydrated, bookings, blockedSlots, settings, overflowMode]
   );
 
   // For multi-day services, compute which additional dates will be occupied
@@ -369,6 +371,13 @@ function BookingFlow() {
     const today = new Date();
     return calendarMonth > new Date(today.getFullYear(), today.getMonth(), 1);
   }, [calendarMonth]);
+
+  const handlePickTomorrow = () => {
+    const [y, m, d] = date.split('-').map(Number);
+    const next = new Date(y, m - 1, d + 1);
+    setDate(toIsoDate(next));
+    setOverflowMode(null);
+  };
 
   const handleNext = () => {
     if (step === 1) {
@@ -557,7 +566,7 @@ function BookingFlow() {
                 </button>
                 <div className="text-cream/70 text-sm flex items-center gap-2">
                   <Calendar className="w-4 h-4 text-gold" />
-                  Select a date — Sundays are closed
+                  Select a date
                 </div>
                 <button
                   onClick={() =>
@@ -583,6 +592,7 @@ function BookingFlow() {
                   onSelect={(d) => {
                     setDate(d);
                     setTime('');
+                    setOverflowMode(null);
                   }}
                 />
                 <div className="hidden md:block">
@@ -592,6 +602,7 @@ function BookingFlow() {
                     onSelect={(d) => {
                       setDate(d);
                       setTime('');
+                      setOverflowMode(null);
                     }}
                   />
                 </div>
@@ -599,9 +610,9 @@ function BookingFlow() {
             </div>
 
             <aside className="glass-card rounded-md p-5">
-              <div className="text-cream font-serif text-xl mb-1">Time slots</div>
+              <div className="text-cream font-serif text-xl mb-1">Start time</div>
               <div className="text-xs text-muted mb-4">
-                {date ? formatDateLong(date) : 'Pick a date to see availability'}
+                {date ? formatDateLong(date) : 'Pick a date first'}
               </div>
 
               {service && service.duration && (
@@ -616,78 +627,115 @@ function BookingFlow() {
                   <span>
                     Multi-day service — your vehicle will be with us from your chosen start time through{' '}
                     <span className="text-cream">{formatDateShort(multiDaySpan.lastDate)}</span>.
-                    Pick any available start time below.
                   </span>
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-2">
-                {slotStatuses.length === 0 && (
-                  <div className="col-span-2 text-muted text-sm py-6 text-center">
-                    No date selected
+              {!date ? (
+                <div className="text-muted text-sm py-6 text-center">
+                  Select a date to set a time
+                </div>
+              ) : (
+                <>
+                  <div className="relative mb-3">
+                    <Clock className="w-4 h-4 text-gold absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <input
+                      type="time"
+                      value={(() => {
+                        if (!time) return '';
+                        const m = time.match(/(\d+):(\d+)\s*(AM|PM)/i);
+                        if (!m) return '';
+                        let h = parseInt(m[1], 10);
+                        const min = parseInt(m[2], 10);
+                        const p = m[3].toUpperCase();
+                        if (p === 'PM' && h !== 12) h += 12;
+                        if (p === 'AM' && h === 12) h = 0;
+                        return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+                      })()}
+                      min="08:00"
+                      max={overflowMode === 'extend' ? '23:59' : '17:00'}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setOverflowMode(null);
+                        if (!val) { setTime(''); return; }
+                        const [hStr, mStr] = val.split(':');
+                        const totalMin = parseInt(hStr, 10) * 60 + parseInt(mStr, 10);
+                        setTime(minutesToTimeStr(totalMin));
+                      }}
+                      className="w-full bg-surface/70 border border-white/10 rounded-sm py-2.5 pl-10 pr-3 text-cream text-sm focus:outline-none focus:border-gold/50 transition-colors [color-scheme:dark]"
+                    />
                   </div>
-                )}
-                {slotStatuses.map((s) => {
-                  const selected = time === s.time;
-                  const tooltip = !s.available
-                    ? s.reason === 'blocked'
-                      ? 'Blocked by shop'
-                      : s.reason === 'overflow'
-                        ? 'Not enough hours remaining for this service'
-                        : s.reason === 'multiday'
-                          ? 'This date is occupied by a multi-day booking'
-                          : s.reason === 'capacity'
-                            ? `All detailers busy (need ${
-                                service.minDetailers ?? 1
-                              }, ${s.remaining} left)`
-                            : 'Unavailable'
-                    : `${s.remaining} detailer${s.remaining === 1 ? '' : 's'} available`;
-                  return (
-                    <button
-                      key={s.time}
-                      type="button"
-                      disabled={!s.available}
-                      onClick={() => setTime(s.time)}
-                      className={`relative px-3 py-2.5 text-sm rounded-sm border transition-all ${
-                        selected
-                          ? 'bg-gold text-obsidian border-gold'
-                          : s.available
-                            ? 'border-white/10 text-cream hover:border-gold/50 hover:text-gold'
-                            : 'border-white/5 text-muted/50 line-through cursor-not-allowed'
-                      }`}
-                      title={tooltip}
-                    >
-                      <span>{s.time}</span>
-                      {s.available && (
-                        <span
-                          className={`flex text-[10px] mt-0.5 items-center gap-1 justify-center w-full ${
-                            selected ? 'text-obsidian/70' : 'text-gold/80'
-                          }`}
-                        >
-                          <Users className="w-2.5 h-2.5" />
-                          {s.remaining} left
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
 
-              <div className="text-[11px] text-muted mt-5 leading-relaxed">
-                {service.minDetailers > 1 ? (
-                  <>
-                    {service.name} needs at least{' '}
-                    <b>{service.minDetailers} detailers</b>. Slots are dimmed
-                    when blocked, would overflow the day, or don&apos;t have
-                    enough detailers free.
-                  </>
-                ) : (
-                  <>
-                    Slots are dimmed when they&apos;re blocked, would overflow
-                    the day, or have no detailers free.
-                  </>
-                )}
-              </div>
+                  {time && timeAvailability && (
+                    <>
+                      {timeAvailability.available ? (
+                        <div className="flex items-center gap-2 px-3 py-2.5 rounded-sm text-sm mb-3 bg-success/10 border border-success/30 text-success">
+                          <Check className="w-4 h-4 shrink-0" />
+                          <span>
+                            <span className="font-medium">{time}</span> is available &mdash;{' '}
+                            <span className="inline-flex items-center gap-1">
+                              <Users className="w-3 h-3" />
+                              {timeAvailability.remaining} detailer{timeAvailability.remaining === 1 ? '' : 's'} free
+                            </span>
+                          </span>
+                        </div>
+                      ) : timeAvailability.reason === 'overflow' && overflowMode === null ? (
+                        <div className="rounded-sm border border-gold/30 bg-gold/5 px-4 py-3 mb-3 space-y-3">
+                          <p className="text-sm text-cream/80">
+                            <span className="font-medium text-cream">{time}</span> doesn't leave enough time to finish the service by closing. How would you like to proceed?
+                          </p>
+                          <div className="flex flex-col gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setOverflowMode('extend')}
+                              className="w-full text-left px-3 py-2.5 rounded-sm border border-gold/40 bg-gold/10 text-gold text-sm hover:bg-gold/20 transition-colors"
+                            >
+                              <span className="font-medium">Extend into the evening</span>
+                              <span className="block text-xs text-gold/70 mt-0.5">Service will continue past 5:00 PM</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handlePickTomorrow}
+                              className="w-full text-left px-3 py-2.5 rounded-sm border border-white/10 bg-white/5 text-cream text-sm hover:border-white/20 transition-colors"
+                            >
+                              <span className="font-medium">Move to tomorrow</span>
+                              <span className="block text-xs text-muted mt-0.5">Start the same time on the next day</span>
+                            </button>
+                          </div>
+                        </div>
+                      ) : overflowMode === 'extend' && timeAvailability.available ? (
+                        <div className="flex items-center gap-2 px-3 py-2.5 rounded-sm text-sm mb-3 bg-success/10 border border-success/30 text-success">
+                          <Check className="w-4 h-4 shrink-0" />
+                          <span>
+                            <span className="font-medium">{time}</span> — service will extend past closing &mdash;{' '}
+                            <span className="inline-flex items-center gap-1">
+                              <Users className="w-3 h-3" />
+                              {timeAvailability.remaining} detailer{timeAvailability.remaining === 1 ? '' : 's'} free
+                            </span>
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2 px-3 py-2.5 rounded-sm text-sm mb-3 bg-danger/10 border border-danger/30 text-danger">
+                          <X className="w-4 h-4 shrink-0" />
+                          <span>
+                            {timeAvailability.reason === 'blocked' && 'This time is blocked by the shop.'}
+                            {timeAvailability.reason === 'overflow' && 'Not enough time remaining in the day for this service.'}
+                            {timeAvailability.reason === 'multiday' && 'This date is occupied by a multi-day booking.'}
+                            {timeAvailability.reason === 'capacity' && `No detailers available — ${timeAvailability.remaining} free, need ${service?.minDetailers ?? 1}.`}
+                          </span>
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  <div className="text-[11px] text-muted leading-relaxed">
+                    Operating hours: <span className="text-cream/70">8:00 AM – 5:00 PM</span>.
+                    {service?.minDetailers > 1 && (
+                      <> {service.name} needs at least <b>{service.minDetailers} detailers</b>.</>
+                    )}
+                  </div>
+                </>
+              )}
             </aside>
           </div>
         )}

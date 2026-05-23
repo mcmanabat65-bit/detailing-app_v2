@@ -1,18 +1,27 @@
 'use client';
 
-import { Suspense, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Lock, Mail, Sparkles } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 import { supabase } from '@/lib/supabase';
 
 function LoginForm() {
-  const { showToast } = useApp();
+  const { showToast, adminSession } = useApp();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [creds, setCreds] = useState({ email: '', password: '' });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // Redirect as soon as AppContext confirms the session is active.
+  // This fires after onAuthStateChange updates adminSession — guaranteed
+  // to be true before the navigation happens, so ProtectedRoute won't bounce.
+  useEffect(() => {
+    if (!adminSession) return;
+    const next = searchParams.get('next') || '/admin/dashboard';
+    router.replace(next);
+  }, [adminSession, searchParams, router]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -37,13 +46,10 @@ function LoginForm() {
       return;
     }
 
-    // Mark that we just logged in so ProtectedRoute skips its redirect check
-    // for the brief window before onAuthStateChange updates adminSession.
-    sessionStorage.setItem('obsidian_just_logged_in', '1');
-
+    // Don't navigate here — the useEffect above fires once onAuthStateChange
+    // updates adminSession in AppContext, ensuring ProtectedRoute sees a valid
+    // session on the very first render of the destination page.
     showToast('Welcome back, Admin.', 'success');
-    const next = searchParams.get('next') || '/admin/dashboard';
-    router.replace(next);
   };
 
   return (

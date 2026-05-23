@@ -12,6 +12,7 @@ import {
   DEFAULT_SETTINGS,
   generateBookingId,
   getSlotsConsumed,
+  parseTimeToMinutes,
 } from '@/utils/bookingUtils';
 import { services as staticServices } from '@/data/services';
 import { timeSlots } from '@/data/timeSlots';
@@ -19,9 +20,21 @@ import { supabase, isSupabaseConfigured, fromRow, toRow } from '@/lib/supabase';
 
 const AppContext = createContext(null);
 
-/** Compute the slot-string range a booking will occupy at insert time. */
+/** Compute the slot-string range a booking will occupy at insert time.
+ *  Handles arbitrary start times (e.g. "8:15 AM") by mapping to the
+ *  nearest grid slot at or before the chosen time.
+ */
 const computeOccupiesSlots = (startTime, serviceDuration) => {
-  const startIdx = timeSlots.indexOf(startTime);
+  // Try exact match first, then fall back to nearest slot at or before
+  let startIdx = timeSlots.indexOf(startTime);
+  if (startIdx < 0) {
+    const mins = parseTimeToMinutes(startTime);
+    if (mins < 0) return [];
+    for (let i = 0; i < timeSlots.length; i++) {
+      if (parseTimeToMinutes(timeSlots[i]) <= mins) startIdx = i;
+      else break;
+    }
+  }
   if (startIdx < 0) return [];
   const consumed = getSlotsConsumed(serviceDuration || '1 hr');
   return timeSlots.slice(startIdx, startIdx + consumed);
@@ -194,14 +207,16 @@ export function AppProvider({ children }) {
       return;
     }
 
-    // Sync admin session from Supabase Auth
-    supabase.auth.getSession()
-      .then(({ data: { session } }) => setAdminSessionState(!!session))
-      .catch(() => {});
-
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (_event, session) => setAdminSessionState(!!session)
     );
+
+    // Resolve auth session first so adminSession is accurate before hydrated=true.
+    // This prevents ProtectedRoute from seeing hydrated=true + adminSession=false
+    // in the same render cycle and bouncing back to login after a fresh login.
+    const authPromise = supabase.auth.getSession()
+      .then(({ data: { session } }) => setAdminSessionState(!!session))
+      .catch(() => {});
 
     let settled = false;
     const timer = setTimeout(() => {
@@ -212,6 +227,7 @@ export function AppProvider({ children }) {
     }, 10_000);
 
     Promise.allSettled([
+      authPromise,
       refetchServices(),
       refetchBookings(),
       refetchMembers(),

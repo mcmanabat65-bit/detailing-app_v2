@@ -39,20 +39,9 @@ export function ProtectedRoute({ children }) {
 
   useEffect(() => {
     if (!hydrated) return;
-    if (adminSession) {
-      sessionStorage.removeItem('obsidian_just_logged_in');
-      return;
-    }
-    // If we just came from the login page, skip the redirect — adminSession
-    // hasn't propagated from onAuthStateChange yet.
-    if (sessionStorage.getItem('obsidian_just_logged_in')) return;
-    const id = setTimeout(() => {
-      if (!adminSession && !sessionStorage.getItem('obsidian_just_logged_in')) {
-        const next = encodeURIComponent(pathname || '/admin/dashboard');
-        router.replace(`/admin/login?next=${next}`);
-      }
-    }, 200);
-    return () => clearTimeout(id);
+    if (adminSession) return;
+    const next = encodeURIComponent(pathname || '/admin/dashboard');
+    router.replace(`/admin/login?next=${next}`);
   }, [hydrated, adminSession, pathname, router]);
 
   if (!hydrated || !adminSession) return null;

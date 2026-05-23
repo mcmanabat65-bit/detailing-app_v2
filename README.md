@@ -1,169 +1,238 @@
 # Samahuzai Carwash and Auto Detailing
 ### *Perfection is in the details.*
 
-> A premium auto detailing shop web app with VIP membership, appointment booking, and an admin dashboard — built with React + Vite + Tailwind CSS.
+> A premium auto detailing shop web app with VIP membership, appointment booking, and a full admin dashboard — built with Next.js 14 + Supabase + Tailwind CSS.
 
 ---
 
-## ✨ Features
+## Features
 
 ### Customer-Facing
-- **Landing Page** — Hero section, service previews, VIP membership teaser, testimonials
-- **Services Catalog** — All 6 packages with pricing, duration, and inclusions
-- **Multi-Step Booking** — 3-step flow: select service → pick date/time → enter details
-- **Conflict-Free Scheduling** — Booked slots are automatically disabled for other users
-- **VIP Membership** — Signup form with perks including free coffee selection while waiting
-- **Booking Confirmation** — Unique booking ID, full summary, printable receipt view
+- **Landing Page** — Hero section, service previews, VIP membership teaser
+- **Services Catalog** — All packages with pricing, duration, and category badges
+- **VIP Membership** — Perks overview with a visit-first notice (online signup coming soon)
+- **Booking** — Admin-only for now; public visitors see a "visit us in person" page at `/booking`
+- **Booking Confirmation** — Unique booking ID, full summary, shareable receipt
 
 ### Admin Dashboard
-- **Overview** — Today's bookings, weekly stats, VIP count at a glance
-- **Bookings Manager** — Full table with search, filters, status toggles, CSV export
-- **Schedule View** — Weekly calendar grid (Mon–Sat, 8AM–5PM) with color-coded blocks
-- **Slot Blocking** — Manually block time slots (lunch, meetings, maintenance)
-- **Protected Routes** — Admin section gated behind login
+- **Overview** — Today's confirmed bookings, weekly stats, earnings, VIP count
+- **Bookings Manager** — Full table with search, status filters, CSV export, detailer assignment
+- **Schedule Calendar** — Weekly grid (Mon–Sat, 8AM–5PM), confirmed bookings only, color-coded by category
+- **Shop Monitor** — Live Realtime view of today's active bookings with end-time and ETC duration
+- **Slot Blocking** — Manually block time slots (lunch, maintenance, etc.)
+- **Detailers** — Manage the detailer roster (name, nickname, role, active status, sort order)
+- **Service Categories** — CRUD for booking category labels and colors
+- **Cars** — Vehicle reference list management
+- **Coffees** — Manage the complimentary coffee menu for VIP members
+- **Members** — Approve/reject VIP membership applications
+- **Settings** — Detailer pool size and other shop-wide configuration
+- **Protected Routes** — All `/admin/*` routes gated behind Supabase Auth; 1-hour session timeout
 
 ---
 
-## 🛠️ Tech Stack
+## Tech Stack
 
 | | |
 |---|---|
-| **Framework** | React 18 + Vite |
-| **Routing** | React Router v6 |
+| **Framework** | Next.js 14 (App Router) |
+| **Database** | Supabase (PostgreSQL + Row-Level Security) |
+| **Auth** | Supabase Auth (`signInWithPassword` + `onAuthStateChange`) |
+| **Realtime** | Supabase Realtime (`postgres_changes`) |
 | **Styling** | Tailwind CSS + Custom CSS Variables |
-| **State** | React Context API |
-| **Persistence** | localStorage (no backend) |
+| **State** | React Context API (`AppContext`) |
 | **Fonts** | Cormorant Garamond + DM Sans (Google Fonts) |
 | **Icons** | Lucide React |
+| **Email** | Resend (booking confirmations) |
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Prerequisites
 
 - Node.js `>= 18.x`
 - npm `>= 9.x`
+- A [Supabase](https://supabase.com) project with the schema from `supabase/schema.sql` applied
 
 ### Installation
 
 ```bash
-# Clone the repo
-git clone https://github.com/your-username/obsidian-detail-co.git
-cd obsidian-detail-co
-
-# Install dependencies
+git clone https://github.com/jehnsen/detailing-app.git
+cd detailing-app
 npm install
+```
 
-# Start dev server
+### Environment Variables
+
+Create a `.env.local` file in the project root:
+
+```env
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+RESEND_API_KEY=your_resend_api_key
+```
+
+### Database Setup
+
+1. Open your Supabase project's **SQL Editor**
+2. Run `supabase/schema.sql` to create all tables, RPCs, RLS policies, and seed data
+3. If upgrading an existing database, run `supabase/migrations.sql` instead
+
+### Run Dev Server
+
+```bash
 npm run dev
 ```
 
-Open [http://localhost:5173](http://localhost:5173) in your browser.
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ### Build for Production
 
 ```bash
 npm run build
-npm run preview
+npm start
 ```
 
 ---
 
-## 🗂️ Project Structure
+## Project Structure
 
 ```
-obsidian-detail-co/
-├── public/
-│   └── favicon.ico
+detailing-app/
+├── app/
+│   ├── (public)/
+│   │   ├── page.jsx              # Landing page
+│   │   ├── services/page.jsx     # Services catalog
+│   │   ├── booking/page.jsx      # Booking flow (admin) / unavailable page (public)
+│   │   ├── membership/page.jsx   # VIP membership info
+│   │   └── confirmation/[id]/    # Booking confirmation
+│   ├── admin/
+│   │   ├── login/page.jsx        # Admin login (Supabase Auth)
+│   │   ├── dashboard/page.jsx    # Stats overview + today's schedule
+│   │   ├── bookings/page.jsx     # Booking manager
+│   │   ├── schedule/page.jsx     # Weekly calendar
+│   │   ├── monitor/page.jsx      # Live shop monitor (Realtime)
+│   │   ├── detailers/page.jsx    # Detailer roster
+│   │   ├── categories/page.jsx   # Service categories
+│   │   ├── cars/page.jsx         # Vehicle reference
+│   │   ├── coffees/page.jsx      # Coffee menu
+│   │   ├── members/page.jsx      # VIP membership approvals
+│   │   └── settings/page.jsx     # Shop settings
+│   ├── api/
+│   │   └── send-confirmation/    # Resend email API route
+│   └── layout.jsx                # Root layout with AppContext provider
 ├── src/
 │   ├── components/
 │   │   ├── Navbar.jsx
 │   │   ├── Footer.jsx
 │   │   ├── Toast.jsx
-│   │   └── ProtectedRoute.jsx
-│   ├── pages/
-│   │   ├── LandingPage.jsx
-│   │   ├── ServicesPage.jsx
-│   │   ├── BookingPage.jsx
-│   │   ├── MembershipPage.jsx
-│   │   ├── ConfirmationPage.jsx
-│   │   └── admin/
-│   │       ├── AdminLogin.jsx
-│   │       ├── AdminDashboard.jsx
-│   │       ├── AdminBookings.jsx
-│   │       └── AdminSchedule.jsx
+│   │   └── ProtectedRoute.jsx    # Admin auth guard (1-hr session timeout)
 │   ├── context/
-│   │   └── AppContext.jsx
-│   ├── data/
-│   │   ├── services.js
-│   │   └── timeSlots.js
-│   ├── utils/
-│   │   └── bookingUtils.js
-│   ├── App.jsx
-│   ├── main.jsx
-│   └── index.css
+│   │   └── AppContext.jsx        # Global state; sole Supabase interface
+│   └── lib/
+│       └── supabase.js           # Supabase client + camelCase/snake_case helpers
+├── supabase/
+│   ├── schema.sql                # Full DB schema (idempotent)
+│   └── migrations.sql            # Upgrade scripts for existing DBs
 ├── CLAUDE.md
 ├── README.md
-├── index.html
 ├── tailwind.config.js
-├── vite.config.js
+├── next.config.js
 └── package.json
 ```
 
 ---
 
-## 📦 Services & Pricing
+## Services & Pricing
 
 | Package | Price | Duration | Category |
 |---|---|---|---|
 | The Essential | ₱1,500 | 2–3 hrs | Exterior |
-| The Executive ⭐ | ₱3,500 | 4–5 hrs | Full Detail |
+| The Executive | ₱3,500 | 4–5 hrs | Full |
 | The Obsidian Elite | ₱6,000 | 6–8 hrs | Premium |
 | Paint Correction | ₱4,500 | 5–6 hrs | Specialty |
 | Ceramic Coating | ₱12,000 | 1–2 days | Specialty |
 | Interior Rescue | ₱2,500 | 3–4 hrs | Interior |
 
+Service categories, names, and pricing are managed from the admin dashboard and stored in Supabase.
+
 ---
 
-## 🔐 Admin Access
+## Admin Access
 
-> For demo/prototype purposes only. Not for production use.
+Admin login uses **Supabase Auth** — credentials are managed in your Supabase project's Authentication dashboard, not hardcoded in the app.
 
 | Field | Value |
 |---|---|
 | URL | `/admin/login` |
-| Username | `obsidian_admin` |
-| Password | `detail2024!` |
+| Auth provider | Supabase email + password |
+| Session timeout | 1 hour (absolute, enforced client-side) |
 
 ---
 
-## 💎 VIP Membership
-
-VIP members enjoy the following perks when booking:
-
-- ☕ **Free coffee** while waiting in the lounge
-  - *Macchiato, Brewed Coffee, Cappuccino, Americano, Latte*
-- 🏷️ **10% discount** on all services
-- ⚡ **Priority scheduling** access
-- 📶 **Exclusive lounge** with premium WiFi
-- 🎂 **Birthday month** special offer
-
-Members can select their coffee order during the booking flow (Step 3).
-
----
-
-## 🗓️ Booking Rules
+## Booking Rules
 
 - Operating hours: **8:00 AM – 4:00 PM, Monday to Saturday**
 - Sundays and past dates are disabled
-- Time slots are automatically disabled once booked
-- Long services (4+ hrs) block consecutive slots to prevent overlaps
-- Each booking generates a unique ID in the format: `OBS-YYYYMMDD-XXXX`
+- New bookings default to **`pending`** status — admin must confirm before they appear on the schedule
+- Slot capacity is enforced server-side via a `pg_advisory_xact_lock` RPC (`add_booking`) to prevent race conditions
+- Long services block consecutive 30-minute slots to prevent overlaps
+- Each booking ID format: `OBS-YYYYMMDD-XXXX`
+- Detailers are assigned per booking as a `uuid[]` array, enabling per-detailer task history
+
+### Booking Status Flow
+
+```
+pending → confirmed → completed
+       ↘ cancelled
+       ↘ no_show
+```
+
+Only `confirmed` and `completed` bookings appear on the schedule calendar and shop monitor.
 
 ---
 
-## 🎨 Design System
+## VIP Membership
+
+VIP members enjoy:
+
+- Free coffee while waiting (Macchiato, Brewed Coffee, Cappuccino, Americano, Latte)
+- 10% discount on all services
+- Priority scheduling access
+- Exclusive lounge with WiFi
+- Birthday month special offer
+
+> **For now, VIP membership requires a personal visit to the shop.** Admin approves membership applications from the `/admin/members` page. Online self-signup is planned for a future release.
+
+**Shop address:** Brgy. San Francisco Halang Rd, Biñan, Philippines 4024 · Mon–Sun, 7:00 AM–5:00 PM
+
+---
+
+## Database Schema (Key Tables)
+
+| Table | Purpose |
+|---|---|
+| `bookings` | All appointments — status, detailers, slots |
+| `services` | Service packages (auto-increment id, drag-reorder) |
+| `service_categories` | Category labels and badge colors |
+| `detailers` | Detailer roster (uuid pk, active flag, sort order) |
+| `members` | VIP membership applications and approvals |
+| `coffees` | Complimentary coffee menu |
+| `cars` | Vehicle reference list |
+| `settings` | Shop-wide config (detailer pool size, etc.) |
+| `blocked_slots` | Admin-blocked date/time slots |
+
+### Key RPCs
+
+| Function | Purpose |
+|---|---|
+| `add_booking(p jsonb, p_occupies_slots text[])` | Atomic booking insert with capacity check |
+| `update_booking_detailers(p_id, p_detailer_ids uuid[], p_min_detailers)` | Safely reassign detailers |
+| `update_settings(p_detailer_pool_size int)` | Update shop settings |
+
+---
+
+## Design System
 
 ### Color Palette
 
@@ -176,7 +245,7 @@ Members can select their coffee order during the booking flow (Step 3).
 | Gold Light | `#E8C96A` | Hover state |
 | Cream | `#F5F0E8` | Primary text |
 | Muted | `#6B6B72` | Secondary text |
-| Success | `#4CAF7D` | Confirmed status |
+| Success | `#4CAF7D` | Confirmed / success |
 | Danger | `#E05252` | Cancelled / errors |
 
 ### Typography
@@ -186,24 +255,30 @@ Members can select their coffee order during the booking flow (Step 3).
 
 ---
 
-## 💾 Data Persistence
+## Route Map
 
-All data is stored in the browser's `localStorage`. No backend or API required.
-
-| Key | Contents |
-|---|---|
-| `obsidian_bookings` | All appointment bookings |
-| `obsidian_members` | VIP member registrations |
-| `obsidian_blocked_slots` | Admin-blocked time slots |
-| `obsidian_admin_session` | Admin authentication state |
-
-> **Note:** Data is device-specific and will be lost if browser storage is cleared.
-
-On first load with no existing data, the app seeds 5 sample bookings across the next 7 days for admin dashboard demonstration.
+| Route | Page | Protected |
+|---|---|---|
+| `/` | Landing Page | No |
+| `/services` | Services Catalog | No |
+| `/booking` | Booking flow (admin) / Unavailable notice (public) | Partial |
+| `/membership` | VIP Membership info | No |
+| `/confirmation/[id]` | Booking Confirmation | No |
+| `/admin/login` | Admin Login | No |
+| `/admin/dashboard` | Dashboard Overview | Yes |
+| `/admin/bookings` | Booking Manager | Yes |
+| `/admin/schedule` | Schedule Calendar | Yes |
+| `/admin/monitor` | Live Shop Monitor | Yes |
+| `/admin/detailers` | Detailer Roster | Yes |
+| `/admin/categories` | Service Categories | Yes |
+| `/admin/cars` | Vehicle Reference | Yes |
+| `/admin/coffees` | Coffee Menu | Yes |
+| `/admin/members` | VIP Membership Approvals | Yes |
+| `/admin/settings` | Shop Settings | Yes |
 
 ---
 
-## 📱 Responsive Design
+## Responsive Design
 
 | Breakpoint | Layout |
 |---|---|
@@ -211,52 +286,34 @@ On first load with no existing data, the app seeds 5 sample bookings across the 
 | Tablet `768–1024px` | 2-column grids, condensed admin sidebar |
 | Desktop `> 1024px` | Full multi-column layout, persistent sidebar |
 
----
-
-## 🗺️ Route Map
-
-| Route | Page | Protected |
-|---|---|---|
-| `/` | Landing Page | No |
-| `/services` | Services Catalog | No |
-| `/booking` | Appointment Booking | No |
-| `/membership` | VIP Membership | No |
-| `/confirmation/:id` | Booking Confirmation | No |
-| `/admin/login` | Admin Login | No |
-| `/admin/dashboard` | Admin Dashboard | ✅ Yes |
-| `/admin/bookings` | Booking Manager | ✅ Yes |
-| `/admin/schedule` | Schedule Calendar | ✅ Yes |
+Admin tables scroll horizontally on mobile.
 
 ---
 
-## ⚠️ Known Limitations
+## Known Limitations
 
-This is a **frontend prototype** — the following are intentional limitations:
-
-- No real backend — data doesn't sync across devices or users
-- Admin credentials are hardcoded in the client bundle
-- No payment processing — booking is a reservation only
-- No email/SMS confirmation system
-- Data loss on browser storage wipe
+- **Online booking is currently disabled for the public** — customers must visit the shop in person
+- **VIP membership requires a personal visit** — no self-service online signup yet
+- **Single Supabase project** — no multi-branch / multi-bay support
+- **No payment integration** — booking is a reservation only; payment collected at the shop
+- **No SMS confirmation** — email confirmation via Resend only
 
 ---
 
-## 🔭 Roadmap
+## Roadmap
 
-Planned for future production version:
-
-- [ ] Laravel/FastAPI REST API backend
-- [ ] PostgreSQL database
-- [ ] Real JWT-based admin authentication
+- [ ] Re-enable public online booking with customer-facing flow
+- [ ] Self-service VIP membership signup with Supabase Auth
 - [ ] SMS confirmation via [Semaphore](https://semaphore.co) (PH)
 - [ ] Online payment via [PayMongo](https://paymongo.com)
+- [ ] Per-detailer task history and earnings reports
 - [ ] Multi-branch / multi-bay support
 - [ ] Customer loyalty points system
 - [ ] WhatsApp/Messenger booking chatbot
 
 ---
 
-## 🤝 Contributing
+## Contributing
 
 1. Fork the repo
 2. Create a feature branch: `git checkout -b feature/your-feature`
@@ -264,44 +321,10 @@ Planned for future production version:
 4. Push to the branch: `git push origin feature/your-feature`
 5. Open a Pull Request
 
-Please read `CLAUDE.md` before contributing — it contains coding conventions, data schemas, and architectural decisions that must be followed.
+Read `CLAUDE.md` before contributing — it contains coding conventions, data schemas, and architectural decisions that must be followed.
 
 ---
 
-## 📄 License
+## License
 
 MIT License — see `LICENSE` for details.
-
----
-
-## feature branch changes:
-- changed the yellow color to starbucks green color
-- admin approval on VIP membership registration
-- added /admin/members page
-
-
-original themecolor:
---color-gold: #C9A84C;
---color-gold-light: #E8C96A;
-
-1.Do you have a Supabase project already? - Yes just leave the NEXT_PUBLIC_SUPABASE_URL  and the NEXT_PUBLIC_SUPABASE_ANON_KEY empty for now
-
-2.Scope — full cutover
-3.Admin auth - Keep the hardcoded credentials for now
-4.recommended
-5.recommended
-
-
-carlos.bautista@email.com
-
-0917 990 8877
-
-
-
-
-## NOTE:
-run line 12-15 in /supabase/migrations 
-
--added admin confirmation flow
--Earnings on dashboard
--added about page

@@ -1,5 +1,44 @@
 import { timeSlots, SLOT_MINUTES } from '../data/timeSlots.js';
 
+/** Parse any "H:MM AM/PM" string to total minutes since midnight. */
+export const parseTimeToMinutes = (time = '') => {
+  const m = time.match(/(\d+):(\d+)\s*(AM|PM)/i);
+  if (!m) return -1;
+  let h = parseInt(m[1], 10);
+  const min = parseInt(m[2], 10);
+  const period = m[3].toUpperCase();
+  if (period === 'PM' && h !== 12) h += 12;
+  if (period === 'AM' && h === 12) h = 0;
+  return h * 60 + min;
+};
+
+/** Convert total minutes since midnight to "H:MM AM/PM". */
+export const minutesToTimeStr = (totalMin) => {
+  const h24 = Math.floor(totalMin / 60) % 24;
+  const min = totalMin % 60;
+  const period = h24 >= 12 ? 'PM' : 'AM';
+  const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+  return `${h12}:${String(min).padStart(2, '0')} ${period}`;
+};
+
+/**
+ * Map any time string to the nearest grid slot at or before it.
+ * e.g. "8:15 AM" → "8:00 AM", "8:45 AM" → "8:30 AM"
+ * Returns null if no grid slot is at or before the given time.
+ */
+export const nearestSlotAtOrBefore = (time) => {
+  const mins = parseTimeToMinutes(time);
+  if (mins < 0) return null;
+  // Walk the grid in reverse and find the last slot <= mins
+  let best = null;
+  for (const s of timeSlots) {
+    const sm = parseTimeToMinutes(s);
+    if (sm <= mins) best = s;
+    else break;
+  }
+  return best;
+};
+
 /**
  * Admin session is the only piece of state still in localStorage — auth
  * stays hardcoded for Phase 1. Bookings, members, blocked slots, and
@@ -87,13 +126,30 @@ export const getMultiDayBlockedDates = (startDate, daysConsumed) => {
   return result;
 };
 
-const slotIndex = (time) => timeSlots.indexOf(time);
+/**
+ * Map a time string (exact or arbitrary) to its grid index.
+ * For non-grid times (e.g. "8:15 AM"), finds the nearest slot at or before.
+ */
+const slotIndex = (time) => {
+  const exact = timeSlots.indexOf(time);
+  if (exact !== -1) return exact;
+  // Arbitrary time: find the slot that starts at or before this time
+  const mins = parseTimeToMinutes(time);
+  if (mins < 0) return -1;
+  let best = -1;
+  for (let i = 0; i < timeSlots.length; i++) {
+    if (parseTimeToMinutes(timeSlots[i]) <= mins) best = i;
+    else break;
+  }
+  return best;
+};
 
 /**
  * Returns the array of slot strings occupied if a booking starts at `time`.
  * For day-length services (slotsConsumed === timeSlots.length), the booking
  * runs from the chosen start time through the end of the day — any start time
  * is valid, and the range is "rest of day" rather than a fixed count ahead.
+ * For arbitrary (non-grid) start times, capacity is checked from the enclosing slot.
  */
 const occupiedRange = (time, slotsConsumed) => {
   const i = slotIndex(time);
@@ -187,6 +243,7 @@ export const isSlotAvailable = (date, time, serviceDuration, opts = {}) => {
   const slotsConsumed = getSlotsConsumed(serviceDuration);
   const range = occupiedRange(time, slotsConsumed);
   if (range.length === 0) return false;
+  // For arbitrary start times the range may be shorter if near end of day — still overflow
   if (slotsConsumed < timeSlots.length && range.length < slotsConsumed) return false;
 
   // If this date is itself a subsequent day of an existing multi-day booking,
@@ -289,6 +346,65 @@ export const getSlotStatuses = (date, serviceDuration, opts = {}) => {
 };
 
 /**
+ * Check availability for an arbitrary start time (not just grid slots).
+ * Returns { available, reason, remaining } — same shape as a single slot status.
+ * Used by the free-time-input UI to give real-time feedback.
+ */
+export const getTimeAvailability = (date, time, serviceDuration, opts = {}) => {
+  const {
+    minDetailers = 1,
+    bookings = [],
+    blockedSlots = [],
+    settings = DEFAULT_SETTINGS,
+    allowOverflow = false, // user explicitly chose to extend past closing
+  } = opts;
+
+  if (!date || !time) return { available: false, reason: null, remaining: 0 };
+
+  const timeMins = parseTimeToMinutes(time);
+  if (timeMins < 0) return { available: false, reason: null, remaining: 0 };
+
+  const pool = settings.detailerPoolSize ?? DEFAULT_SETTINGS.detailerPoolSize;
+  const slotsConsumed = getSlotsConsumed(serviceDuration);
+  const range = occupiedRange(time, slotsConsumed);
+
+  if (!allowOverflow) {
+    if (range.length === 0) return { available: false, reason: 'overflow', remaining: 0 };
+    if (slotsConsumed < timeSlots.length && range.length < slotsConsumed) {
+      return { available: false, reason: 'overflow', remaining: 0 };
+    }
+  }
+  // When allowOverflow, use whatever slots remain in the day; otherwise full range.
+  const effectiveRange = (allowOverflow && range.length === 0)
+    ? timeSlots.slice(slotIndex(time))
+    : range;
+
+  if (effectiveRange.length === 0) return { available: false, reason: 'overflow', remaining: 0 };
+
+  const isSubsequentDay = bookings.some((b) => {
+    if (!isActiveBooking(b)) return false;
+    const days = getDaysConsumed(b.serviceDuration || '');
+    return days > 1 && getMultiDayBlockedDates(b.date, days).includes(date);
+  });
+  if (isSubsequentDay) return { available: false, reason: 'multiday', remaining: 0 };
+
+  const blocked = blockedSlots.filter((b) => b.date === date);
+  if (effectiveRange.some((rt) => blocked.some((blk) => blk.time === rt))) {
+    return { available: false, reason: 'blocked', remaining: 0 };
+  }
+
+  let minRemaining = pool;
+  for (const rt of effectiveRange) {
+    const used = computeDetailersUsedAt(date, rt, bookings);
+    minRemaining = Math.min(minRemaining, pool - used);
+  }
+  if (minRemaining < minDetailers) {
+    return { available: false, reason: 'capacity', remaining: Math.max(0, minRemaining) };
+  }
+  return { available: true, reason: null, remaining: minRemaining };
+};
+
+/**
  * getAvailableSlots — slot strings that can host a booking of this duration
  * starting at that slot, on the given date.
  */
@@ -333,7 +449,7 @@ export const isPastDate = (date) => {
 export const isSunday = (date) => new Date(date).getDay() === 0;
 
 export const isDateSelectable = (date) =>
-  !isPastDate(date) && !isSunday(date);
+  !isPastDate(date);
 
 /** Formatters used across the app */
 export const formatDateLong = (iso) => {
