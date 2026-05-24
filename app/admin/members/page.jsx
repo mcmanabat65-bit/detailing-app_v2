@@ -20,6 +20,7 @@ import {
   Coffee,
   ChevronRight,
   ChevronLeft,
+  Pencil,
 } from 'lucide-react';
 import { AdminLayout } from '@/components/AdminLayout';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
@@ -43,6 +44,7 @@ function MembersAdmin() {
     members,
     bookings,
     cars,
+    updateMember,
     updateMemberStatus,
     deleteMember,
     upsertCar,
@@ -57,6 +59,8 @@ function MembersAdmin() {
   const [page, setPage] = useState(1);
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [historyMember, setHistoryMember] = useState(null);
+  const [editingNickname, setEditingNickname] = useState(false);
+  const [nicknameInput, setNicknameInput] = useState('');
 
   const counts = useMemo(() => {
     const c = { all: members.length, pending: 0, approved: 0, rejected: 0 };
@@ -196,7 +200,12 @@ function MembersAdmin() {
                       <div className="flex items-center gap-2">
                         <Crown className="w-3.5 h-3.5 text-gold shrink-0" />
                         <div>
-                          <div className="text-cream font-medium">{m.name}</div>
+                          <div className="text-cream font-medium">
+                            {m.name}
+                            {m.nickname && (
+                              <span className="ml-1.5 text-gold/70 text-xs font-normal">"{m.nickname}"</span>
+                            )}
+                          </div>
                           <div className="text-[11px] text-muted font-mono">{m.id}</div>
                         </div>
                       </div>
@@ -288,13 +297,50 @@ function MembersAdmin() {
               <div>
                 <div className="flex items-center gap-2 mb-0.5">
                   <Crown className="w-4 h-4 text-gold" />
-                  <span className="font-serif text-xl text-cream">{historyMember.name}</span>
+                  <span className="font-serif text-xl text-cream">
+                    {historyMember.name}
+                    {historyMember.nickname && (
+                      <span className="ml-1.5 text-gold/70 text-base font-sans font-normal">"{historyMember.nickname}"</span>
+                    )}
+                  </span>
                   <StatusBadge status={statusOf(historyMember)} />
                 </div>
                 <div className="text-xs text-muted">{historyMember.email}</div>
+                {/* Inline nickname edit */}
+                {editingNickname ? (
+                  <form
+                    className="flex items-center gap-2 mt-2"
+                    onSubmit={async (e) => {
+                      e.preventDefault();
+                      const result = await updateMember(historyMember.id, { nickname: nicknameInput.trim() || null });
+                      if (result?.error) { showToast(result.error, 'error'); return; }
+                      setHistoryMember((m) => ({ ...m, nickname: nicknameInput.trim() || null }));
+                      setEditingNickname(false);
+                    }}
+                  >
+                    <input
+                      autoFocus
+                      type="text"
+                      value={nicknameInput}
+                      onChange={(e) => setNicknameInput(e.target.value)}
+                      placeholder="Nickname (optional)"
+                      className="bg-obsidian/60 border border-white/10 rounded-sm px-2 py-1 text-cream text-xs focus:outline-none focus:border-gold/50 w-36"
+                    />
+                    <button type="submit" className="text-gold text-xs hover:text-gold-light">Save</button>
+                    <button type="button" onClick={() => setEditingNickname(false)} className="text-muted text-xs hover:text-cream">Cancel</button>
+                  </form>
+                ) : (
+                  <button
+                    onClick={() => { setNicknameInput(historyMember.nickname || ''); setEditingNickname(true); }}
+                    className="mt-1.5 text-[11px] text-muted hover:text-gold transition-colors flex items-center gap-1"
+                  >
+                    <Pencil className="w-3 h-3" />
+                    {historyMember.nickname ? `Nickname: "${historyMember.nickname}"` : 'Add nickname'}
+                  </button>
+                )}
               </div>
               <button
-                onClick={() => setHistoryMember(null)}
+                onClick={() => { setHistoryMember(null); setEditingNickname(false); }}
                 aria-label="Close"
                 className="text-cream/70 hover:text-cream mt-1"
               >

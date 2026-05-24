@@ -20,7 +20,8 @@
       "Bash(node -e ' *)",
       "Bash(curl -s http://localhost:3000)",
       "Bash(grep -E \"\\\\.\\(jsx|js|tsx|ts\\)$\")",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(python3 -c \"from PIL import Image; img = Image.open\\('/Users/jehnsenenrique/Projects/NextJS/detailing-app/public/samahuzai-logo.png'\\); print\\(img.size\\)\")"
     ]
   }
 }

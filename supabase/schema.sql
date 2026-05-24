@@ -21,6 +21,7 @@ insert into settings (id) values (1) on conflict (id) do nothing;
 create table if not exists members (
   id text primary key,
   name text not null,
+  nickname text,
   email text not null,
   phone text not null,
   member_since timestamptz not null default now(),

@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Menu, X, Sparkles } from 'lucide-react';
+import Image from 'next/image';
+import { Menu, X } from 'lucide-react';
 
 const links = [
   { href: '/', label: 'Home' },
@@ -43,8 +44,8 @@ export function Navbar() {
     >
       <div className="max-w-7xl mx-auto px-5 md:px-8 h-16 md:h-20 flex items-center justify-between">
         <Link href="/" className="flex items-center gap-2 group">
-          <div className="w-9 h-9 rounded-md bg-gradient-to-br from-gold to-gold-light flex items-center justify-center shadow-lg shadow-gold/20">
-            <Sparkles className="w-4 h-4 text-obsidian" strokeWidth={2.5} />
+          <div className="w-9 h-9 rounded-md overflow-hidden shadow-lg shadow-gold/20">
+            <Image src="/samahuzai-logo.png" alt="Samahuzai logo" width={36} height={36} className="w-full h-full object-cover" />
           </div>
           <div className="leading-none">
             <div className="font-serif text-lg md:text-xl text-cream tracking-wide">

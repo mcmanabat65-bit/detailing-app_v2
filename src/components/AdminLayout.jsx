@@ -10,7 +10,6 @@ import {
   Users,
   UserCog,
   LogOut,
-  Sparkles,
   Menu,
   Monitor,
   Settings as SettingsIcon,
@@ -19,7 +18,9 @@ import {
   Car,
   Coffee,
   Tag,
+  Quote,
 } from 'lucide-react';
+import Image from 'next/image';
 import { useApp } from '@/context/AppContext';
 
 const links = [
@@ -33,6 +34,7 @@ const links = [
   { href: '/admin/services', label: 'Services', icon: Wrench },
   { href: '/admin/categories', label: 'Categories', icon: Tag },
   { href: '/admin/coffees', label: 'Coffee Menu', icon: Coffee },
+  { href: '/admin/testimonials', label: 'Testimonials', icon: Quote },
   { href: '/admin/settings', label: 'Settings', icon: SettingsIcon },
 ];
 
@@ -59,8 +61,8 @@ export function AdminLayout({ children, title }) {
           href="/admin/dashboard"
           className="flex items-center gap-2 px-6 h-20 border-b border-white/5"
         >
-          <div className="w-9 h-9 rounded-md bg-gradient-to-br from-gold to-gold-light flex items-center justify-center">
-            <Sparkles className="w-4 h-4 text-obsidian" strokeWidth={2.5} />
+          <div className="w-12 h-12 rounded-md overflow-hidden shadow-lg shadow-gold/20 shrink-0">
+            <Image src="/samahuzai-logo.png" alt="Samahuzai logo" width={48} height={48} className="w-full h-full object-cover" />
           </div>
           <div className="leading-none">
             <div className="font-serif text-lg text-cream">Samahuzai Carwash and Auto Detailing</div>

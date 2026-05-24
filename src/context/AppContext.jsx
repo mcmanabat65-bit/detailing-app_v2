@@ -50,6 +50,7 @@ export function AppProvider({ children }) {
   const [coffees, setCoffees] = useState([]);
   const [serviceCategories, setServiceCategories] = useState([]);
   const [detailers, setDetailers] = useState([]);
+  const [testimonials, setTestimonials] = useState([]);
   const [settings, setSettings] = useState({ ...DEFAULT_SETTINGS });
   const [adminSession, setAdminSessionState] = useState(false);
   const [hydrated, setHydrated] = useState(false);
@@ -185,6 +186,20 @@ export function AppProvider({ children }) {
     setDetailers((data || []).map(fromRow));
   }, []);
 
+  const refetchTestimonials = useCallback(async () => {
+    if (!supabase) return;
+    const { data, error } = await supabase
+      .from('testimonials')
+      .select('*')
+      .order('sort_order', { ascending: true })
+      .order('created_at', { ascending: true });
+    if (error) {
+      console.error('[testimonials] fetch error', error);
+      return;
+    }
+    setTestimonials((data || []).map(fromRow));
+  }, []);
+
   const refetchSettings = useCallback(async () => {
     if (!supabase) return;
     const { data, error } = await supabase
@@ -238,6 +253,7 @@ export function AppProvider({ children }) {
       refetchServiceCategories(),
       refetchDetailers(),
       refetchSettings(),
+      refetchTestimonials(),
     ]).finally(() => {
       settled = true;
       clearTimeout(timer);
@@ -245,7 +261,7 @@ export function AppProvider({ children }) {
     });
 
     return () => subscription.unsubscribe();
-  }, [refetchServices, refetchBookings, refetchMembers, refetchBlockedSlots, refetchCars, refetchMemberCars, refetchCoffees, refetchServiceCategories, refetchDetailers, refetchSettings]);
+  }, [refetchServices, refetchBookings, refetchMembers, refetchBlockedSlots, refetchCars, refetchMemberCars, refetchCoffees, refetchServiceCategories, refetchDetailers, refetchSettings, refetchTestimonials]);
 
   // Global Realtime subscription — one shared WebSocket channel for the entire
   // app. Any page that reads `bookings` from context (bookings, schedule,
@@ -341,9 +357,9 @@ export function AppProvider({ children }) {
       if (occupies.length === 0) {
         return { error: 'Invalid time slot.' };
       }
-      const requested =
-        Number(booking.detailersAssigned) ||
-        Math.max(minDetailers, settings.defaultDetailersPerBooking || 1);
+      const requested = Array.isArray(booking.detailersAssigned)
+        ? booking.detailersAssigned
+        : Math.max(minDetailers, settings.defaultDetailersPerBooking || 1);
 
       const payload = {
         ...toRow({
@@ -469,6 +485,17 @@ export function AppProvider({ children }) {
         .from('members')
         .update({ status, decided_at: new Date().toISOString() })
         .eq('id', id);
+      if (error) return { error: error.message };
+      await refetchMembers();
+      return { ok: true };
+    },
+    [refetchMembers]
+  );
+
+  const updateMember = useCallback(
+    async (id, fields) => {
+      if (!supabase) return { error: 'Database not connected.' };
+      const { error } = await supabase.from('members').update(toRow(fields)).eq('id', id);
       if (error) return { error: error.message };
       await refetchMembers();
       return { ok: true };
@@ -832,6 +859,114 @@ export function AppProvider({ children }) {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
+  // ===== Testimonials =====
+  const upsertTestimonial = useCallback(
+    async (testimonial) => {
+      if (!supabase) return { error: 'Database not connected.' };
+      const row = {
+        name: (testimonial.name || '').trim(),
+        car: (testimonial.car || '').trim(),
+        quote: (testimonial.quote || '').trim(),
+        rating: Number(testimonial.rating) || 5,
+        is_visible: testimonial.isVisible !== false,
+        sort_order: Number(testimonial.sortOrder) || 0,
+        status: testimonial.status || 'approved',
+      };
+      if (!row.name) return { error: 'Name is required.' };
+      if (!row.car) return { error: 'Car is required.' };
+      if (!row.quote) return { error: 'Quote is required.' };
+      let query;
+      if (testimonial.id) {
+        query = supabase.from('testimonials').update(row).eq('id', testimonial.id).select().single();
+      } else {
+        query = supabase.from('testimonials').insert(row).select().single();
+      }
+      const { data, error } = await query;
+      if (error) return { error: error.message };
+      await refetchTestimonials();
+      return fromRow(data);
+    },
+    [refetchTestimonials]
+  );
+
+  const approveTestimonial = useCallback(
+    async (id) => {
+      if (!supabase) return { error: 'Database not connected.' };
+      const { error } = await supabase
+        .from('testimonials')
+        .update({ status: 'approved', is_visible: true })
+        .eq('id', id);
+      if (error) return { error: error.message };
+      await refetchTestimonials();
+      return { ok: true };
+    },
+    [refetchTestimonials]
+  );
+
+  const rejectTestimonial = useCallback(
+    async (id) => {
+      if (!supabase) return { error: 'Database not connected.' };
+      const { error } = await supabase
+        .from('testimonials')
+        .update({ status: 'rejected' })
+        .eq('id', id);
+      if (error) return { error: error.message };
+      await refetchTestimonials();
+      return { ok: true };
+    },
+    [refetchTestimonials]
+  );
+
+  // Public submission — no auth required, uses anon key
+  const submitTestimonial = useCallback(
+    async ({ name, car, quote, rating }) => {
+      if (!supabase) return { error: 'Database not connected.' };
+      const row = {
+        name: (name || '').trim(),
+        car: (car || '').trim(),
+        quote: (quote || '').trim(),
+        rating: Number(rating) || 5,
+        is_visible: false,
+        sort_order: 0,
+        status: 'pending',
+      };
+      if (!row.name) return { error: 'Name is required.' };
+      if (!row.car) return { error: 'Vehicle is required.' };
+      if (!row.quote) return { error: 'Review is required.' };
+      const { error } = await supabase.from('testimonials').insert(row);
+      if (error) return { error: error.message };
+      return { ok: true };
+    },
+    []
+  );
+
+  const deleteTestimonial = useCallback(
+    async (id) => {
+      if (!supabase) return { error: 'Database not connected.' };
+      const { error } = await supabase.from('testimonials').delete().eq('id', id);
+      if (error) return { error: error.message };
+      await refetchTestimonials();
+      return { ok: true };
+    },
+    [refetchTestimonials]
+  );
+
+  const reorderTestimonials = useCallback(
+    async (orderedIds) => {
+      if (!supabase) return { error: 'Database not connected.' };
+      const results = await Promise.all(
+        orderedIds.map((id, i) =>
+          supabase.from('testimonials').update({ sort_order: i + 1 }).eq('id', id)
+        )
+      );
+      const failed = results.find((r) => r.error);
+      if (failed) return { error: failed.error.message };
+      await refetchTestimonials();
+      return { ok: true };
+    },
+    [refetchTestimonials]
+  );
+
   const getServiceById = useCallback(
     (id) => services.find((s) => s.id === Number(id)) || null,
     [services]
@@ -852,6 +987,13 @@ export function AppProvider({ children }) {
       coffees,
       upsertCoffee,
       deleteCoffee,
+      testimonials,
+      upsertTestimonial,
+      approveTestimonial,
+      rejectTestimonial,
+      submitTestimonial,
+      deleteTestimonial,
+      reorderTestimonials,
       detailers,
       upsertDetailer,
       deleteDetailer,
@@ -870,6 +1012,7 @@ export function AppProvider({ children }) {
       updateBookingDetailers,
       deleteBooking,
       addMember,
+      updateMember,
       updateMemberStatus,
       deleteMember,
       findApprovedMemberByEmail,
@@ -900,6 +1043,13 @@ export function AppProvider({ children }) {
       coffees,
       upsertCoffee,
       deleteCoffee,
+      testimonials,
+      upsertTestimonial,
+      approveTestimonial,
+      rejectTestimonial,
+      submitTestimonial,
+      deleteTestimonial,
+      reorderTestimonials,
       detailers,
       upsertDetailer,
       deleteDetailer,
@@ -917,6 +1067,7 @@ export function AppProvider({ children }) {
       updateBookingDetailers,
       deleteBooking,
       addMember,
+      updateMember,
       updateMemberStatus,
       deleteMember,
       findApprovedMemberByEmail,

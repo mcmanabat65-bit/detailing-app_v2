@@ -197,7 +197,7 @@ Only `confirmed` and `completed` bookings appear on the schedule calendar and sh
 VIP members enjoy:
 
 - Free coffee while waiting (Macchiato, Brewed Coffee, Cappuccino, Americano, Latte)
-- 10% discount on all services
+- Discount on selected services
 - Priority scheduling access
 - Exclusive lounge with WiFi
 - Birthday month special offer
@@ -313,18 +313,4 @@ Admin tables scroll horizontally on mobile.
 
 ---
 
-## Contributing
-
-1. Fork the repo
-2. Create a feature branch: `git checkout -b feature/your-feature`
-3. Commit your changes: `git commit -m 'feat: add your feature'`
-4. Push to the branch: `git push origin feature/your-feature`
-5. Open a Pull Request
-
-Read `CLAUDE.md` before contributing — it contains coding conventions, data schemas, and architectural decisions that must be followed.
-
----
-
-## License
-
-MIT License — see `LICENSE` for details.
+# 

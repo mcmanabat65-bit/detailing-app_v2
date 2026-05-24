@@ -121,7 +121,7 @@ const STATUS_META = {
   },
 };
 
-const JobCard = memo(function JobCard({ booking, catMap, status }) {
+const JobCard = memo(function JobCard({ booking, catMap, status, nickname, detailerMap }) {
   const meta = STATUS_META[status] ?? STATUS_META.upcoming;
   const cat = catMap[booking.serviceCategory];
   const catColor = cat?.color ?? 'bg-white/10 text-cream';
@@ -153,7 +153,7 @@ const JobCard = memo(function JobCard({ booking, catMap, status }) {
       {/* Divider */}
       <div className="border-t border-white/5" />
 
-      {/* Vehicle */}
+      {/* Vehicle + customer */}
       <div className="flex items-center gap-2.5">
         <Car className="w-5 h-5 text-gold shrink-0" />
         <span className="text-cream text-lg font-medium leading-tight flex-1 min-w-0 truncate">
@@ -161,6 +161,12 @@ const JobCard = memo(function JobCard({ booking, catMap, status }) {
         </span>
         {booking.isVip && (
           <Crown className="w-4 h-4 text-gold shrink-0" aria-label="VIP member" />
+        )}
+      </div>
+      <div className="text-cream/60 text-sm leading-tight">
+        {booking.customerName}
+        {nickname && (
+          <span className="ml-1.5 text-gold/70">"{nickname}"</span>
         )}
       </div>
 
@@ -193,11 +199,12 @@ const JobCard = memo(function JobCard({ booking, catMap, status }) {
       </div>
 
       {/* Detailers */}
-      <div className="flex items-center gap-2.5 text-cream/80">
-        <Users className="w-4 h-4 text-gold shrink-0" />
+      <div className="flex items-start gap-2.5 text-cream/80">
+        <Users className="w-4 h-4 text-gold shrink-0 mt-0.5" />
         <span className="text-sm">
-          {booking.detailersAssigned ?? 1}{' '}
-          {(booking.detailersAssigned ?? 1) === 1 ? 'Detailer' : 'Detailers'} Assigned
+          {Array.isArray(booking.detailersAssigned) && booking.detailersAssigned.length > 0
+            ? booking.detailersAssigned.map((id) => detailerMap?.[id] || id).join(', ')
+            : 'No detailer assigned'}
         </span>
       </div>
     </div>
@@ -227,7 +234,7 @@ function EmptyState() {
 // ---------------------------------------------------------------------------
 
 function MonitorContent({ isFullscreen, onToggle }) {
-  const { bookings, serviceCategories, refetchBookings } = useApp();
+  const { bookings, serviceCategories, members, detailers, refetchBookings } = useApp();
 
   // Booking updates arrive via the global AppContext Realtime subscription.
   // This fallback poll only activates when Supabase is unavailable.
@@ -244,6 +251,20 @@ function MonitorContent({ isFullscreen, onToggle }) {
     serviceCategories.forEach((c) => { m[c.slug] = c; });
     return m;
   }, [serviceCategories]);
+
+  // memberId → nickname (only members who have one set)
+  const nicknameMap = useMemo(() => {
+    const m = {};
+    members.forEach((mb) => { if (mb.nickname) m[mb.id] = mb.nickname; });
+    return m;
+  }, [members]);
+
+  // detailerId → name
+  const detailerMap = useMemo(() => {
+    const m = {};
+    detailers.forEach((d) => { m[d.id] = d.nickname || d.name; });
+    return m;
+  }, [detailers]);
 
   const todayJobs = useMemo(() =>
     bookings
@@ -334,6 +355,8 @@ function MonitorContent({ isFullscreen, onToggle }) {
                 booking={b}
                 catMap={catMap}
                 status={getJobStatus(b)}
+                nickname={b.memberId ? nicknameMap[b.memberId] : null}
+                detailerMap={detailerMap}
               />
             ))}
           </div>

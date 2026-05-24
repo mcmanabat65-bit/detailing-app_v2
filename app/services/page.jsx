@@ -7,7 +7,7 @@ import { formatCurrency } from '@/data/services';
 import { useApp } from '@/context/AppContext';
 
 export default function ServicesPage() {
-  const { services, serviceCategories } = useApp();
+  const { services, serviceCategories, adminSession } = useApp();
   const [filter, setFilter] = useState('all');
 
   const catMap = useMemo(() => {
@@ -85,7 +85,9 @@ export default function ServicesPage() {
               </div>
 
               <div className="text-gold text-4xl font-light mb-6">
-                {formatCurrency(s.price)}
+                {adminSession ? formatCurrency(s.price) : (
+                  <span className="text-muted text-base tracking-widest uppercase"></span>
+                )}
               </div>
 
               <ul className="space-y-2.5 mb-8 flex-1">

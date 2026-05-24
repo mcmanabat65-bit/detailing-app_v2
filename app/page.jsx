@@ -1,5 +1,7 @@
 import Link from 'next/link';
 import { HeroVideo } from '@/components/HeroVideo';
+import { ServicesPreview } from '@/components/ServicesPreview';
+import { TestimonialForm } from '@/components/TestimonialForm';
 import {
   Award,
   Sparkles,
@@ -13,8 +15,7 @@ import {
   Wifi,
   Cake,
 } from 'lucide-react';
-import { formatCurrency } from '@/data/services';
-import { fetchServices } from '@/lib/supabase-server';
+import { fetchServices, fetchTestimonials } from '@/lib/supabase-server';
 
 const features = [
   {
@@ -42,32 +43,8 @@ const features = [
   },
 ];
 
-const testimonials = [
-  {
-    name: 'Jehnsen Enrique',
-    car: 'Nissan Navara Owner',
-    quote:
-      'I have been to every detailer in BGC. Samahuzai Carwash and Auto Detailing is the only one I trust with my Navara. The finish is mirror-grade.',
-    rating: 5,
-  },
-  {
-    name: 'Azi Acosta',
-    car: 'Range Rover Velar',
-    quote:
-      'The lounge alone is worth it. I came in for a wash and left feeling like I had spent the morning at a five-star hotel.',
-    rating: 5,
-  },
-  {
-    name: 'Vince Tacloban',
-    car: 'BMW M3 Competition',
-    quote:
-      'Ceramic coating turned out flawless. Six months in, still beading like the day I drove out. Worth every peso.',
-    rating: 5,
-  },
-];
-
 export default async function LandingPage() {
-  const services = await fetchServices();
+  const [services, testimonials] = await Promise.all([fetchServices(), fetchTestimonials()]);
   return (
     <div className="page-enter">
       {/* HERO */}
@@ -91,7 +68,7 @@ export default async function LandingPage() {
           <div className="max-w-3xl">
             <div className="inline-flex items-center gap-2 text-xs tracking-[0.3em] uppercase text-gold/90 mb-6">
               <span className="w-8 h-px bg-gold" />
-              Est. 2026 &middot; Cavite
+              Est. 2026 &middot; Biñan, Laguna
             </div>
             <h1 className="font-serif text-4xl md:text-6xl lg:text-7xl leading-[1.1] mb-6">
               <span className="gold-shimmer">SAMAHUZAI</span>
@@ -197,35 +174,7 @@ export default async function LandingPage() {
             </Link>
           </div>
 
-          <div className="flex gap-5 overflow-x-auto hide-scrollbar pb-4 -mx-5 px-5">
-            {services.map((s) => (
-              <Link
-                key={s.id}
-                href={`/booking?service=${s.id}`}
-                className="min-w-[280px] md:min-w-[320px] glass-card card-hover rounded-md p-6 group"
-              >
-                <div className="flex items-start justify-between mb-6">
-                  <span className="text-xs uppercase tracking-widest text-gold/80">
-                    {s.category}
-                  </span>
-                  {s.popular && (
-                    <span className="vip-badge">Most Popular</span>
-                  )}
-                </div>
-                <h3 className="font-serif text-2xl text-cream mb-2">
-                  {s.name}
-                </h3>
-                <div className="text-muted text-sm mb-5">{s.duration}</div>
-                <div className="text-gold text-3xl font-light mb-6">
-                  {formatCurrency(s.price)}
-                </div>
-                <div className="text-sm text-cream/70 group-hover:text-gold transition-colors flex items-center gap-1">
-                  Reserve this package
-                  <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-                </div>
-              </Link>
-            ))}
-          </div>
+          <ServicesPreview services={services} />
         </div>
       </section>
 
@@ -298,7 +247,7 @@ export default async function LandingPage() {
       </section>
 
       {/* TESTIMONIALS */}
-      <section className="py-24 md:py-32 bg-surface/30 border-t border-white/5">
+      <section className="pt-24 md:pt-32 pb-14 bg-surface/30 border-t border-white/5">
         <div className="max-w-7xl mx-auto px-5 md:px-8">
           <div className="text-center max-w-2xl mx-auto mb-14">
             <div className="text-gold text-xs tracking-[0.3em] uppercase mb-3">
@@ -309,11 +258,11 @@ export default async function LandingPage() {
             </h2>
           </div>
 
-          <div className="grid md:grid-cols-3 gap-6 stagger">
+          <div className="flex gap-5 overflow-x-auto hide-scrollbar pb-4 -mx-5 px-5">
             {testimonials.map((t) => (
               <div
                 key={t.name}
-                className="glass-card rounded-md p-7 animate-fade-in"
+                className="min-w-[300px] w-[300px] md:min-w-[380px] md:w-[380px] glass-card rounded-md p-7 flex-shrink-0 animate-fade-in"
               >
                 <Quote className="w-6 h-6 text-gold mb-4" />
                 <p className="text-cream/85 leading-relaxed mb-6">
@@ -331,6 +280,10 @@ export default async function LandingPage() {
                 <div className="text-muted text-sm">{t.car}</div>
               </div>
             ))}
+          </div>
+
+          <div className="mt-14 border-t border-white/10 pt-14 max-w-2xl mx-auto">
+            <TestimonialForm />
           </div>
         </div>
       </section>

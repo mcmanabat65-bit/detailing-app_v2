@@ -267,3 +267,51 @@ alter table bookings drop constraint if exists bookings_status_check;
 alter table bookings add constraint bookings_status_check
   check (status in ('pending', 'confirmed', 'on-going', 'cancelled', 'no_show', 'completed'));
 alter table bookings alter column status set default 'pending';
+
+-- Add testimonials table (Phase 2.2)
+create table if not exists testimonials (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  car text not null,
+  quote text not null,
+  rating integer not null default 5 check (rating between 1 and 5),
+  is_visible boolean not null default true,
+  sort_order integer not null default 0,
+  created_at timestamptz not null default now()
+);
+create index if not exists testimonials_sort_idx on testimonials (sort_order, created_at);
+alter table testimonials enable row level security;
+drop policy if exists "public read testimonials" on testimonials;
+create policy "public read testimonials" on testimonials for select to anon, authenticated using (true);
+drop policy if exists "admin all testimonials" on testimonials;
+create policy "admin all testimonials" on testimonials for all to authenticated using (true) with check (true);
+
+-- Seed default testimonials (safe to re-run)
+insert into testimonials (name, car, quote, rating, is_visible, sort_order) values
+  ('Jehnsen Enrique', 'Nissan Navara Owner', 'I have been to every detailer in BGC. Samahuzai Carwash and Auto Detailing is the only one I trust with my Navara. The finish is mirror-grade.', 5, true, 1),
+  ('Azi Acosta', 'Range Rover Velar', 'The lounge alone is worth it. I came in for a wash and left feeling like I had spent the morning at a five-star hotel.', 5, true, 2),
+  ('Vince Tacloban', 'BMW M3 Competition', 'Ceramic coating turned out flawless. Six months in, still beading like the day I drove out. Worth every peso.', 5, true, 3);
+
+notify pgrst, 'reload schema';
+
+-- Add nickname to members (Phase 2.3)
+-- Run this separately AFTER schema.sql has been applied (members table must exist).
+alter table members add column if not exists nickname text;
+
+notify pgrst, 'reload schema';
+
+-- Add status column to testimonials (Phase 2.4)
+-- pending = submitted by public, awaiting admin review
+-- approved = admin approved, visible on site (subject to is_visible toggle)
+alter table testimonials add column if not exists status text not null default 'approved'
+  check (status in ('pending', 'approved', 'rejected'));
+
+-- Allow anonymous users to insert (submit) testimonials
+drop policy if exists "public submit testimonials" on testimonials;
+create policy "public submit testimonials" on testimonials
+  for insert to anon with check (status = 'pending');
+
+-- Existing seed rows default to approved so they remain visible
+update testimonials set status = 'approved' where status is null or status = '';
+
+notify pgrst, 'reload schema';

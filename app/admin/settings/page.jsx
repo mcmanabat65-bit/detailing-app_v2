@@ -38,7 +38,7 @@ function SettingsForm() {
       const startIdx = timeSlots.indexOf(b.time);
       if (startIdx < 0) continue;
       const consumed = getSlotsConsumed(b.serviceDuration || '1 hr');
-      const headcount = Number(b.detailersAssigned) || 1;
+      const headcount = Array.isArray(b.detailersAssigned) ? b.detailersAssigned.length : (Number(b.detailersAssigned) || 1);
       for (let i = 0; i < consumed && startIdx + i < timeSlots.length; i++) {
         const key = `${b.date}|${timeSlots[startIdx + i]}`;
         totals.set(key, (totals.get(key) || 0) + headcount);

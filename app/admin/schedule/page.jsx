@@ -23,6 +23,7 @@ import {
   formatDateLong,
   getSlotsConsumed,
   toIsoDate,
+  nearestSlotAtOrBefore,
 } from '@/utils/bookingUtils';
 
 const weekDates = (anchor) => {
@@ -31,7 +32,7 @@ const weekDates = (anchor) => {
   const diff = day === 0 ? -6 : 1 - day;
   const monday = new Date(d);
   monday.setDate(d.getDate() + diff);
-  return Array.from({ length: 6 }, (_, i) => {
+  return Array.from({ length: 7 }, (_, i) => {
     const x = new Date(monday);
     x.setDate(monday.getDate() + i);
     return x;
@@ -39,8 +40,14 @@ const weekDates = (anchor) => {
 };
 
 function Schedule() {
-  const { bookings, blockedSlots, settings, toggleBlockedSlot, showToast } =
+  const { bookings, blockedSlots, settings, detailers, toggleBlockedSlot, showToast } =
     useApp();
+
+  const detailerMap = useMemo(() => {
+    const m = {};
+    detailers.forEach((d) => { m[d.id] = d.nickname || d.name; });
+    return m;
+  }, [detailers]);
   const [anchor, setAnchor] = useState(new Date());
   const [drawer, setDrawer] = useState(null);
   const [blockForm, setBlockForm] = useState({ date: '', time: '', label: '' });
@@ -66,9 +73,13 @@ function Schedule() {
       if (b.status === 'cancelled' || b.status === 'no_show' || b.status === 'pending') continue;
       if (!map[b.date]) continue;
       const consumed = getSlotsConsumed(b.serviceDuration || '1 hr');
-      const startIdx = timeSlots.indexOf(b.time);
+      let startIdx = timeSlots.indexOf(b.time);
+      if (startIdx === -1) {
+        const nearest = nearestSlotAtOrBefore(b.time);
+        startIdx = nearest ? timeSlots.indexOf(nearest) : -1;
+      }
       if (startIdx === -1) continue;
-      const headcount = Number(b.detailersAssigned) || 1;
+      const headcount = Array.isArray(b.detailersAssigned) ? (b.detailersAssigned.length || 1) : (Number(b.detailersAssigned) || 1);
       const minReq = Number(b.minDetailers) || 1;
       for (let i = 0; i < consumed; i++) {
         const t = timeSlots[startIdx + i];
@@ -91,7 +102,7 @@ function Schedule() {
   const weekLabel = `${week[0].toLocaleDateString('en-PH', {
     month: 'short',
     day: 'numeric',
-  })} – ${week[5].toLocaleDateString('en-PH', {
+  })} – ${week[6].toLocaleDateString('en-PH', {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
@@ -170,7 +181,7 @@ function Schedule() {
         <div className="glass-card rounded-md overflow-hidden">
           <div className="overflow-x-auto">
             <div className="min-w-[760px]">
-              <div className="grid grid-cols-[80px_repeat(6,_1fr)] border-b border-white/5">
+              <div className="grid grid-cols-[80px_repeat(7,_1fr)] border-b border-white/5">
                 <div className="p-3" />
                 {week.map((d) => {
                   const iso = toIsoDate(d);
@@ -200,7 +211,7 @@ function Schedule() {
               {timeSlots.map((time) => (
                 <div
                   key={time}
-                  className="grid grid-cols-[80px_repeat(6,_1fr)] border-b border-white/5"
+                  className="grid grid-cols-[80px_repeat(7,_1fr)] border-b border-white/5"
                 >
                   <div className="p-3 text-xs text-muted uppercase tracking-widest">
                     {time}
@@ -258,7 +269,7 @@ function Schedule() {
                         )}
 
                         {startsHere.map(({ booking, span }) => {
-                          const assigned = booking.detailersAssigned ?? 1;
+                          const assigned = Array.isArray(booking.detailersAssigned) ? (booking.detailersAssigned.length || 1) : (booking.detailersAssigned ?? 1);
                           const minDet = booking.minDetailers ?? 1;
                           const bookingUnderstaffed = assigned < minDet;
                           return (
@@ -479,7 +490,9 @@ function Schedule() {
                   value={
                     <span className="inline-flex items-center gap-1.5">
                       <Users className="w-3.5 h-3.5 text-gold" />
-                      {drawer.data.detailersAssigned ?? 1}
+                      {Array.isArray(drawer.data.detailersAssigned) && drawer.data.detailersAssigned.length > 0
+                        ? drawer.data.detailersAssigned.map((id) => detailerMap[id] || id).join(', ')
+                        : 'None assigned'}
                     </span>
                   }
                 />
