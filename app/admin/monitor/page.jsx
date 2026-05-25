@@ -121,7 +121,7 @@ const STATUS_META = {
   },
 };
 
-const JobCard = memo(function JobCard({ booking, catMap, status, nickname, detailerMap }) {
+const JobCard = memo(function JobCard({ booking, catMap, status, detailerMap }) {
   const meta = STATUS_META[status] ?? STATUS_META.upcoming;
   const cat = catMap[booking.serviceCategory];
   const catColor = cat?.color ?? 'bg-white/10 text-cream';
@@ -163,12 +163,11 @@ const JobCard = memo(function JobCard({ booking, catMap, status, nickname, detai
           <Crown className="w-4 h-4 text-gold shrink-0" aria-label="VIP member" />
         )}
       </div>
-      <div className="text-cream/60 text-sm leading-tight">
-        {booking.customerName}
-        {nickname && (
-          <span className="ml-1.5 text-gold/70">"{nickname}"</span>
-        )}
-      </div>
+      {booking.nickname && (
+        <div className="text-gold/80 text-sm leading-tight font-medium">
+          "{booking.nickname}"
+        </div>
+      )}
 
       {/* Time block */}
       <div className="grid grid-cols-2 gap-3">
@@ -234,7 +233,7 @@ function EmptyState() {
 // ---------------------------------------------------------------------------
 
 function MonitorContent({ isFullscreen, onToggle }) {
-  const { bookings, serviceCategories, members, detailers, refetchBookings } = useApp();
+  const { bookings, serviceCategories, detailers, refetchBookings } = useApp();
 
   // Booking updates arrive via the global AppContext Realtime subscription.
   // This fallback poll only activates when Supabase is unavailable.
@@ -252,12 +251,6 @@ function MonitorContent({ isFullscreen, onToggle }) {
     return m;
   }, [serviceCategories]);
 
-  // memberId → nickname (only members who have one set)
-  const nicknameMap = useMemo(() => {
-    const m = {};
-    members.forEach((mb) => { if (mb.nickname) m[mb.id] = mb.nickname; });
-    return m;
-  }, [members]);
 
   // detailerId → name
   const detailerMap = useMemo(() => {
@@ -355,7 +348,6 @@ function MonitorContent({ isFullscreen, onToggle }) {
                 booking={b}
                 catMap={catMap}
                 status={getJobStatus(b)}
-                nickname={b.memberId ? nicknameMap[b.memberId] : null}
                 detailerMap={detailerMap}
               />
             ))}

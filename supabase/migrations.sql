@@ -315,3 +315,26 @@ create policy "public submit testimonials" on testimonials
 update testimonials set status = 'approved' where status is null or status = '';
 
 notify pgrst, 'reload schema';
+
+-- Add nickname to bookings (Phase 2.5a)
+alter table bookings add column if not exists nickname text;
+
+
+-- Booking audit log (Phase 2.5b)
+-- Records every status transition for a booking.
+-- from_status is null when the booking is first created.
+create table if not exists booking_status_logs (
+  id          uuid primary key default gen_random_uuid(),
+  booking_id  text not null references bookings(id) on delete cascade,
+  from_status text,
+  to_status   text not null,
+  notes       text,
+  changed_at  timestamptz not null default now()
+);
+create index if not exists bsl_booking_idx on booking_status_logs (booking_id, changed_at);
+alter table booking_status_logs enable row level security;
+drop policy if exists "admin all booking_status_logs" on booking_status_logs;
+create policy "admin all booking_status_logs" on booking_status_logs
+  for all to authenticated using (true) with check (true);
+
+notify pgrst, 'reload schema';

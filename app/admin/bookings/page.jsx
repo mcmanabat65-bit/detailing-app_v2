@@ -19,6 +19,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Play,
+  History,
 } from 'lucide-react';
 import { sendEmail } from '@/lib/sendEmail';
 import { bookingConfirmationHtml } from '@/lib/emailTemplates';
@@ -44,6 +45,7 @@ function BookingsTable() {
     detailers,
     updateBookingStatus,
     updateBookingDetailers,
+    fetchBookingLogs,
     deleteBooking,
     showToast,
   } = useApp();
@@ -66,6 +68,17 @@ function BookingsTable() {
   const [cancelModal, setCancelModal] = useState(null); // booking to cancel
   const [cancelReason, setCancelReason] = useState('Customer request');
   const [cancelCustom, setCancelCustom] = useState('');
+  const [logPanel, setLogPanel] = useState(null); // { booking, logs }
+  const [logLoading, setLogLoading] = useState(false);
+  const [statusPending, setStatusPending] = useState(null); // booking id currently being updated
+
+  const openLog = async (booking) => {
+    setLogLoading(true);
+    setLogPanel({ booking, logs: [] });
+    const logs = await fetchBookingLogs(booking.id);
+    setLogPanel({ booking, logs });
+    setLogLoading(false);
+  };
 
   const filtered = useMemo(() => {
     return bookings.filter((b) => {
@@ -127,9 +140,12 @@ function BookingsTable() {
   };
 
   const setStatus = async (id, status, successMessage) => {
+    if (statusPending) return;
+    setStatusPending(id);
     const booking = bookings.find((b) => b.id === id);
     const wasPending = booking?.status === 'pending';
     const result = await updateBookingStatus(id, status);
+    setStatusPending(null);
     if (result?.error) { showToast(result.error, 'error'); return; }
     if (status === 'confirmed' && wasPending && booking) {
       sendEmail(
@@ -275,7 +291,10 @@ function BookingsTable() {
                   <tr key={b.id} className="border-b border-white/5 hover:bg-white/[0.02]">
                     <td className="px-4 py-3 font-mono text-xs text-gold/90">{b.id}</td>
                     <td className="px-4 py-3">
-                      <div className="text-cream">{b.customerName}</div>
+                      <div className="text-cream flex items-center gap-1.5">
+                        {b.customerName}
+                        {b.nickname && <span className="text-gold/70 text-xs">"{b.nickname}"</span>}
+                      </div>
                       <div className="text-xs text-muted">{b.email}</div>
                     </td>
                     <td className="px-4 py-3">
@@ -354,9 +373,10 @@ function BookingsTable() {
                         {b.status === 'pending' && (
                           <button
                             onClick={() => setStatus(b.id, 'confirmed')}
+                            disabled={!!statusPending}
                             aria-label="Mark confirmed"
                             title="Confirm booking"
-                            className="p-2 text-success hover:bg-success/10 rounded-sm transition-colors"
+                            className="p-2 text-success hover:bg-success/10 rounded-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                           >
                             <CheckCircle2 className="w-4 h-4" />
                           </button>
@@ -365,9 +385,10 @@ function BookingsTable() {
                         {b.status === 'confirmed' && (
                           <button
                             onClick={() => setStatus(b.id, 'on-going', 'Marked as on-going.')}
+                            disabled={!!statusPending}
                             aria-label="Mark on-going"
                             title="Mark as on-going"
-                            className="p-2 text-amber-400 hover:bg-amber-400/10 rounded-sm transition-colors"
+                            className="p-2 text-amber-400 hover:bg-amber-400/10 rounded-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                           >
                             <Play className="w-4 h-4" />
                           </button>
@@ -376,9 +397,10 @@ function BookingsTable() {
                         {b.status === 'on-going' && (
                           <button
                             onClick={() => setStatus(b.id, 'completed', 'Marked as completed.')}
+                            disabled={!!statusPending}
                             aria-label="Mark completed"
                             title="Mark as completed"
-                            className="p-2 text-gold hover:bg-gold/10 rounded-sm transition-colors"
+                            className="p-2 text-gold hover:bg-gold/10 rounded-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                           >
                             <BadgeCheck className="w-4 h-4" />
                           </button>
@@ -387,9 +409,10 @@ function BookingsTable() {
                         {(b.status === 'pending' || b.status === 'confirmed') && (
                           <button
                             onClick={() => setStatus(b.id, 'no_show', 'Marked as no-show — detailers freed.')}
+                            disabled={!!statusPending}
                             aria-label="Mark no-show"
                             title="Mark no-show"
-                            className="p-2 text-cream/70 hover:text-gold hover:bg-gold/10 rounded-sm transition-colors"
+                            className="p-2 text-cream/70 hover:text-gold hover:bg-gold/10 rounded-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                           >
                             <UserX className="w-4 h-4" />
                           </button>
@@ -405,6 +428,14 @@ function BookingsTable() {
                             <XCircle className="w-4 h-4" />
                           </button>
                         )}
+                        <button
+                          onClick={() => openLog(b)}
+                          aria-label="View status history"
+                          title="Status history"
+                          className="p-2 text-cream/70 hover:text-gold hover:bg-gold/10 rounded-sm transition-colors"
+                        >
+                          <History className="w-4 h-4" />
+                        </button>
                         <button
                           onClick={() => setConfirmDelete(b)}
                           aria-label="Delete booking"
@@ -557,6 +588,72 @@ function BookingsTable() {
                 <Trash2 className="w-4 h-4" />
                 Delete
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Status History Panel */}
+      {logPanel && (
+        <div className="fixed inset-0 z-50 flex justify-end">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setLogPanel(null)} />
+          <div className="relative w-full max-w-md bg-surface border-l border-white/10 h-full flex flex-col shadow-2xl overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 shrink-0">
+              <div>
+                <h2 className="font-serif text-xl text-cream">Status History</h2>
+                <p className="text-muted text-xs mt-0.5">{logPanel.booking.id}</p>
+              </div>
+              <button onClick={() => setLogPanel(null)} aria-label="Close" className="text-muted hover:text-cream transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Booking summary */}
+            <div className="px-6 py-4 border-b border-white/5 bg-white/[0.02] shrink-0">
+              <div className="text-cream font-medium">{logPanel.booking.customerName}</div>
+              <div className="text-muted text-sm">{logPanel.booking.serviceName} · {logPanel.booking.date} · {logPanel.booking.time}</div>
+            </div>
+
+            {/* Timeline */}
+            <div className="flex-1 overflow-y-auto px-6 py-5">
+              {logLoading ? (
+                <div className="text-muted text-sm text-center py-12">Loading…</div>
+              ) : logPanel.logs.length === 0 ? (
+                <div className="text-muted text-sm text-center py-12">No status changes recorded yet.</div>
+              ) : (
+                <ol className="relative border-l border-white/10 space-y-6 ml-2">
+                  {logPanel.logs.map((log) => (
+                    <li key={log.id} className="ml-5">
+                      <span className="absolute -left-2 flex items-center justify-center w-4 h-4 rounded-full bg-surface border border-white/20 ring-4 ring-surface">
+                        <span className="w-1.5 h-1.5 rounded-full bg-gold" />
+                      </span>
+                      <div className="glass-card rounded-sm px-4 py-3">
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                          {log.fromStatus ? (
+                            <>
+                              <StatusBadge status={log.fromStatus} />
+                              <span className="text-muted text-xs">→</span>
+                            </>
+                          ) : (
+                            <span className="text-muted text-xs italic">Created</span>
+                          )}
+                          <StatusBadge status={log.toStatus} />
+                        </div>
+                        {log.notes && (
+                          <p className="text-muted text-xs mt-1">Note: {log.notes}</p>
+                        )}
+                        <p className="text-muted text-[11px] mt-1.5">
+                          {new Date(log.changedAt).toLocaleString('en-PH', {
+                            month: 'short', day: 'numeric', year: 'numeric',
+                            hour: 'numeric', minute: '2-digit', hour12: true,
+                          })}
+                        </p>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              )}
             </div>
           </div>
         </div>

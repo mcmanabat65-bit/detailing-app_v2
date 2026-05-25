@@ -372,6 +372,7 @@ export function AppProvider({ children }) {
           date: booking.date,
           time: booking.time,
           customerName: booking.customerName,
+          nickname: booking.nickname || null,
           email: booking.email,
           phone: booking.phone,
           vehicle: booking.vehicle,
@@ -406,15 +407,42 @@ export function AppProvider({ children }) {
       if (status === 'cancelled') {
         payload.cancellation_reason = cancellationReason || null;
       }
+      // Capture current status before update for the audit log
+      const current = bookings.find((b) => b.id === id);
+      const fromStatus = current?.status ?? null;
+
       const { error } = await supabase
         .from('bookings')
         .update(payload)
         .eq('id', id);
       if (error) return { error: error.message };
+
+      // Write audit log entry
+      await supabase.from('booking_status_logs').insert({
+        booking_id: id,
+        from_status: fromStatus,
+        to_status: status,
+        notes: cancellationReason || null,
+      });
+
       await refetchBookings();
       return { ok: true };
     },
-    [refetchBookings]
+    [bookings, refetchBookings]
+  );
+
+  const fetchBookingLogs = useCallback(
+    async (bookingId) => {
+      if (!supabase) return [];
+      const { data, error } = await supabase
+        .from('booking_status_logs')
+        .select('*')
+        .eq('booking_id', bookingId)
+        .order('changed_at', { ascending: true });
+      if (error) return [];
+      return data.map(fromRow);
+    },
+    []
   );
 
   const updateBookingDetailers = useCallback(
@@ -1009,6 +1037,7 @@ export function AppProvider({ children }) {
       refetchBookings,
       addBooking,
       updateBookingStatus,
+      fetchBookingLogs,
       updateBookingDetailers,
       deleteBooking,
       addMember,
@@ -1064,6 +1093,7 @@ export function AppProvider({ children }) {
       refetchBookings,
       addBooking,
       updateBookingStatus,
+      fetchBookingLogs,
       updateBookingDetailers,
       deleteBooking,
       addMember,

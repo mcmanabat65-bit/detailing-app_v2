@@ -270,6 +270,7 @@ function BookingFlow() {
 
   const [details, setDetails] = useState({
     customerName: '',
+    nickname: '',
     email: '',
     phone: '',
     vehicle: '',
@@ -442,6 +443,7 @@ function BookingFlow() {
         date,
         time,
         customerName: details.customerName,
+        nickname: details.nickname.trim() || null,
         email: details.email,
         phone: details.phone,
         vehicle: vehicleStr,
@@ -749,18 +751,31 @@ function BookingFlow() {
             <div className="glass-card rounded-md p-6 md:p-8 space-y-5">
               <div className="text-cream font-serif text-2xl">Your details</div>
 
-              <Field label="Full Name *">
-                <input
-                  type="text"
-                  required
-                  value={details.customerName}
-                  onChange={(e) =>
-                    setDetails((d) => ({ ...d, customerName: e.target.value }))
-                  }
-                  className="input"
-                  placeholder="Juan dela Cruz"
-                />
-              </Field>
+              <div className="grid md:grid-cols-2 gap-5">
+                <Field label="Full Name *">
+                  <input
+                    type="text"
+                    required
+                    value={details.customerName}
+                    onChange={(e) =>
+                      setDetails((d) => ({ ...d, customerName: e.target.value }))
+                    }
+                    className="input"
+                    placeholder="Juan dela Cruz"
+                  />
+                </Field>
+                <Field label="Nickname / Alias (Optional)">
+                  <input
+                    type="text"
+                    value={details.nickname}
+                    onChange={(e) =>
+                      setDetails((d) => ({ ...d, nickname: e.target.value }))
+                    }
+                    className="input"
+                    placeholder="e.g. JC, Boss, Kuya"
+                  />
+                </Field>
+              </div>
 
               <div className="grid md:grid-cols-2 gap-5">
                 <Field label="Email *">
