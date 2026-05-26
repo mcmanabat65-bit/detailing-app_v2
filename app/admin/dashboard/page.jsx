@@ -40,9 +40,11 @@ function Dashboard() {
     start.setHours(0, 0, 0, 0);
     const end = new Date(start);
     end.setDate(end.getDate() + 7);
-    const weekB = confirmed.filter((b) => {
-      const d = new Date(b.date);
-      return d >= start && d <= end;
+    const startStr = toIsoDate(start);
+    const endStr = toIsoDate(end);
+    const weekB = bookings.filter((b) => {
+      if (b.status === 'cancelled' || b.status === 'no_show' || b.status === 'pending') return false;
+      return b.date >= startStr && b.date <= endStr;
     });
     const cancelled = bookings.filter((b) => b.status === 'cancelled').length;
     const vip = confirmed.filter((b) => b.isVip).length;

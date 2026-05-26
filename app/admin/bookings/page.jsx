@@ -194,7 +194,7 @@ function BookingsTable() {
           create new bookings on behalf of a customer.
         </div>
         <Link
-          href="/booking"
+          href="/admin/new-booking"
           className="inline-flex items-center gap-2 px-4 py-2.5 bg-gold text-obsidian font-semibold rounded-sm hover:bg-gold-light transition-colors"
         >
           <Plus className="w-4 h-4" />
