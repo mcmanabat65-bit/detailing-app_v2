@@ -79,6 +79,9 @@ export default function ServicesPage() {
                 {catMap[s.category]?.name ?? s.category}
               </div>
               <h2 className="font-serif text-3xl text-cream mb-2">{s.name}</h2>
+              {s.description && (
+                <p className="text-cream/60 text-sm leading-relaxed mb-3">{s.description}</p>
+              )}
               <div className="flex items-center gap-2 text-muted text-sm mb-5">
                 <Clock className="w-3.5 h-3.5" />
                 {s.duration}

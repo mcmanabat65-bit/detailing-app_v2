@@ -287,6 +287,7 @@ export function AppProvider({ children }) {
       // Fields sent on both insert and update
       const fields = toRow({
         name: service.name,
+        description: service.description || null,
         price: Number(service.price),
         duration: service.duration,
         category: service.category,

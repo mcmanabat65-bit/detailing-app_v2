@@ -35,6 +35,7 @@ create index if not exists members_status_idx on members (status);
 create table if not exists services (
   id integer primary key generated always as identity,
   name text not null,
+  description text,
   price integer not null,
   duration text not null,
   category text not null,

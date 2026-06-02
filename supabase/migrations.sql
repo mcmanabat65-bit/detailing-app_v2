@@ -7,6 +7,9 @@
 -- Add cancellation_reason column (Phase 1 → Phase 1.1)
 alter table bookings add column if not exists cancellation_reason text;
 
+-- Add description column to services
+alter table services add column if not exists description text;
+
 -- Add coffees table (Phase 1.2)
 create table if not exists coffees (
   id uuid primary key default gen_random_uuid(),

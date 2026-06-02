@@ -24,6 +24,7 @@ import { formatCurrency } from '@/data/services';
 
 const EMPTY_FORM = {
   name: '',
+  description: '',
   price: '',
   duration: '',
   category: '',
@@ -121,6 +122,16 @@ function ServiceForm({ initial, onSave, onCancel, isSaving, categories }) {
             onChange={(e) => set('name', e.target.value)}
             className="admin-input"
             placeholder="The Essential"
+          />
+        </FormField>
+
+        <FormField label="Description" hint="Short tagline shown on the public services page">
+          <textarea
+            value={form.description}
+            onChange={(e) => set('description', e.target.value)}
+            className="admin-input resize-none"
+            rows={2}
+            placeholder="A thorough exterior refresh to keep your ride looking sharp."
           />
         </FormField>
 
