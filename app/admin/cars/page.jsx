@@ -9,6 +9,8 @@ import {
   Car,
   X,
   Save,
+  AlertTriangle,
+  Crown,
 } from 'lucide-react';
 import { AdminLayout } from '@/components/AdminLayout';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
@@ -156,12 +158,21 @@ function Field({ label, error, children }) {
 }
 
 function CarsAdmin() {
-  const { cars, upsertCar, deleteCar, showToast, hydrated } = useApp();
+  const { cars, memberCars, members, upsertCar, deleteCar, showToast, hydrated } = useApp();
   const [q, setQ] = useState('');
   const [sizeFilter, setSizeFilter] = useState('all');
   const [editing, setEditing] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(null);
+
+  // Members whose fleet contains the car being considered for deletion
+  const affectedMembers = useMemo(() => {
+    if (!confirmDelete) return [];
+    const linkedIds = new Set(
+      memberCars.filter((mc) => mc.carId === confirmDelete.id).map((mc) => mc.memberId)
+    );
+    return members.filter((m) => linkedIds.has(m.id));
+  }, [confirmDelete, memberCars, members]);
 
   const filtered = useMemo(() => {
     return cars.filter((c) => {
@@ -362,12 +373,9 @@ function CarsAdmin() {
           >
             <div className="flex items-start justify-between mb-4">
               <div>
-                <h3 className="font-serif text-2xl text-cream">
-                  Delete this car?
-                </h3>
+                <h3 className="font-serif text-2xl text-cream">Delete this car?</h3>
                 <p className="text-muted text-sm mt-1">
-                  Removes it from the catalog. Existing bookings are not
-                  affected.
+                  Removes it from the catalog. Existing bookings are not affected.
                 </p>
               </div>
               <button
@@ -378,7 +386,8 @@ function CarsAdmin() {
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="bg-surface/60 rounded-sm p-4 mb-5 border border-white/5 space-y-1">
+
+            <div className="bg-surface/60 rounded-sm p-4 mb-4 border border-white/5 space-y-1">
               <div className="text-cream font-medium">
                 {confirmDelete.year} {confirmDelete.make} {confirmDelete.model}
               </div>
@@ -386,6 +395,29 @@ function CarsAdmin() {
                 {SIZE_LABEL[confirmDelete.size] || confirmDelete.size}
               </div>
             </div>
+
+            {affectedMembers.length > 0 && (
+              <div className="mb-5 rounded-sm border border-danger/30 bg-danger/10 p-4 space-y-2">
+                <div className="flex items-center gap-2 text-danger text-sm font-medium">
+                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                  This car is in {affectedMembers.length} member fleet{affectedMembers.length !== 1 ? 's' : ''}
+                </div>
+                <p className="text-xs text-danger/80 leading-relaxed">
+                  Deleting it will also remove it from the following member{affectedMembers.length !== 1 ? 's\'' : '\'s'} registered vehicles:
+                </p>
+                <ul className="space-y-1">
+                  {affectedMembers.map((m) => (
+                    <li key={m.id} className="flex items-center gap-2 text-xs text-cream/80">
+                      <Crown className="w-3 h-3 text-gold shrink-0" />
+                      {m.name}
+                      {m.nickname && <span className="text-gold/70">"{m.nickname}"</span>}
+                      <span className="text-muted">— {m.email}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             <div className="flex gap-3">
               <button
                 onClick={() => setConfirmDelete(null)}
@@ -398,7 +430,7 @@ function CarsAdmin() {
                 className="flex-1 px-4 py-2.5 bg-danger text-white rounded-sm hover:bg-danger/90 transition-colors inline-flex items-center justify-center gap-2"
               >
                 <Trash2 className="w-4 h-4" />
-                Delete
+                {affectedMembers.length > 0 ? 'Delete anyway' : 'Delete'}
               </button>
             </div>
           </div>

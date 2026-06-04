@@ -244,6 +244,8 @@ function BookingFlow() {
     detailers,
     findApprovedMemberByEmail,
     getCarsForMember,
+    upsertCar,
+    addCarToMember,
   } = useApp();
 
   // Available coffees: only show enabled ones, sorted. Fall back to static list if DB not loaded yet.
@@ -482,6 +484,43 @@ function BookingFlow() {
         }),
         (err) => showToast(`Confirmation email failed: ${err}`, 'error')
       );
+
+      // Auto-save a new car to the VIP member's fleet when they used manual
+      // entry (selectedCarId is null) instead of picking an existing car.
+      // Runs in an isolated try-catch so any failure never blocks navigation.
+      if (isVip && vipMember && !selectedCarId) {
+        try {
+          const parts = vehicleStr.trim().split(/\s+/);
+          const make = parts[0] ?? '';
+          const model = parts.slice(1).join(' ');
+          const yearNum = Number(vehicleYearStr);
+          const validYear =
+            Number.isFinite(yearNum) && yearNum >= 1900 && yearNum <= 2100;
+
+          if (make && model && validYear) {
+            const car = await upsertCar({ make, model, year: yearNum, size: 'medium' });
+            if (car?.error) {
+              showToast(`Could not save car to catalog: ${car.error}`, 'error');
+            } else {
+              const alreadyOwned = memberOwnedCars.some((c) => c.id === car.id);
+              if (!alreadyOwned) {
+                const linked = await addCarToMember(vipMember.id, car.id);
+                if (linked?.error) {
+                  showToast(`Could not link car to member fleet: ${linked.error}`, 'error');
+                } else {
+                  showToast(
+                    `${vehicleStr} (${vehicleYearStr}) saved to ${vipMember.name.split(' ')[0]}'s fleet.`,
+                    'info'
+                  );
+                }
+              }
+            }
+          }
+        } catch (err) {
+          console.error('Auto-save car to fleet failed:', err);
+        }
+      }
+
       router.push(`/confirmation/${booking.id}`);
     } finally {
       setSubmitting(false);

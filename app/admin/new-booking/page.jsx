@@ -280,8 +280,19 @@ function ServiceDropdown({ services, catMap, value, onChange }) {
 // ---------------------------------------------------------------------------
 // A single car + service item in the booking
 // ---------------------------------------------------------------------------
-function BookingItem({ item, index, services, catMap, cars, coffees, onUpdate, onRemove, canRemove }) {
+function BookingItem({ item, index, services, catMap, cars, coffees, memberCars = [], onUpdate, onRemove, canRemove }) {
   const coffeeOptions = coffees.filter((c) => c.available !== false).map((c) => c.name);
+  const usingFleetCar = memberCars.length > 0 && Boolean(item.fleetCarId);
+
+  const handleFleetSelect = (carId) => {
+    if (!carId) {
+      // "Different car" selected — clear fleet car, reset fields for manual entry
+      onUpdate({ fleetCarId: null, vehicle: '', vehicleYear: '' });
+    } else {
+      const car = memberCars.find((c) => c.id === carId);
+      if (car) onUpdate({ fleetCarId: car.id, vehicle: `${car.make} ${car.model}`, vehicleYear: String(car.year) });
+    }
+  };
 
   return (
     <div className="glass-card rounded-md p-5 space-y-4 relative">
@@ -303,26 +314,47 @@ function BookingItem({ item, index, services, catMap, cars, coffees, onUpdate, o
         )}
       </div>
 
-      <div className="grid sm:grid-cols-[1fr_120px] gap-4">
-        <Field label="Vehicle Make & Model *">
-          <CarCombobox
-            cars={cars}
-            vehicle={item.vehicle}
-            vehicleYear={item.vehicleYear}
-            onChange={({ vehicle, vehicleYear }) => onUpdate({ vehicle, vehicleYear })}
-          />
+      {/* Fleet car picker — shown when a VIP member with registered cars is selected */}
+      {memberCars.length > 0 ? (
+        <Field label="Member's Vehicle *">
+          <select
+            value={item.fleetCarId || ''}
+            onChange={(e) => handleFleetSelect(e.target.value || null)}
+            className="w-full appearance-none bg-surface/70 border border-white/[0.08] rounded-[4px] py-[10px] px-3 text-[13px] text-cream focus:outline-none focus:border-gold/50 transition-colors [color-scheme:dark]"
+          >
+            {memberCars.map((c, i) => (
+              <option key={c.id} value={c.id}>
+                {c.year} {c.make} {c.model} ({c.size}){i === 0 ? ' — default' : ''}
+              </option>
+            ))}
+            <option value="">+ Different / new car</option>
+          </select>
         </Field>
-        <Field label="Year *">
-          <input
-            type="text"
-            inputMode="numeric"
-            value={item.vehicleYear}
-            onChange={(e) => onUpdate({ vehicleYear: e.target.value })}
-            className="w-full bg-surface/70 border border-white/[0.08] rounded-[4px] py-[10px] px-3 text-[13px] text-cream placeholder-muted focus:outline-none focus:border-gold/50 transition-colors"
-            placeholder="2022"
-          />
-        </Field>
-      </div>
+      ) : null}
+
+      {/* Manual car entry — shown when no fleet or "Different car" is selected */}
+      {!usingFleetCar && (
+        <div className="grid sm:grid-cols-[1fr_120px] gap-4 items-end">
+          <Field label="Make &amp; Model *">
+            <CarCombobox
+              cars={cars}
+              vehicle={item.vehicle}
+              vehicleYear={item.vehicleYear}
+              onChange={({ vehicle, vehicleYear }) => onUpdate({ vehicle, vehicleYear })}
+            />
+          </Field>
+          <Field label="Year *">
+            <input
+              type="text"
+              inputMode="numeric"
+              value={item.vehicleYear}
+              onChange={(e) => onUpdate({ vehicleYear: e.target.value })}
+              className="w-full bg-surface/70 border border-white/[0.08] rounded-[4px] py-[10px] px-3 text-[13px] text-cream placeholder-muted focus:outline-none focus:border-gold/50 transition-colors"
+              placeholder="2022"
+            />
+          </Field>
+        </div>
+      )}
 
       <Field label="Service Package *">
         <ServiceDropdown
@@ -361,7 +393,7 @@ function AdminNewBookingForm() {
   const {
     services, serviceCategories, bookings, blockedSlots, settings,
     cars, coffees, detailers, members, getCarsForMember,
-    addBooking, showToast,
+    addBooking, upsertCar, addCarToMember, showToast,
   } = useApp();
 
   const catMap = useMemo(() => {
@@ -407,8 +439,9 @@ function AdminNewBookingForm() {
 
   // ---------------------------------------------------------------------------
   // Booking items — each is one car + one service
+  // fleetCarId: UUID of selected fleet car, or null = manual entry
   // ---------------------------------------------------------------------------
-  const newItem = () => ({ id: Date.now(), vehicle: '', vehicleYear: '', serviceId: services[0]?.id || null, coffeeOrder: '', isVip: false });
+  const newItem = () => ({ id: Date.now(), vehicle: '', vehicleYear: '', serviceId: services[0]?.id || null, coffeeOrder: '', isVip: false, fleetCarId: null });
   const [items, setItems] = useState(() => [newItem()]);
 
   const addItem = () => setItems((prev) => [...prev, newItem()]);
@@ -419,6 +452,12 @@ function AdminNewBookingForm() {
   useEffect(() => {
     setItems((prev) => prev.map((it) => ({ ...it, isVip: customer.isVip })));
   }, [customer.isVip]);
+
+  // Member's registered fleet — recomputed when member changes
+  const memberFleet = useMemo(
+    () => (customer.isVip && customer.memberId ? getCarsForMember(customer.memberId) : []),
+    [customer.isVip, customer.memberId, getCarsForMember]
+  );
 
   // ---------------------------------------------------------------------------
   // VIP member selection
@@ -434,29 +473,21 @@ function AdminNewBookingForm() {
       isVip: true,
       memberId: member.id,
     });
-    // Pre-fill each existing item with member's cars (one per car, up to current items length)
-    if (ownedCars.length > 0) {
-      setItems((prev) => {
-        const filled = prev.map((it, i) => {
-          const car = ownedCars[i];
-          if (!car) return { ...it, isVip: true };
-          return { ...it, vehicle: `${car.make} ${car.model}`, vehicleYear: String(car.year), isVip: true };
-        });
-        // Add extra items for remaining cars
-        const extras = ownedCars.slice(prev.length).map((car) => ({
-          ...newItem(),
-          vehicle: `${car.make} ${car.model}`,
-          vehicleYear: String(car.year),
-          isVip: true,
-        }));
-        return [...filled, ...extras];
-      });
-    }
+    // Pre-fill item 1 with the member's default (first) car.
+    // Do NOT auto-expand more items — let the admin add extras as needed.
+    const firstCar = ownedCars[0] ?? null;
+    setItems((prev) => prev.map((it, i) => ({
+      ...it,
+      isVip: true,
+      fleetCarId: i === 0 && firstCar ? firstCar.id : null,
+      vehicle:    i === 0 && firstCar ? `${firstCar.make} ${firstCar.model}` : it.vehicle,
+      vehicleYear: i === 0 && firstCar ? String(firstCar.year) : it.vehicleYear,
+    })));
   }, [getCarsForMember]);
 
   const clearMember = () => {
     setCustomer({ name: '', nickname: '', email: '', phone: '', notes: '', isVip: false, memberId: null });
-    setItems([newItem()]);
+    setItems([{ ...newItem(), fleetCarId: null, vehicle: '', vehicleYear: '' }]);
   };
 
   // ---------------------------------------------------------------------------
@@ -548,6 +579,32 @@ function AdminNewBookingForm() {
         results.push(result);
       }
       showToast(`${results.length} booking${results.length !== 1 ? 's' : ''} created successfully.`, 'success');
+
+      // Auto-save any new cars to the VIP member's fleet
+      if (customer.isVip && customer.memberId) {
+        const currentFleet = getCarsForMember(customer.memberId);
+        for (const it of items) {
+          try {
+            const parts = (it.vehicle || '').trim().split(/\s+/);
+            const make = parts[0] ?? '';
+            const model = parts.slice(1).join(' ');
+            const yearNum = Number(it.vehicleYear);
+            const validYear = Number.isFinite(yearNum) && yearNum >= 1900 && yearNum <= 2100;
+            if (!make || !model || !validYear) continue;
+
+            const car = await upsertCar({ make, model, year: yearNum, size: 'medium' });
+            if (car?.error) continue;
+
+            const alreadyOwned = currentFleet.some((c) => c.id === car.id);
+            if (!alreadyOwned) {
+              await addCarToMember(customer.memberId, car.id);
+            }
+          } catch (_) {
+            // never block navigation on auto-save failure
+          }
+        }
+      }
+
       router.push('/admin/bookings');
     } finally {
       setSubmitting(false);
@@ -748,6 +805,7 @@ function AdminNewBookingForm() {
                 catMap={catMap}
                 cars={cars}
                 coffees={coffees}
+                memberCars={memberFleet}
                 onUpdate={(patch) => updateItem(it.id, patch)}
                 onRemove={() => removeItem(it.id)}
                 canRemove={items.length > 1}
