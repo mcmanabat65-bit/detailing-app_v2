@@ -853,7 +853,7 @@ function BookingFlow() {
                     >
                       {memberOwnedCars.map((c, i) => (
                         <option key={c.id} value={c.id}>
-                          {c.year} {c.make} {c.model} ({c.size})
+                          {c.year} {c.make} {c.model}{c.plateNumber ? ` · ${c.plateNumber}` : ''} ({c.size})
                           {i === 0 ? ' — default' : ''}
                         </option>
                       ))}

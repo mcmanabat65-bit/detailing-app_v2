@@ -156,6 +156,7 @@ create table if not exists member_cars (
   id uuid primary key default gen_random_uuid(),
   member_id text not null references members(id) on delete cascade,
   car_id uuid not null references cars(id) on delete cascade,
+  plate_number text,
   sort_order integer not null default 0,
   created_at timestamptz not null default now(),
   unique (member_id, car_id)

@@ -324,7 +324,7 @@ function BookingItem({ item, index, services, catMap, cars, coffees, memberCars 
           >
             {memberCars.map((c, i) => (
               <option key={c.id} value={c.id}>
-                {c.year} {c.make} {c.model} ({c.size}){i === 0 ? ' — default' : ''}
+                {c.year} {c.make} {c.model}{c.plateNumber ? ` · ${c.plateNumber}` : ''} ({c.size}){i === 0 ? ' — default' : ''}
               </option>
             ))}
             <option value="">+ Different / new car</option>

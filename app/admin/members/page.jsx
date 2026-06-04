@@ -18,6 +18,9 @@ import {
   ChevronLeft,
   Pencil,
   Check,
+  Plus,
+  Car,
+  AlertTriangle,
 } from 'lucide-react';
 import { AdminLayout } from '@/components/AdminLayout';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
@@ -25,6 +28,18 @@ import { useApp } from '@/context/AppContext';
 import { sendEmail } from '@/lib/sendEmail';
 import { membershipStatusHtml } from '@/lib/emailTemplates';
 import { formatDateLong } from '@/utils/bookingUtils';
+
+// Normalize phone for duplicate checking across formats
+const normalizePhone = (phone) => {
+  let p = String(phone || '').replace(/\D/g, '');
+  if (p.startsWith('63') && p.length >= 11) p = p.slice(2);
+  if (p.startsWith('0')) p = p.slice(1);
+  return p;
+};
+
+const SIZE_OPTS = ['small', 'medium', 'large', 'xl'];
+const SIZE_LABELS = { small: 'Small', medium: 'Medium', large: 'Large', xl: 'Extra Large' };
+const emptyCar = () => ({ make: '', model: '', year: new Date().getFullYear(), size: 'medium', plateNumber: '' });
 
 const STATUS_TABS = [
   { id: 'all',      label: 'All' },
@@ -40,9 +55,12 @@ function MembersAdmin() {
   const {
     members,
     bookings,
+    addMember,
     updateMember,
     updateMemberStatus,
     deleteMember,
+    upsertCar,
+    addCarToMember,
     showToast,
   } = useApp();
 
@@ -52,6 +70,7 @@ function MembersAdmin() {
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [editMember, setEditMember] = useState(null);
   const [editSaving, setEditSaving] = useState(false);
+  const [addOpen, setAddOpen]       = useState(false);
 
   const counts = useMemo(() => {
     const c = { all: members.length, pending: 0, approved: 0, rejected: 0 };
@@ -121,11 +140,20 @@ function MembersAdmin() {
               </button>
             ))}
           </div>
-          <div className="relative w-full md:w-72">
-            <Search className="w-4 h-4 text-muted absolute left-3 top-1/2 -translate-y-1/2" />
-            <input type="text" value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }}
-              placeholder="Search name or email…"
-              className="w-full bg-surface/70 border border-white/10 rounded-sm py-2.5 pl-10 pr-3 text-sm text-cream focus:outline-none focus:border-gold/50 transition-colors" />
+          <div className="flex items-center gap-3 w-full md:w-auto">
+            <div className="relative flex-1 md:w-64">
+              <Search className="w-4 h-4 text-muted absolute left-3 top-1/2 -translate-y-1/2" />
+              <input type="text" value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }}
+                placeholder="Search name or email…"
+                className="w-full bg-surface/70 border border-white/10 rounded-sm py-2.5 pl-10 pr-3 text-sm text-cream focus:outline-none focus:border-gold/50 transition-colors" />
+            </div>
+            <button
+              onClick={() => setAddOpen(true)}
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-gold text-obsidian font-semibold text-sm rounded-sm hover:bg-gold-light transition-colors whitespace-nowrap shrink-0"
+            >
+              <Plus className="w-4 h-4" />
+              Add Member
+            </button>
           </div>
         </div>
       </div>
@@ -226,6 +254,33 @@ function MembersAdmin() {
       {/* Pagination */}
       {totalPages > 1 && (
         <Pagination page={safePage} totalPages={totalPages} onPageChange={setPage} />
+      )}
+
+      {/* Add Member modal */}
+      {addOpen && (
+        <AddMemberModal
+          members={members}
+          upsertCar={upsertCar}
+          addCarToMember={addCarToMember}
+          onSave={async (fields, cars) => {
+            const result = await addMember({
+              ...fields,
+              status: 'approved',
+              decidedAt: new Date().toISOString(),
+            });
+            if (result?.error) { showToast(result.error, 'error'); return false; }
+            for (const car of cars) {
+              const upserted = await upsertCar(car);
+              if (upserted?.error) continue;
+              await addCarToMember(result.id, upserted.id, car.plateNumber);
+            }
+            showToast(`${fields.name} added as VIP member.`, 'success');
+            setAddOpen(false);
+            router.push(`/admin/members/${result.id}`);
+            return true;
+          }}
+          onClose={() => setAddOpen(false)}
+        />
       )}
 
       {/* Edit modal */}
@@ -358,6 +413,198 @@ function EditMemberModal({ member, saving, onSave, onClose }) {
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Add Member Modal
+// ---------------------------------------------------------------------------
+function AddMemberModal({ members, onSave, onClose }) {
+  const [form, setForm] = useState({ name: '', email: '', phone: '', nickname: '' });
+  const [cars, setCars] = useState([]);
+  const [errors, setErrors] = useState({});
+  const [saving, setSaving] = useState(false);
+  const [phoneWarning, setPhoneWarning] = useState(null);
+
+  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+  const addCar = () => setCars((cs) => [...cs, emptyCar()]);
+  const removeCar = (i) => setCars((cs) => cs.filter((_, idx) => idx !== i));
+  const updateCar = (i, k, v) => setCars((cs) => cs.map((c, idx) => idx === i ? { ...c, [k]: v } : c));
+
+  const validate = () => {
+    const e = {};
+    if (!form.name.trim()) e.name = 'Required';
+    if (!form.email.trim()) e.email = 'Required';
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) e.email = 'Invalid email';
+    if (!form.phone.trim()) e.phone = 'Required';
+    setErrors(e);
+    return Object.keys(e).length === 0;
+  };
+
+  const doSave = async () => {
+    const filledCars = cars.filter((c) => c.make.trim() || c.model.trim());
+    for (const c of filledCars) {
+      if (!c.make.trim() || !c.model.trim()) {
+        setErrors((e) => ({ ...e, cars: 'Each car needs make and model.' }));
+        return;
+      }
+    }
+    setSaving(true);
+    await onSave(
+      { name: form.name.trim(), email: form.email.trim(), phone: form.phone.trim(), nickname: form.nickname.trim() || null },
+      filledCars
+    );
+    setSaving(false);
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!validate()) return;
+
+    // Hard block: email duplicate
+    if (members.some((m) => (m.email || '').trim().toLowerCase() === form.email.trim().toLowerCase())) {
+      setErrors((e) => ({ ...e, email: 'This email is already registered.' }));
+      return;
+    }
+
+    // Soft warning: phone duplicate
+    const normPhone = normalizePhone(form.phone);
+    const phoneMatch = members.find((m) => normalizePhone(m.phone) === normPhone);
+    if (phoneMatch) { setPhoneWarning(phoneMatch); return; }
+
+    await doSave();
+  };
+
+  return (
+    <div onClick={onClose} className="fixed inset-0 bg-black/70 z-50 flex items-start justify-center p-5 pt-16 animate-fade-in overflow-y-auto">
+      <div onClick={(e) => e.stopPropagation()} className="glass-card rounded-md w-full max-w-lg p-6 mb-8">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-5">
+          <div>
+            <h3 className="font-serif text-2xl text-cream flex items-center gap-2">
+              <Crown className="w-5 h-5 text-gold" />
+              Add VIP Member
+            </h3>
+            <p className="text-xs text-muted mt-0.5">Added by admin — approved immediately, no review needed.</p>
+          </div>
+          <button onClick={onClose} aria-label="Close" className="text-cream/70 hover:text-cream"><X className="w-5 h-5" /></button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Contact fields */}
+          <div className="grid sm:grid-cols-2 gap-4">
+            {[
+              { key: 'name',     label: 'Full Name *',       type: 'text',  placeholder: 'Juan dela Cruz',  error: errors.name },
+              { key: 'nickname', label: 'Nickname',          type: 'text',  placeholder: 'e.g. Jun, Boss',  error: null },
+              { key: 'email',    label: 'Email *',           type: 'email', placeholder: 'juan@email.com',  error: errors.email },
+              { key: 'phone',    label: 'Phone *',           type: 'tel',   placeholder: '0917 123 4567',   error: errors.phone },
+            ].map(({ key, label, type, placeholder, error }) => (
+              <label key={key} className="block">
+                <div className="text-[11px] uppercase tracking-widest text-cream/70 mb-1.5">{label}</div>
+                <input type={type} value={form[key]} onChange={(e) => set(key, e.target.value)}
+                  placeholder={placeholder}
+                  className="w-full bg-surface/70 border border-white/[0.08] rounded-sm px-3 py-2.5 text-sm text-cream placeholder-[var(--color-muted)] focus:outline-none focus:border-gold/50 transition-colors" />
+                {error && <div className="text-[11px] text-danger mt-1">{error}</div>}
+              </label>
+            ))}
+          </div>
+
+          {/* Cars (optional) */}
+          <div className="pt-3 border-t border-white/5">
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-[11px] uppercase tracking-widest text-cream/70 flex items-center gap-1.5">
+                <Car className="w-3 h-3 text-gold" />
+                Vehicles (optional)
+              </div>
+              <button type="button" onClick={addCar} className="text-xs text-gold hover:text-gold-light flex items-center gap-1 transition-colors">
+                <Plus className="w-3 h-3" />
+                Add car
+              </button>
+            </div>
+            {errors.cars && <div className="text-[11px] text-danger mb-2">{errors.cars}</div>}
+            {cars.length === 0 ? (
+              <p className="text-xs text-muted">No vehicles added — you can add them from the member profile later.</p>
+            ) : (
+              <div className="space-y-3">
+                {cars.map((car, i) => (
+                  <div key={i} className="bg-surface/50 border border-white/5 rounded-sm p-3 space-y-2">
+                    <div className="grid grid-cols-2 gap-2">
+                      <input type="text" value={car.make} onChange={(e) => updateCar(i, 'make', e.target.value)}
+                        placeholder="Make (Toyota)"
+                        className="bg-surface/70 border border-white/10 rounded-sm py-2 px-2 text-sm text-cream placeholder-[var(--color-muted)] focus:outline-none focus:border-gold/50" />
+                      <input type="text" value={car.model} onChange={(e) => updateCar(i, 'model', e.target.value)}
+                        placeholder="Model (Fortuner)"
+                        className="bg-surface/70 border border-white/10 rounded-sm py-2 px-2 text-sm text-cream placeholder-[var(--color-muted)] focus:outline-none focus:border-gold/50" />
+                      <input type="number" min={1900} max={2100} value={car.year} onChange={(e) => updateCar(i, 'year', e.target.value)}
+                        placeholder="Year"
+                        className="bg-surface/70 border border-white/10 rounded-sm py-2 px-2 text-sm text-cream focus:outline-none focus:border-gold/50" />
+                      <select value={car.size} onChange={(e) => updateCar(i, 'size', e.target.value)}
+                        className="bg-surface/70 border border-white/10 rounded-sm py-2 px-2 text-sm text-cream focus:outline-none focus:border-gold/50">
+                        {SIZE_OPTS.map((s) => <option key={s} value={s}>{SIZE_LABELS[s]}</option>)}
+                      </select>
+                      <input type="text" value={car.plateNumber || ''} maxLength={10}
+                        onChange={(e) => updateCar(i, 'plateNumber', e.target.value.toUpperCase())}
+                        placeholder="Plate number (optional)"
+                        className="col-span-2 bg-surface/70 border border-white/10 rounded-sm py-2 px-2 text-sm text-cream placeholder-[var(--color-muted)] font-mono focus:outline-none focus:border-gold/50" />
+                    </div>
+                    <button type="button" onClick={() => removeCar(i)}
+                      className="text-xs text-muted hover:text-danger flex items-center gap-1 transition-colors">
+                      <X className="w-3 h-3" />Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Auto-approved notice */}
+          <div className="flex items-start gap-2 bg-success/5 border border-success/20 rounded-sm px-3 py-2.5">
+            <CheckCircle2 className="w-4 h-4 text-success shrink-0 mt-0.5" />
+            <p className="text-xs text-cream/70 leading-relaxed">
+              This member will be <span className="text-success font-medium">approved immediately</span> — no review queue. VIP perks activate on their next booking.
+            </p>
+          </div>
+
+          <div className="flex gap-3 pt-1 border-t border-white/5">
+            <button type="button" onClick={onClose}
+              className="flex-1 px-4 py-2.5 border border-white/10 text-cream/85 rounded-sm hover:border-gold/50 transition-colors">
+              Cancel
+            </button>
+            <button type="submit" disabled={saving}
+              className="flex-1 px-4 py-2.5 bg-gold text-obsidian font-semibold rounded-sm hover:bg-gold-light transition-colors disabled:opacity-60 inline-flex items-center justify-center gap-2">
+              {saving ? 'Adding…' : <><Crown className="w-4 h-4" />Add VIP Member</>}
+            </button>
+          </div>
+        </form>
+
+        {/* Phone duplicate warning */}
+        {phoneWarning && (
+          <div className="fixed inset-0 bg-black/60 z-10 flex items-center justify-center p-5">
+            <div className="glass-card rounded-md max-w-sm w-full p-5 space-y-4">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="w-5 h-5 text-gold shrink-0 mt-0.5" />
+                <div>
+                  <div className="text-cream font-medium">Phone already registered</div>
+                  <p className="text-muted text-sm mt-0.5">
+                    <span className="text-cream">{phoneWarning.name}</span> ({phoneWarning.status}) is already registered with this phone number.
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-3">
+                <button onClick={() => setPhoneWarning(null)}
+                  className="flex-1 px-3 py-2.5 border border-white/10 text-cream/85 rounded-sm hover:border-gold/50 transition-colors text-sm">
+                  Cancel
+                </button>
+                <button onClick={async () => { setPhoneWarning(null); await doSave(); }}
+                  className="flex-1 px-3 py-2.5 bg-gold text-obsidian font-semibold rounded-sm hover:bg-gold-light transition-colors text-sm">
+                  Add anyway
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

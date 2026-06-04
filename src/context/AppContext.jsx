@@ -373,9 +373,6 @@ export function AppProvider({ children }) {
       if (occupies.length === 0) {
         return { error: 'Invalid time slot.' };
       }
-      const requested = Array.isArray(booking.detailersAssigned)
-        ? booking.detailersAssigned
-        : Math.max(minDetailers, settings.defaultDetailersPerBooking || 1);
 
       const payload = {
         ...toRow({
@@ -677,7 +674,7 @@ export function AppProvider({ children }) {
 
   // ===== Member ↔ Cars =====
   const addCarToMember = useCallback(
-    async (memberId, carId) => {
+    async (memberId, carId, plateNumber = null) => {
       if (!supabase) return { error: 'Database not connected.' };
       if (!memberId || !carId) {
         return { error: 'memberId and carId are required.' };
@@ -687,9 +684,10 @@ export function AppProvider({ children }) {
       const nextOrder = existing.length
         ? Math.max(...existing.map((mc) => mc.sortOrder ?? 0)) + 1
         : 0;
+      const plate = (plateNumber || '').trim().toUpperCase() || null;
       const { data, error } = await supabase
         .from('member_cars')
-        .insert({ member_id: memberId, car_id: carId, sort_order: nextOrder })
+        .insert({ member_id: memberId, car_id: carId, plate_number: plate, sort_order: nextOrder })
         .select()
         .single();
       if (error) return { error: error.message };
@@ -697,6 +695,22 @@ export function AppProvider({ children }) {
       return fromRow(data);
     },
     [memberCars, refetchMemberCars]
+  );
+
+  // Update plate number on an existing member_cars link
+  const updateMemberCarPlate = useCallback(
+    async (memberCarId, plateNumber) => {
+      if (!supabase) return { error: 'Database not connected.' };
+      const plate = (plateNumber || '').trim().toUpperCase() || null;
+      const { error } = await supabase
+        .from('member_cars')
+        .update({ plate_number: plate })
+        .eq('id', memberCarId);
+      if (error) return { error: error.message };
+      await refetchMemberCars();
+      return { ok: true };
+    },
+    [refetchMemberCars]
   );
 
   const removeCarFromMember = useCallback(
@@ -743,6 +757,7 @@ export function AppProvider({ children }) {
           return {
             linkId: mc.id,
             sortOrder: mc.sortOrder ?? 0,
+            plateNumber: mc.plateNumber ?? null, // per-member plate, not from catalog
             ...car,
           };
         })
@@ -1206,6 +1221,7 @@ export function AppProvider({ children }) {
       upsertCar,
       deleteCar,
       addCarToMember,
+      updateMemberCarPlate,
       removeCarFromMember,
       setMemberCarOrder,
       getCarsForMember,
@@ -1268,6 +1284,7 @@ export function AppProvider({ children }) {
       upsertCar,
       deleteCar,
       addCarToMember,
+      updateMemberCarPlate,
       removeCarFromMember,
       setMemberCarOrder,
       getCarsForMember,

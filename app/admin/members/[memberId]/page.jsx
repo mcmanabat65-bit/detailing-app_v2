@@ -149,10 +149,11 @@ function EditMemberModal({ member, saving, onSave, onClose }) {
 // ---------------------------------------------------------------------------
 // Car Fleet Panel
 // ---------------------------------------------------------------------------
-function CarFleetPanel({ member, cars, ownedCars, upsertCar, addCarToMember, removeCarFromMember, showToast }) {
+function CarFleetPanel({ member, cars, ownedCars, upsertCar, addCarToMember, updateMemberCarPlate, removeCarFromMember, showToast }) {
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [draft, setDraft] = useState({ make: '', model: '', year: new Date().getFullYear(), size: 'medium' });
+  const [draft, setDraft] = useState({ make: '', model: '', year: new Date().getFullYear(), size: 'medium', plateNumber: '' });
+  const [editingPlate, setEditingPlate] = useState(null); // { linkId, value }
 
   const ownedIds = new Set(ownedCars.map((c) => c.id));
   const unlinkedCatalog = cars.filter((c) => !ownedIds.has(c.id));
@@ -171,12 +172,19 @@ function CarFleetPanel({ member, cars, ownedCars, upsertCar, addCarToMember, rem
     setBusy(true);
     const car = await upsertCar(draft);
     if (car?.error) { setBusy(false); showToast(car.error, 'error'); return; }
-    const linked = await addCarToMember(member.id, car.id);
+    const linked = await addCarToMember(member.id, car.id, draft.plateNumber);
     setBusy(false);
     if (linked?.error) { showToast(linked.error, 'error'); return; }
     showToast('Car added to fleet.', 'success');
-    setDraft({ make: '', model: '', year: new Date().getFullYear(), size: 'medium' });
+    setDraft({ make: '', model: '', year: new Date().getFullYear(), size: 'medium', plateNumber: '' });
     setAdding(false);
+  };
+
+  const savePlate = async (linkId) => {
+    const result = await updateMemberCarPlate(linkId, editingPlate.value);
+    if (result?.error) showToast(result.error, 'error');
+    else showToast('Plate number updated.', 'success');
+    setEditingPlate(null);
   };
 
   const unlink = async (linkId, label) => {
@@ -206,17 +214,38 @@ function CarFleetPanel({ member, cars, ownedCars, upsertCar, addCarToMember, rem
       ) : (
         <ul className="space-y-2 mb-3">
           {ownedCars.map((c, idx) => (
-            <li key={c.linkId} className="flex items-center justify-between gap-2 bg-surface/60 border border-white/5 rounded-sm px-3 py-2.5">
-              <div className="flex items-center gap-2 min-w-0">
-                <Car className="w-3.5 h-3.5 text-gold shrink-0" />
-                <span className="text-cream text-sm truncate">{c.year} {c.make} {c.model}</span>
-                {idx === 0 && <span className="text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded-sm bg-gold/15 text-gold shrink-0">Default</span>}
-                <span className="text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded-sm bg-white/5 text-cream/70 shrink-0">{c.size}</span>
+            <li key={c.linkId} className="bg-surface/60 border border-white/5 rounded-sm px-3 py-2.5 space-y-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Car className="w-3.5 h-3.5 text-gold shrink-0" />
+                  <span className="text-cream text-sm truncate">{c.year} {c.make} {c.model}</span>
+                  {idx === 0 && <span className="text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded-sm bg-gold/15 text-gold shrink-0">Default</span>}
+                  <span className="text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded-sm bg-white/5 text-cream/70 shrink-0">{c.size}</span>
+                </div>
+                <button onClick={() => unlink(c.linkId, `${c.year} ${c.make} ${c.model}`)} disabled={busy}
+                  aria-label="Remove" className="text-cream/50 hover:text-danger p-1 disabled:opacity-30 transition-colors shrink-0">
+                  <X className="w-3.5 h-3.5" />
+                </button>
               </div>
-              <button onClick={() => unlink(c.linkId, `${c.year} ${c.make} ${c.model}`)} disabled={busy}
-                aria-label="Remove" className="text-cream/50 hover:text-danger p-1 disabled:opacity-30 transition-colors">
-                <X className="w-3.5 h-3.5" />
-              </button>
+              {/* Inline plate editing */}
+              {editingPlate?.linkId === c.linkId ? (
+                <form onSubmit={(e) => { e.preventDefault(); savePlate(c.linkId); }} className="flex items-center gap-2">
+                  <input autoFocus type="text" value={editingPlate.value} maxLength={10}
+                    onChange={(e) => setEditingPlate({ ...editingPlate, value: e.target.value.toUpperCase() })}
+                    placeholder="e.g. ABC-1234"
+                    className="flex-1 bg-obsidian/60 border border-gold/40 rounded-sm px-2 py-1 text-cream text-xs font-mono focus:outline-none focus:border-gold/70" />
+                  <button type="submit" className="text-gold text-xs hover:text-gold-light px-2 py-1 transition-colors">Save</button>
+                  <button type="button" onClick={() => setEditingPlate(null)} className="text-muted text-xs hover:text-cream transition-colors">Cancel</button>
+                </form>
+              ) : (
+                <button onClick={() => setEditingPlate({ linkId: c.linkId, value: c.plateNumber || '' })}
+                  className="flex items-center gap-1.5 text-[11px] group transition-colors">
+                  {c.plateNumber
+                    ? <span className="font-mono px-1.5 py-0.5 rounded-sm bg-white/5 text-cream/70 group-hover:text-gold group-hover:bg-gold/10 transition-colors">{c.plateNumber}</span>
+                    : <span className="text-muted/60 italic group-hover:text-gold transition-colors">+ Add plate number</span>}
+                  <Pencil className="w-2.5 h-2.5 text-muted/40 group-hover:text-gold transition-colors" />
+                </button>
+              )}
             </li>
           ))}
         </ul>
@@ -252,6 +281,10 @@ function CarFleetPanel({ member, cars, ownedCars, upsertCar, addCarToMember, rem
                 className="bg-surface/70 border border-white/10 rounded-sm py-2 px-2 text-sm text-cream focus:outline-none focus:border-gold/50">
                 {SIZE_OPTS.map((s) => <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
               </select>
+              <input type="text" value={draft.plateNumber || ''} maxLength={10}
+                onChange={(e) => setDraft({ ...draft, plateNumber: e.target.value.toUpperCase() })}
+                placeholder="Plate (optional)"
+                className="bg-surface/70 border border-white/10 rounded-sm py-2 px-2 text-sm text-cream placeholder-[var(--color-muted)] font-mono focus:outline-none focus:border-gold/50 col-span-2" />
             </div>
             <button type="submit" disabled={busy}
               className="w-full px-3 py-2 bg-gold text-obsidian text-sm font-semibold rounded-sm hover:bg-gold-light transition-colors disabled:opacity-50">
@@ -275,7 +308,7 @@ function MemberDetailContent() {
   const {
     members, bookings, cars, memberCars, services,
     updateMember, updateMemberStatus, deleteMember,
-    upsertCar, addCarToMember, removeCarFromMember, getCarsForMember,
+    upsertCar, addCarToMember, updateMemberCarPlate, removeCarFromMember, getCarsForMember,
     getRecurringSchedulesForMember, addRecurringSchedule,
     updateRecurringSchedule, deleteRecurringSchedule, generateRecurringBookings,
     showToast,
@@ -468,6 +501,7 @@ function MemberDetailContent() {
           ownedCars={ownedCars}
           upsertCar={upsertCar}
           addCarToMember={addCarToMember}
+          updateMemberCarPlate={updateMemberCarPlate}
           removeCarFromMember={removeCarFromMember}
           showToast={showToast}
         />

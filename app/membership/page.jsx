@@ -13,6 +13,7 @@ import {
   Car,
   Plus,
   Trash2,
+  AlertTriangle,
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 
@@ -23,11 +24,21 @@ const SIZE_OPTS = [
   { id: 'xl',     label: 'Extra large (truck, oversized)' },
 ];
 
+// Strips everything except digits, removes +63 country code and leading 0
+// so "09171234567", "+639171234567", "0917-123-4567" all normalize to "9171234567"
+const normalizePhone = (phone) => {
+  let p = String(phone || '').replace(/\D/g, '');
+  if (p.startsWith('63') && p.length >= 11) p = p.slice(2);
+  if (p.startsWith('0')) p = p.slice(1);
+  return p;
+};
+
 const emptyCar = () => ({
   make: '',
   model: '',
   year: new Date().getFullYear(),
   size: 'medium',
+  plateNumber: '',
 });
 
 const perks = [
@@ -64,6 +75,7 @@ export default function MembershipPage() {
   const [memberCars, setMemberCars] = useState([emptyCar()]);
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState(null);
+  const [phoneWarning, setPhoneWarning] = useState(null); // existing member with same phone
 
   const updateCar = (i, key, value) =>
     setMemberCars((cs) => cs.map((c, idx) => (idx === i ? { ...c, [key]: value } : c)));
@@ -71,32 +83,8 @@ export default function MembershipPage() {
   const removeCarRow = (i) =>
     setMemberCars((cs) => (cs.length === 1 ? cs : cs.filter((_, idx) => idx !== i)));
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!form.name || !form.email || !form.phone) {
-      showToast('Please complete the form.', 'error');
-      return;
-    }
-    // Cars are optional — but any partially-filled row must be complete.
-    const filled = memberCars.filter(
-      (c) => c.make.trim() || c.model.trim()
-    );
-    for (const c of filled) {
-      if (!c.make.trim() || !c.model.trim()) {
-        showToast('Each car needs both make and model.', 'error');
-        return;
-      }
-    }
-
-    const emailLower = form.email.trim().toLowerCase();
-    const duplicate = members.some(
-      (m) => (m.email || '').trim().toLowerCase() === emailLower
-    );
-    if (duplicate) {
-      showToast('This email is already registered.', 'error');
-      return;
-    }
-
+  const doSubmit = async () => {
+    const filled = memberCars.filter((c) => c.make.trim() || c.model.trim());
     setSubmitting(true);
     const m = await addMember(form);
     if (!m || m.error) {
@@ -104,8 +92,6 @@ export default function MembershipPage() {
       showToast(m?.error || 'Could not submit application.', 'error');
       return;
     }
-    // Link any cars provided. Failures are surfaced but don't roll back the
-    // member creation — admin can clean up from the dashboard.
     for (const car of filled) {
       const upserted = await upsertCar(car);
       if (upserted?.error) {
@@ -117,12 +103,45 @@ export default function MembershipPage() {
         showToast(`Could not link ${car.make} ${car.model}: ${linked.error}`, 'error');
       }
     }
-
     setSubmitting(false);
     setSuccess(m);
     setForm({ name: '', email: '', phone: '' });
     setMemberCars([emptyCar()]);
     showToast('Application submitted — pending review.', 'success');
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!form.name || !form.email || !form.phone) {
+      showToast('Please complete the form.', 'error');
+      return;
+    }
+
+    // Cars: any partially-filled row must be complete
+    const filled = memberCars.filter((c) => c.make.trim() || c.model.trim());
+    for (const c of filled) {
+      if (!c.make.trim() || !c.model.trim()) {
+        showToast('Each car needs both make and model.', 'error');
+        return;
+      }
+    }
+
+    // Hard block — email already registered
+    const emailLower = form.email.trim().toLowerCase();
+    if (members.some((m) => (m.email || '').trim().toLowerCase() === emailLower)) {
+      showToast('This email is already registered.', 'error');
+      return;
+    }
+
+    // Soft warning — same normalized phone found on another member
+    const normPhone = normalizePhone(form.phone);
+    const phoneMatch = members.find((m) => normalizePhone(m.phone) === normPhone);
+    if (phoneMatch) {
+      setPhoneWarning(phoneMatch);
+      return; // pause — wait for user to confirm or cancel
+    }
+
+    await doSubmit();
   };
 
   const memberSinceLabel = (iso) =>
@@ -351,6 +370,14 @@ export default function MembershipPage() {
                               </option>
                             ))}
                           </select>
+                          <input
+                            type="text"
+                            value={car.plateNumber || ''}
+                            onChange={(e) => updateCar(i, 'plateNumber', e.target.value.toUpperCase())}
+                            className="member-input col-span-2"
+                            placeholder="Plate number (optional) — e.g. ABC-1234"
+                            maxLength={10}
+                          />
                         </div>
                         {memberCars.length > 1 && (
                           <button
@@ -383,6 +410,58 @@ export default function MembershipPage() {
           </div>
         </div>
       </div>
+
+      {/* Phone duplicate soft-warning modal */}
+      {phoneWarning && (
+        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-5 animate-fade-in">
+          <div className="glass-card rounded-md max-w-md w-full p-6">
+            <div className="flex items-start gap-3 mb-4">
+              <div className="w-10 h-10 rounded-sm bg-gold/10 border border-gold/20 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-5 h-5 text-gold" />
+              </div>
+              <div>
+                <h3 className="font-serif text-xl text-cream">Possible duplicate</h3>
+                <p className="text-muted text-sm mt-1 leading-relaxed">
+                  A VIP member with this phone number already exists in our records.
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-surface/60 border border-white/5 rounded-sm p-4 mb-5 space-y-1">
+              <div className="text-cream font-medium">{phoneWarning.name}</div>
+              <div className="text-xs text-muted">{phoneWarning.email}</div>
+              <div className="text-xs mt-1">
+                <span className={`uppercase tracking-widest text-[10px] px-2 py-0.5 rounded-sm ${
+                  phoneWarning.status === 'approved'  ? 'bg-success/15 text-success' :
+                  phoneWarning.status === 'rejected'  ? 'bg-danger/15 text-danger' :
+                                                        'bg-gold/15 text-gold'
+                }`}>
+                  {phoneWarning.status}
+                </span>
+              </div>
+            </div>
+
+            <p className="text-sm text-cream/70 mb-5 leading-relaxed">
+              Is this a different person sharing the same number, or a re-application?
+            </p>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setPhoneWarning(null)}
+                className="flex-1 px-4 py-2.5 border border-white/10 text-cream/85 rounded-sm hover:border-gold/50 hover:text-gold transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => { setPhoneWarning(null); await doSubmit(); }}
+                className="flex-1 px-4 py-2.5 bg-gold text-obsidian font-semibold rounded-sm hover:bg-gold-light transition-colors"
+              >
+                Yes, continue anyway
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <style jsx>{`
         .member-input {

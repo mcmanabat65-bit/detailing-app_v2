@@ -28,6 +28,9 @@ create policy "public all recurring_schedules" on recurring_schedules for all to
 -- Add description column to services
 alter table services add column if not exists description text;
 
+-- Add plate_number to member_cars (per-member vehicle, not the shared catalog)
+alter table member_cars add column if not exists plate_number text;
+
 -- Add coffees table (Phase 1.2)
 create table if not exists coffees (
   id uuid primary key default gen_random_uuid(),
