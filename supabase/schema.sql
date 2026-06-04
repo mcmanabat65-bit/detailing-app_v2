@@ -164,6 +164,24 @@ create table if not exists member_cars (
 create index if not exists member_cars_member_idx on member_cars (member_id);
 create index if not exists member_cars_car_idx    on member_cars (car_id);
 
+-- Recurring detailing schedules per VIP member.
+-- Each row = one day-of-week + time + service combo for a specific car.
+-- day_of_week: 0 = Sunday … 6 = Saturday (matches JS getDay()).
+create table if not exists recurring_schedules (
+  id             uuid primary key default gen_random_uuid(),
+  member_id      text not null references members(id) on delete cascade,
+  car_id         uuid references cars(id) on delete set null,
+  service_id     integer not null references services(id) on delete restrict,
+  day_of_week    integer not null check (day_of_week between 0 and 6),
+  preferred_time text not null,
+  is_active      boolean not null default true,
+  notes          text,
+  created_at     timestamptz not null default now()
+);
+
+create index if not exists recurring_schedules_member_idx on recurring_schedules (member_id);
+create index if not exists recurring_schedules_active_idx on recurring_schedules (member_id, is_active);
+
 -- ---------------------------------------------------------------------
 -- RPC: add_booking — atomic capacity-aware insert
 -- ---------------------------------------------------------------------
@@ -382,8 +400,9 @@ alter table blocked_slots      enable row level security;
 alter table settings           enable row level security;
 alter table services           enable row level security;
 alter table cars               enable row level security;
-alter table member_cars        enable row level security;
-alter table coffees            enable row level security;
+alter table member_cars           enable row level security;
+alter table recurring_schedules   enable row level security;
+alter table coffees               enable row level security;
 alter table service_categories enable row level security;
 
 drop policy if exists "anon all bookings"            on bookings;
@@ -397,8 +416,9 @@ drop policy if exists "public all blocked_slots"     on blocked_slots;
 drop policy if exists "public all settings"          on settings;
 drop policy if exists "public all services"          on services;
 drop policy if exists "public all cars"              on cars;
-drop policy if exists "public all member_cars"       on member_cars;
-drop policy if exists "public all coffees"           on coffees;
+drop policy if exists "public all member_cars"           on member_cars;
+drop policy if exists "public all recurring_schedules"   on recurring_schedules;
+drop policy if exists "public all coffees"               on coffees;
 drop policy if exists "public all service_categories" on service_categories;
 
 create policy "public all bookings"           on bookings           for all to anon, authenticated using (true) with check (true);
@@ -408,8 +428,9 @@ create policy "public all settings"           on settings           for all to a
 create policy "public all services"           on services           for all to anon, authenticated using (true) with check (true);
 create policy "public all cars"               on cars               for all to anon, authenticated using (true) with check (true);
 create policy "public all coffees"            on coffees            for all to anon, authenticated using (true) with check (true);
-create policy "public all member_cars"        on member_cars        for all to anon, authenticated using (true) with check (true);
-create policy "public all service_categories" on service_categories for all to anon, authenticated using (true) with check (true);
+create policy "public all member_cars"           on member_cars           for all to anon, authenticated using (true) with check (true);
+create policy "public all recurring_schedules"   on recurring_schedules   for all to anon, authenticated using (true) with check (true);
+create policy "public all service_categories"    on service_categories    for all to anon, authenticated using (true) with check (true);
 
 -- =====================================================================
 -- ADMIN USER SETUP

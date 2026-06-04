@@ -51,6 +51,7 @@ export function AppProvider({ children }) {
   const [serviceCategories, setServiceCategories] = useState([]);
   const [detailers, setDetailers] = useState([]);
   const [testimonials, setTestimonials] = useState([]);
+  const [recurringSchedules, setRecurringSchedules] = useState([]);
   const [settings, setSettings] = useState({ ...DEFAULT_SETTINGS });
   const [adminSession, setAdminSessionState] = useState(false);
   const [hydrated, setHydrated] = useState(false);
@@ -200,6 +201,19 @@ export function AppProvider({ children }) {
     setTestimonials((data || []).map(fromRow));
   }, []);
 
+  const refetchRecurringSchedules = useCallback(async () => {
+    if (!supabase) return;
+    const { data, error } = await supabase
+      .from('recurring_schedules')
+      .select('*')
+      .order('created_at', { ascending: true });
+    if (error) {
+      console.error('[recurring_schedules] fetch error', error);
+      return;
+    }
+    setRecurringSchedules((data || []).map(fromRow));
+  }, []);
+
   const refetchSettings = useCallback(async () => {
     if (!supabase) return;
     const { data, error } = await supabase
@@ -254,6 +268,7 @@ export function AppProvider({ children }) {
       refetchDetailers(),
       refetchSettings(),
       refetchTestimonials(),
+      refetchRecurringSchedules(),
     ]).finally(() => {
       settled = true;
       clearTimeout(timer);
@@ -261,7 +276,7 @@ export function AppProvider({ children }) {
     });
 
     return () => subscription.unsubscribe();
-  }, [refetchServices, refetchBookings, refetchMembers, refetchBlockedSlots, refetchCars, refetchMemberCars, refetchCoffees, refetchServiceCategories, refetchDetailers, refetchSettings, refetchTestimonials]);
+  }, [refetchServices, refetchBookings, refetchMembers, refetchBlockedSlots, refetchCars, refetchMemberCars, refetchCoffees, refetchServiceCategories, refetchDetailers, refetchSettings, refetchTestimonials, refetchRecurringSchedules]);
 
   // Global Realtime subscription — one shared WebSocket channel for the entire
   // app. Any page that reads `bookings` from context (bookings, schedule,
@@ -810,6 +825,141 @@ export function AppProvider({ children }) {
     [refetchDetailers]
   );
 
+  // ===== Recurring Schedules =====
+  const getRecurringSchedulesForMember = useCallback(
+    (memberId) => recurringSchedules.filter((s) => s.memberId === memberId),
+    [recurringSchedules]
+  );
+
+  const addRecurringSchedule = useCallback(
+    async (schedule) => {
+      if (!supabase) return { error: 'Database not connected.' };
+      const row = toRow({
+        memberId: schedule.memberId,
+        carId: schedule.carId || null,
+        serviceId: Number(schedule.serviceId),
+        dayOfWeek: Number(schedule.dayOfWeek),
+        preferredTime: schedule.preferredTime,
+        isActive: schedule.isActive !== false,
+        notes: schedule.notes?.trim() || null,
+      });
+      const { data, error } = await supabase.from('recurring_schedules').insert(row).select().single();
+      if (error) return { error: error.message };
+      await refetchRecurringSchedules();
+      return fromRow(data);
+    },
+    [refetchRecurringSchedules]
+  );
+
+  const updateRecurringSchedule = useCallback(
+    async (id, fields) => {
+      if (!supabase) return { error: 'Database not connected.' };
+      const { error } = await supabase.from('recurring_schedules').update(toRow(fields)).eq('id', id);
+      if (error) return { error: error.message };
+      await refetchRecurringSchedules();
+      return { ok: true };
+    },
+    [refetchRecurringSchedules]
+  );
+
+  const deleteRecurringSchedule = useCallback(
+    async (id) => {
+      if (!supabase) return { error: 'Database not connected.' };
+      const { error } = await supabase.from('recurring_schedules').delete().eq('id', id);
+      if (error) return { error: error.message };
+      await refetchRecurringSchedules();
+      return { ok: true };
+    },
+    [refetchRecurringSchedules]
+  );
+
+  // Generates confirmed bookings for all active recurring schedules of a member.
+  // Returns { created: [{date, car, service}], skipped: [{date, car, reason}] }
+  const generateRecurringBookings = useCallback(
+    async (memberId, weeksAhead = 4) => {
+      if (!supabase) return { error: 'Database not connected.' };
+      const member = members.find((m) => m.id === memberId);
+      if (!member) return { error: 'Member not found.' };
+
+      const activeSchedules = recurringSchedules.filter(
+        (s) => s.memberId === memberId && s.isActive
+      );
+      if (activeSchedules.length === 0) return { created: [], skipped: [], empty: true };
+
+      const localIso = (d) =>
+        `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const endDate = new Date(today);
+      endDate.setDate(today.getDate() + weeksAhead * 7);
+
+      const created = [];
+      const skipped = [];
+
+      for (const schedule of activeSchedules) {
+        const svc = services.find((s) => s.id === schedule.serviceId);
+        if (!svc) continue;
+        const car = cars.find((c) => c.id === schedule.carId);
+        const vehicleStr  = car ? `${car.make} ${car.model}` : '';
+        const vehicleYear = car ? String(car.year) : '';
+        const carLabel    = car ? `${car.year} ${car.make} ${car.model}` : 'No car';
+
+        const current = new Date(today);
+        while (current <= endDate) {
+          if (current.getDay() === schedule.dayOfWeek) {
+            const dateStr = localIso(current);
+
+            // Skip if a non-cancelled booking already exists for this member/vehicle/date
+            const alreadyBooked = bookings.some(
+              (b) =>
+                b.memberId === memberId &&
+                b.date === dateStr &&
+                b.vehicle === vehicleStr &&
+                b.status !== 'cancelled'
+            );
+
+            if (alreadyBooked) {
+              skipped.push({ date: dateStr, car: carLabel, reason: 'Already booked' });
+            } else {
+              const result = await addBooking({
+                serviceId:        svc.id,
+                serviceName:      svc.name,
+                servicePrice:     svc.price,
+                serviceDuration:  svc.duration,
+                serviceCategory:  svc.category,
+                date:             dateStr,
+                time:             schedule.preferredTime,
+                customerName:     member.name,
+                nickname:         member.nickname || null,
+                email:            member.email,
+                phone:            member.phone,
+                vehicle:          vehicleStr,
+                vehicleYear,
+                notes:            schedule.notes ? `[Recurring] ${schedule.notes}` : '[Recurring booking]',
+                isVip:            true,
+                memberId:         member.id,
+                coffeeOrder:      '',
+                status:           'confirmed',
+                assignedDetailerIds: [],
+                detailersAssigned: Math.max(svc.minDetailers ?? 1, settings?.defaultDetailersPerBooking ?? 1),
+              });
+              if (result?.error) {
+                skipped.push({ date: dateStr, car: carLabel, reason: result.error });
+              } else {
+                created.push({ date: dateStr, car: carLabel, service: svc.name });
+              }
+            }
+          }
+          current.setDate(current.getDate() + 1);
+        }
+      }
+
+      return { created, skipped };
+    },
+    [supabase, members, recurringSchedules, services, cars, bookings, settings, addBooking]
+  );
+
   // ===== Service Categories =====
   const upsertServiceCategory = useCallback(
     async (cat) => {
@@ -1029,6 +1179,12 @@ export function AppProvider({ children }) {
       serviceCategories,
       upsertServiceCategory,
       deleteServiceCategory,
+      recurringSchedules,
+      getRecurringSchedulesForMember,
+      addRecurringSchedule,
+      updateRecurringSchedule,
+      deleteRecurringSchedule,
+      generateRecurringBookings,
       settings,
       adminSession,
       hydrated,
@@ -1086,6 +1242,12 @@ export function AppProvider({ children }) {
       serviceCategories,
       upsertServiceCategory,
       deleteServiceCategory,
+      recurringSchedules,
+      getRecurringSchedulesForMember,
+      addRecurringSchedule,
+      updateRecurringSchedule,
+      deleteRecurringSchedule,
+      generateRecurringBookings,
       settings,
       adminSession,
       hydrated,

@@ -7,6 +7,24 @@
 -- Add cancellation_reason column (Phase 1 → Phase 1.1)
 alter table bookings add column if not exists cancellation_reason text;
 
+-- Recurring schedules (Phase 2 — member profile)
+create table if not exists recurring_schedules (
+  id             uuid primary key default gen_random_uuid(),
+  member_id      text not null references members(id) on delete cascade,
+  car_id         uuid references cars(id) on delete set null,
+  service_id     integer not null references services(id) on delete restrict,
+  day_of_week    integer not null check (day_of_week between 0 and 6),
+  preferred_time text not null,
+  is_active      boolean not null default true,
+  notes          text,
+  created_at     timestamptz not null default now()
+);
+create index if not exists recurring_schedules_member_idx on recurring_schedules (member_id);
+create index if not exists recurring_schedules_active_idx on recurring_schedules (member_id, is_active);
+alter table recurring_schedules enable row level security;
+drop policy if exists "public all recurring_schedules" on recurring_schedules;
+create policy "public all recurring_schedules" on recurring_schedules for all to anon, authenticated using (true) with check (true);
+
 -- Add description column to services
 alter table services add column if not exists description text;
 
