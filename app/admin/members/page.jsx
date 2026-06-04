@@ -21,6 +21,7 @@ import {
   ChevronRight,
   ChevronLeft,
   Pencil,
+  Check,
 } from 'lucide-react';
 import { AdminLayout } from '@/components/AdminLayout';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
@@ -61,6 +62,8 @@ function MembersAdmin() {
   const [historyMember, setHistoryMember] = useState(null);
   const [editingNickname, setEditingNickname] = useState(false);
   const [nicknameInput, setNicknameInput] = useState('');
+  const [editMember, setEditMember] = useState(null);
+  const [editSaving, setEditSaving] = useState(false);
 
   const counts = useMemo(() => {
     const c = { all: members.length, pending: 0, approved: 0, rejected: 0 };
@@ -256,6 +259,10 @@ function MembersAdmin() {
                             <UserX className="w-4 h-4" />
                           </button>
                         )}
+                        <button onClick={() => setEditMember(m)} aria-label="Edit member" title="Edit"
+                          className="p-2 text-cream/70 hover:text-gold hover:bg-gold/10 rounded-sm transition-colors">
+                          <Pencil className="w-4 h-4" />
+                        </button>
                         <button onClick={() => setConfirmDelete(m)} aria-label="Delete member" title="Delete"
                           className="p-2 text-cream/70 hover:text-danger hover:bg-danger/10 rounded-sm transition-colors">
                           <Trash2 className="w-4 h-4" />
@@ -442,6 +449,27 @@ function MembersAdmin() {
         </>
       )}
 
+      {/* Edit member modal */}
+      {editMember && (
+        <EditMemberModal
+          member={editMember}
+          saving={editSaving}
+          onSave={async (fields) => {
+            setEditSaving(true);
+            const result = await updateMember(editMember.id, fields);
+            setEditSaving(false);
+            if (result?.error) { showToast(result.error, 'error'); return; }
+            // Keep history drawer in sync if open
+            if (historyMember?.id === editMember.id) {
+              setHistoryMember((m) => ({ ...m, ...fields }));
+            }
+            showToast('Member updated.', 'success');
+            setEditMember(null);
+          }}
+          onClose={() => setEditMember(null)}
+        />
+      )}
+
       {/* Delete confirm modal */}
       {confirmDelete && (
         <div
@@ -489,6 +517,152 @@ function MembersAdmin() {
         </div>
       )}
     </AdminLayout>
+  );
+}
+
+function EditMemberModal({ member, saving, onSave, onClose }) {
+  const [form, setForm] = useState({
+    name: member.name ?? '',
+    email: member.email ?? '',
+    phone: member.phone ?? '',
+    nickname: member.nickname ?? '',
+  });
+  const [errors, setErrors] = useState({});
+
+  const set = (key, val) => setForm((f) => ({ ...f, [key]: val }));
+
+  const validate = () => {
+    const e = {};
+    if (!form.name.trim()) e.name = 'Required';
+    if (!form.email.trim()) e.email = 'Required';
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) e.email = 'Invalid email';
+    if (!form.phone.trim()) e.phone = 'Required';
+    setErrors(e);
+    return Object.keys(e).length === 0;
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!validate()) return;
+    onSave({
+      name: form.name.trim(),
+      email: form.email.trim(),
+      phone: form.phone.trim(),
+      nickname: form.nickname.trim() || null,
+    });
+  };
+
+  return (
+    <div
+      onClick={onClose}
+      className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-5 animate-fade-in"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="glass-card rounded-md w-full max-w-md p-6"
+      >
+        <div className="flex items-center justify-between mb-5">
+          <div>
+            <h3 className="font-serif text-2xl text-cream">Edit Member</h3>
+            <div className="text-xs text-muted font-mono mt-0.5">{member.id}</div>
+          </div>
+          <button onClick={onClose} aria-label="Close" className="text-cream/70 hover:text-cream">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <Field label="Full Name *" error={errors.name}>
+            <input
+              autoFocus
+              type="text"
+              value={form.name}
+              onChange={(e) => set('name', e.target.value)}
+              className="member-input"
+              placeholder="Juan dela Cruz"
+            />
+          </Field>
+
+          <Field label="Email *" error={errors.email}>
+            <input
+              type="email"
+              value={form.email}
+              onChange={(e) => set('email', e.target.value)}
+              className="member-input"
+              placeholder="juan@email.com"
+            />
+          </Field>
+
+          <Field label="Phone *" error={errors.phone}>
+            <input
+              type="text"
+              value={form.phone}
+              onChange={(e) => set('phone', e.target.value)}
+              className="member-input"
+              placeholder="09171234567"
+            />
+          </Field>
+
+          <Field label="Nickname" hint="Optional — displayed next to their name">
+            <input
+              type="text"
+              value={form.nickname}
+              onChange={(e) => set('nickname', e.target.value)}
+              className="member-input"
+              placeholder="e.g. Jun, Kuya Boy"
+            />
+          </Field>
+
+          <div className="flex gap-3 pt-2 border-t border-white/5">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 px-4 py-2.5 border border-white/10 text-cream/85 rounded-sm hover:border-gold/50 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className="flex-1 px-4 py-2.5 bg-gold text-obsidian font-semibold rounded-sm hover:bg-gold-light transition-colors disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
+            >
+              {saving ? 'Saving…' : <><Check className="w-4 h-4" /> Save Changes</>}
+            </button>
+          </div>
+        </form>
+
+        <style jsx>{`
+          .member-input {
+            width: 100%;
+            background: rgba(20, 20, 22, 0.7);
+            border: 1px solid rgba(245, 240, 232, 0.08);
+            border-radius: 4px;
+            padding: 10px 12px;
+            color: var(--color-cream);
+            font-size: 14px;
+            transition: border-color 0.2s;
+          }
+          .member-input:focus {
+            outline: none;
+            border-color: rgba(201, 168, 76, 0.5);
+          }
+          .member-input::placeholder {
+            color: var(--color-muted);
+          }
+        `}</style>
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, children, error, hint }) {
+  return (
+    <label className="block">
+      <div className="text-[11px] uppercase tracking-widest text-cream/70 mb-1.5">{label}</div>
+      {children}
+      {hint && !error && <div className="text-[11px] text-muted mt-1">{hint}</div>}
+      {error && <div className="text-[11px] text-danger mt-1">{error}</div>}
+    </label>
   );
 }
 
