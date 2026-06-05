@@ -72,11 +72,14 @@ create table if not exists bookings (
   notes text,
   is_vip boolean not null default false,
   member_id text,
+  car_id uuid,
   coffee_order text,
   status text not null default 'pending' check (status in ('pending', 'confirmed', 'cancelled', 'no_show', 'completed')),
   cancellation_reason text,
   detailers_assigned uuid[] not null default '{}',
   occupies_slots text[] not null default '{}',
+  add_ons jsonb not null default '[]',
+  nickname text,
   created_at timestamptz not null default now()
 );
 
@@ -164,6 +167,25 @@ create table if not exists member_cars (
 
 create index if not exists member_cars_member_idx on member_cars (member_id);
 create index if not exists member_cars_car_idx    on member_cars (car_id);
+
+-- Admin-recorded condition snapshot per car visit, linked to member_cars + optionally a booking.
+-- Feeds the AI Intelligence Layer: health scores, condition trends, predictive recommendations.
+create table if not exists car_condition_logs (
+  id                 uuid primary key default gen_random_uuid(),
+  member_car_id      uuid not null references member_cars(id) on delete cascade,
+  booking_id         text references bookings(id) on delete set null,
+  overall_rating     integer not null check (overall_rating between 1 and 10),
+  exterior_rating    integer check (exterior_rating between 1 and 10),
+  interior_rating    integer check (interior_rating between 1 and 10),
+  exterior_condition text check (exterior_condition in ('excellent', 'good', 'fair', 'poor')),
+  interior_condition text check (interior_condition in ('excellent', 'good', 'fair', 'poor')),
+  mileage            integer check (mileage >= 0),
+  notes              text,
+  recorded_at        timestamptz not null default now()
+);
+create index if not exists car_condition_logs_member_car_idx on car_condition_logs (member_car_id);
+create index if not exists car_condition_logs_booking_idx    on car_condition_logs (booking_id);
+create index if not exists car_condition_logs_recorded_idx   on car_condition_logs (member_car_id, recorded_at desc);
 
 -- Recurring detailing schedules per VIP member.
 -- Each row = one day-of-week + time + service combo for a specific car.
@@ -258,7 +280,7 @@ begin
   insert into bookings (
     id, service_id, service_name, service_price, service_duration, service_category,
     date, time, customer_name, email, phone, vehicle, vehicle_year, notes,
-    is_vip, member_id, coffee_order, status, detailers_assigned, occupies_slots
+    is_vip, member_id, car_id, coffee_order, status, detailers_assigned, occupies_slots
   ) values (
     v_id,
     (p->>'service_id')::int,
@@ -276,6 +298,7 @@ begin
     p->>'notes',
     coalesce((p->>'is_vip')::boolean, false),
     nullif(p->>'member_id', ''),
+    nullif(p->>'car_id', '')::uuid,
     p->>'coffee_order',
     coalesce(nullif(p->>'status', ''), 'pending'),
     v_clamped_ids,
@@ -407,17 +430,18 @@ $$;
 -- ---------------------------------------------------------------------
 -- Row Level Security
 -- ---------------------------------------------------------------------
-alter table bookings           enable row level security;
-alter table members            enable row level security;
-alter table blocked_slots      enable row level security;
-alter table settings           enable row level security;
-alter table services           enable row level security;
-alter table cars               enable row level security;
-alter table member_cars           enable row level security;
-alter table recurring_schedules   enable row level security;
-alter table addon_catalog         enable row level security;
-alter table coffees               enable row level security;
-alter table service_categories enable row level security;
+alter table bookings             enable row level security;
+alter table members              enable row level security;
+alter table blocked_slots        enable row level security;
+alter table settings             enable row level security;
+alter table services             enable row level security;
+alter table cars                 enable row level security;
+alter table member_cars          enable row level security;
+alter table car_condition_logs   enable row level security;
+alter table recurring_schedules  enable row level security;
+alter table addon_catalog        enable row level security;
+alter table coffees              enable row level security;
+alter table service_categories   enable row level security;
 
 drop policy if exists "anon all bookings"            on bookings;
 drop policy if exists "anon all members"             on members;
@@ -431,6 +455,7 @@ drop policy if exists "public all settings"          on settings;
 drop policy if exists "public all services"          on services;
 drop policy if exists "public all cars"              on cars;
 drop policy if exists "public all member_cars"           on member_cars;
+drop policy if exists "admin all car_condition_logs"     on car_condition_logs;
 drop policy if exists "public all recurring_schedules"   on recurring_schedules;
 drop policy if exists "public all coffees"               on coffees;
 drop policy if exists "public all service_categories" on service_categories;
@@ -443,6 +468,7 @@ create policy "public all services"           on services           for all to a
 create policy "public all cars"               on cars               for all to anon, authenticated using (true) with check (true);
 create policy "public all coffees"            on coffees            for all to anon, authenticated using (true) with check (true);
 create policy "public all member_cars"           on member_cars           for all to anon, authenticated using (true) with check (true);
+create policy "admin all car_condition_logs"     on car_condition_logs    for all to authenticated using (true) with check (true);
 create policy "public all recurring_schedules"   on recurring_schedules   for all to anon, authenticated using (true) with check (true);
 create policy "public all addon_catalog"         on addon_catalog         for all to anon, authenticated using (true) with check (true);
 create policy "public all service_categories"    on service_categories    for all to anon, authenticated using (true) with check (true);

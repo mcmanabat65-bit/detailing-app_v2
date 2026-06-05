@@ -378,3 +378,126 @@ create policy "admin all booking_status_logs" on booking_status_logs
   for all to authenticated using (true) with check (true);
 
 notify pgrst, 'reload schema';
+
+-- Phase 3 — AI Intelligence Layer
+-- car_id FK on bookings: links a booking to the exact catalog car serviced.
+-- Nullable — existing rows stay null; new VIP bookings can populate it going forward.
+alter table bookings add column if not exists car_id uuid references cars(id) on delete set null;
+create index if not exists bookings_car_idx on bookings (car_id);
+
+-- car_condition_logs: admin-recorded condition snapshot after each service visit.
+-- Linked to a member_cars row (member + car) and optionally to a specific booking.
+create table if not exists car_condition_logs (
+  id                 uuid primary key default gen_random_uuid(),
+  member_car_id      uuid not null references member_cars(id) on delete cascade,
+  booking_id         text references bookings(id) on delete set null,
+  overall_rating     integer not null check (overall_rating between 1 and 10),
+  exterior_rating    integer check (exterior_rating between 1 and 10),
+  interior_rating    integer check (interior_rating between 1 and 10),
+  exterior_condition text check (exterior_condition in ('excellent', 'good', 'fair', 'poor')),
+  interior_condition text check (interior_condition in ('excellent', 'good', 'fair', 'poor')),
+  mileage            integer check (mileage >= 0),
+  notes              text,
+  recorded_at        timestamptz not null default now()
+);
+create index if not exists car_condition_logs_member_car_idx on car_condition_logs (member_car_id);
+create index if not exists car_condition_logs_booking_idx    on car_condition_logs (booking_id);
+create index if not exists car_condition_logs_recorded_idx   on car_condition_logs (member_car_id, recorded_at desc);
+alter table car_condition_logs enable row level security;
+drop policy if exists "admin all car_condition_logs" on car_condition_logs;
+create policy "admin all car_condition_logs" on car_condition_logs
+  for all to authenticated using (true) with check (true);
+
+notify pgrst, 'reload schema';
+
+-- Phase 4 — wire car_id through add_booking RPC
+-- Re-creates the function so new bookings can store the catalog car that was serviced.
+create or replace function add_booking(
+  p jsonb,
+  p_occupies_slots text[]
+) returns jsonb
+language plpgsql
+as $$
+declare
+  v_pool int;
+  v_used int;
+  v_min int := 2147483647;
+  v_slot text;
+  v_min_detailers int;
+  v_detailer_ids uuid[];
+  v_requested int;
+  v_clamped_ids uuid[];
+  v_id text;
+  v_date date;
+  v_row bookings;
+begin
+  v_date := (p->>'date')::date;
+  perform pg_advisory_xact_lock(hashtext(v_date::text));
+
+  select detailer_pool_size into v_pool from settings where id = 1;
+  v_min_detailers := coalesce((p->>'min_detailers')::int, 1);
+
+  v_detailer_ids := coalesce(
+    (select array_agg(v::uuid) from jsonb_array_elements_text(p->'detailers_assigned') v),
+    '{}'::uuid[]
+  );
+  v_requested := coalesce(array_length(v_detailer_ids, 1), 0);
+  if v_requested < 1 then v_requested := 1; end if;
+
+  foreach v_slot in array p_occupies_slots loop
+    select coalesce(sum(array_length(detailers_assigned, 1)), 0) into v_used
+    from bookings
+    where date = v_date
+      and status not in ('cancelled', 'no_show')
+      and v_slot = any (occupies_slots);
+    v_min := least(v_min, v_pool - v_used);
+  end loop;
+
+  if v_min < v_min_detailers then
+    return jsonb_build_object(
+      'error',
+      'This time slot just filled up. Please choose another.'
+    );
+  end if;
+
+  v_clamped_ids := v_detailer_ids[1:least(v_requested, v_min)];
+
+  v_id := coalesce(
+    nullif(p->>'id', ''),
+    'OBS-' || to_char(v_date, 'YYYYMMDD') || '-' || lpad((1000 + floor(random() * 9000))::int::text, 4, '0')
+  );
+
+  insert into bookings (
+    id, service_id, service_name, service_price, service_duration, service_category,
+    date, time, customer_name, email, phone, vehicle, vehicle_year, notes,
+    is_vip, member_id, car_id, coffee_order, status, detailers_assigned, occupies_slots
+  ) values (
+    v_id,
+    (p->>'service_id')::int,
+    p->>'service_name',
+    (p->>'service_price')::int,
+    p->>'service_duration',
+    p->>'service_category',
+    v_date,
+    p->>'time',
+    p->>'customer_name',
+    p->>'email',
+    p->>'phone',
+    p->>'vehicle',
+    p->>'vehicle_year',
+    p->>'notes',
+    coalesce((p->>'is_vip')::boolean, false),
+    nullif(p->>'member_id', ''),
+    nullif(p->>'car_id', '')::uuid,
+    p->>'coffee_order',
+    coalesce(nullif(p->>'status', ''), 'pending'),
+    v_clamped_ids,
+    p_occupies_slots
+  )
+  returning * into v_row;
+
+  return to_jsonb(v_row);
+end;
+$$;
+
+notify pgrst, 'reload schema';

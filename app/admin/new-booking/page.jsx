@@ -658,6 +658,7 @@ function AdminNewBookingForm() {
           notes: customer.notes,
           isVip: customer.isVip,
           memberId: customer.memberId || null,
+          carId: it.fleetCarId || null,
           coffeeOrder: customer.isVip ? (it.coffeeOrder || '') : '',
           status: 'confirmed',
           assignedDetailerIds: selectedDetailerIds,

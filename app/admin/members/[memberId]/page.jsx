@@ -8,24 +8,25 @@ import {
   Car,
   Check,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Clock,
   Coffee,
   Crown,
+  ExternalLink,
   Mail,
   Pencil,
   Phone,
   Plus,
   RefreshCw,
   Repeat,
-  Trash2,
   ToggleLeft,
   ToggleRight,
+  Trash2,
   UserCheck,
   UserX,
   X,
   XCircle,
-  ChevronLeft,
-  ChevronRight,
 } from 'lucide-react';
 import { AdminLayout } from '@/components/AdminLayout';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
@@ -149,7 +150,7 @@ function EditMemberModal({ member, saving, onSave, onClose }) {
 // ---------------------------------------------------------------------------
 // Car Fleet Panel
 // ---------------------------------------------------------------------------
-function CarFleetPanel({ member, cars, ownedCars, upsertCar, addCarToMember, updateMemberCarPlate, removeCarFromMember, showToast }) {
+function CarFleetPanel({ member, cars, ownedCars, upsertCar, addCarToMember, updateMemberCarPlate, removeCarFromMember, onViewCar, showToast }) {
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState({ make: '', model: '', year: new Date().getFullYear(), size: 'medium', plateNumber: '' });
@@ -222,10 +223,16 @@ function CarFleetPanel({ member, cars, ownedCars, upsertCar, addCarToMember, upd
                   {idx === 0 && <span className="text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded-sm bg-gold/15 text-gold shrink-0">Default</span>}
                   <span className="text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded-sm bg-white/5 text-cream/70 shrink-0">{c.size}</span>
                 </div>
-                <button onClick={() => unlink(c.linkId, `${c.year} ${c.make} ${c.model}`)} disabled={busy}
-                  aria-label="Remove" className="text-cream/50 hover:text-danger p-1 disabled:opacity-30 transition-colors shrink-0">
-                  <X className="w-3.5 h-3.5" />
-                </button>
+                <div className="flex items-center gap-0.5 shrink-0">
+                  <button onClick={() => onViewCar(c.id)} aria-label="View car details" title="View car details"
+                    className="text-cream/50 hover:text-gold p-1 transition-colors">
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </button>
+                  <button onClick={() => unlink(c.linkId, `${c.year} ${c.make} ${c.model}`)} disabled={busy}
+                    aria-label="Remove" className="text-cream/50 hover:text-danger p-1 disabled:opacity-30 transition-colors">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
               {/* Inline plate editing */}
               {editingPlate?.linkId === c.linkId ? (
@@ -503,6 +510,7 @@ function MemberDetailContent() {
           addCarToMember={addCarToMember}
           updateMemberCarPlate={updateMemberCarPlate}
           removeCarFromMember={removeCarFromMember}
+          onViewCar={(carId) => router.push(`/admin/members/${member.id}/cars/${carId}`)}
           showToast={showToast}
         />
       </div>

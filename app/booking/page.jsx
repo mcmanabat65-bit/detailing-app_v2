@@ -453,6 +453,7 @@ function BookingFlow() {
         notes: details.notes,
         isVip,
         memberId: vipMember?.id || null,
+        carId: selectedCarId || null,
         coffeeOrder: isVip ? details.coffeeOrder : '',
         detailersAssigned: requested,
         assignedDetailerIds: selectedDetailerIds,

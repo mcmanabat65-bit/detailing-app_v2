@@ -53,6 +53,7 @@ export function AppProvider({ children }) {
   const [testimonials, setTestimonials] = useState([]);
   const [recurringSchedules, setRecurringSchedules] = useState([]);
   const [addonCatalog, setAddonCatalog] = useState([]);
+  const [carConditionLogs, setCarConditionLogs] = useState([]);
   const [settings, setSettings] = useState({ ...DEFAULT_SETTINGS });
   const [adminSession, setAdminSessionState] = useState(false);
   const [hydrated, setHydrated] = useState(false);
@@ -226,6 +227,17 @@ export function AppProvider({ children }) {
     setAddonCatalog((data || []).map(fromRow));
   }, []);
 
+  const refetchCarConditionLogs = useCallback(async () => {
+    if (!supabase) return;
+    const { data, error } = await supabase
+      .from('car_condition_logs')
+      .select('*')
+      .order('recorded_at', { ascending: false })
+      .limit(2000);
+    if (error) { console.error('[car_condition_logs] fetch error', error); return; }
+    setCarConditionLogs((data || []).map(fromRow));
+  }, []);
+
   const refetchSettings = useCallback(async () => {
     if (!supabase) return;
     const { data, error } = await supabase
@@ -282,6 +294,7 @@ export function AppProvider({ children }) {
       refetchTestimonials(),
       refetchRecurringSchedules(),
       refetchAddonCatalog(),
+      refetchCarConditionLogs(),
     ]).finally(() => {
       settled = true;
       clearTimeout(timer);
@@ -406,6 +419,7 @@ export function AppProvider({ children }) {
           notes: booking.notes,
           isVip: booking.isVip,
           memberId: booking.memberId,
+          carId: booking.carId || null,
           coffeeOrder: booking.coffeeOrder,
           status: booking.status || 'pending',
           detailersAssigned: booking.assignedDetailerIds || [],
@@ -967,6 +981,7 @@ export function AppProvider({ children }) {
                 notes:            schedule.notes ? `[Recurring] ${schedule.notes}` : '[Recurring booking]',
                 isVip:            true,
                 memberId:         member.id,
+                carId:            schedule.carId || null,
                 coffeeOrder:      '',
                 status:           'confirmed',
                 assignedDetailerIds: [],
@@ -986,6 +1001,53 @@ export function AppProvider({ children }) {
       return { created, skipped };
     },
     [supabase, members, recurringSchedules, services, cars, bookings, settings, addBooking]
+  );
+
+  // ===== Car Condition Logs =====
+  const addCarConditionLog = useCallback(
+    async (log) => {
+      if (!supabase) return { error: 'Database not connected.' };
+      const row = toRow({
+        memberCarId:       log.memberCarId,
+        bookingId:         log.bookingId || null,
+        overallRating:     Number(log.overallRating),
+        exteriorRating:    log.exteriorRating ? Number(log.exteriorRating) : null,
+        interiorRating:    log.interiorRating ? Number(log.interiorRating) : null,
+        exteriorCondition: log.exteriorCondition || null,
+        interiorCondition: log.interiorCondition || null,
+        mileage:           log.mileage ? Number(log.mileage) : null,
+        notes:             (log.notes || '').trim() || null,
+        recordedAt:        log.recordedAt || new Date().toISOString(),
+      });
+      const { data, error } = await supabase
+        .from('car_condition_logs')
+        .insert(row)
+        .select()
+        .single();
+      if (error) return { error: error.message };
+      await refetchCarConditionLogs();
+      return fromRow(data);
+    },
+    [refetchCarConditionLogs]
+  );
+
+  const deleteCarConditionLog = useCallback(
+    async (id) => {
+      if (!supabase) return { error: 'Database not connected.' };
+      const { error } = await supabase.from('car_condition_logs').delete().eq('id', id);
+      if (error) return { error: error.message };
+      await refetchCarConditionLogs();
+      return { ok: true };
+    },
+    [refetchCarConditionLogs]
+  );
+
+  const getConditionLogsForCar = useCallback(
+    (memberCarId) => {
+      if (!memberCarId) return [];
+      return carConditionLogs.filter((l) => l.memberCarId === memberCarId);
+    },
+    [carConditionLogs]
   );
 
   // ===== Add-on Catalog =====
@@ -1308,6 +1370,10 @@ export function AppProvider({ children }) {
       removeCarFromMember,
       setMemberCarOrder,
       getCarsForMember,
+      carConditionLogs,
+      addCarConditionLog,
+      deleteCarConditionLog,
+      getConditionLogsForCar,
       updateSettings,
       setAdminSession,
       signOut,
@@ -1376,6 +1442,10 @@ export function AppProvider({ children }) {
       removeCarFromMember,
       setMemberCarOrder,
       getCarsForMember,
+      carConditionLogs,
+      addCarConditionLog,
+      deleteCarConditionLog,
+      getConditionLogsForCar,
       updateSettings,
       setAdminSession,
       signOut,
