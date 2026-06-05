@@ -293,7 +293,11 @@ function BookingsTable() {
 
                 return (
                   <tr key={b.id} className="border-b border-white/5 hover:bg-white/[0.02]">
-                    <td className="px-4 py-3 font-mono text-xs text-gold/90">{b.id}</td>
+                    <td className="px-4 py-3 font-mono text-xs">
+                      <Link href={`/admin/bookings/${b.id}`} className="text-gold/90 hover:text-gold hover:underline transition-colors">
+                        {b.id}
+                      </Link>
+                    </td>
                     <td className="px-4 py-3">
                       <div className="text-cream flex items-center gap-1.5">
                         {b.customerName}
