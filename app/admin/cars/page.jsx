@@ -6,6 +6,7 @@ import {
   Pencil,
   Trash2,
   Search,
+  Bike,
   Car,
   X,
   Save,
@@ -32,7 +33,7 @@ const SIZE_BADGE = {
   xl:     'bg-purple-500/15 text-purple-400',
 };
 
-const EMPTY = { id: null, make: '', year: new Date().getFullYear(), model: '', size: 'medium' };
+const EMPTY = { id: null, make: '', year: new Date().getFullYear(), model: '', size: 'medium', vehicleType: 1 };
 
 function CarForm({ initial, onSave, onCancel, isSaving }) {
   const [form, setForm] = useState(() => ({ ...EMPTY, ...initial }));
@@ -59,6 +60,7 @@ function CarForm({ initial, onSave, onCancel, isSaving }) {
       model: form.model.trim(),
       year: Number(form.year),
       size: form.size,
+      vehicleType: form.vehicleType === 2 ? 2 : 1,
     });
   };
 
@@ -110,6 +112,31 @@ function CarForm({ initial, onSave, onCancel, isSaving }) {
         </Field>
       </div>
 
+
+      <Field label="Vehicle Type">
+        <div className="flex gap-1 bg-surface/70 border border-white/[0.08] rounded-[4px] p-1">
+          <button
+            type="button"
+            onClick={() => set('vehicleType', 1)}
+            className={`flex-1 flex items-center justify-center gap-2 px-3 py-1.5 rounded-[2px] text-sm transition-colors ${
+              form.vehicleType !== 2 ? 'bg-gold/20 text-gold' : 'text-muted hover:text-cream'
+            }`}
+          >
+            <Car className="w-3.5 h-3.5" />
+            4-Wheel
+          </button>
+          <button
+            type="button"
+            onClick={() => set('vehicleType', 2)}
+            className={`flex-1 flex items-center justify-center gap-2 px-3 py-1.5 rounded-[2px] text-sm transition-colors ${
+              form.vehicleType === 2 ? 'bg-sky-400/20 text-sky-400' : 'text-muted hover:text-cream'
+            }`}
+          >
+            <Bike className="w-3.5 h-3.5" />
+            Big Bike
+          </button>
+        </div>
+      </Field>
 
       <div className="flex items-center justify-end gap-2 pt-2">
         <button
@@ -276,7 +303,10 @@ function CarsAdmin() {
                 >
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
-                      <Car className="w-3.5 h-3.5 text-gold shrink-0" />
+                      {c.vehicleType === 2
+                        ? <Bike className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                        : <Car className="w-3.5 h-3.5 text-gold shrink-0" />
+                      }
                       <span className="text-cream">{c.make}</span>
                     </div>
                   </td>

@@ -80,6 +80,7 @@ create table if not exists bookings (
   occupies_slots text[] not null default '{}',
   add_ons jsonb not null default '[]',
   nickname text,
+  vehicle_type smallint not null default 1 check (vehicle_type in (1, 2)),
   created_at timestamptz not null default now()
 );
 
@@ -130,6 +131,7 @@ create table if not exists cars (
   year integer not null check (year >= 1900 and year <= 2100),
   model text not null,
   size text not null check (size in ('small', 'medium', 'large', 'xl')),
+  vehicle_type smallint not null default 1 check (vehicle_type in (1, 2)),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -280,7 +282,8 @@ begin
   insert into bookings (
     id, service_id, service_name, service_price, service_duration, service_category,
     date, time, customer_name, email, phone, vehicle, vehicle_year, notes,
-    is_vip, member_id, car_id, coffee_order, status, detailers_assigned, occupies_slots
+    is_vip, member_id, car_id, coffee_order, status, detailers_assigned, occupies_slots,
+    vehicle_type
   ) values (
     v_id,
     (p->>'service_id')::int,
@@ -302,7 +305,8 @@ begin
     p->>'coffee_order',
     coalesce(nullif(p->>'status', ''), 'pending'),
     v_clamped_ids,
-    p_occupies_slots
+    p_occupies_slots,
+    coalesce((nullif(p->>'vehicle_type', ''))::smallint, 1)
   )
   returning * into v_row;
 

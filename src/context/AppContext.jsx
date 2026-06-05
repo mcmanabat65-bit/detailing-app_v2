@@ -416,6 +416,7 @@ export function AppProvider({ children }) {
           phone: booking.phone,
           vehicle: booking.vehicle,
           vehicleYear: booking.vehicleYear,
+          vehicleType: booking.vehicleType || 1,
           notes: booking.notes,
           isVip: booking.isVip,
           memberId: booking.memberId,
@@ -647,11 +648,13 @@ export function AppProvider({ children }) {
       if (!['small', 'medium', 'large', 'xl'].includes(car.size)) {
         return { error: 'Size must be small, medium, large, or xl.' };
       }
+      const vehicleType = car.vehicleType === 2 ? 2 : 1;
       const row = {
         make: trimmedMake,
         year: yearNum,
         model: trimmedModel,
         size: car.size,
+        vehicle_type: vehicleType,
         updated_at: new Date().toISOString(),
       };
       // Try to find an existing catalog row first so duplicate submissions
@@ -665,12 +668,13 @@ export function AppProvider({ children }) {
           .eq('year', yearNum)
           .maybeSingle();
         if (existing) {
-          // Update size/case in case admin tweaked it
-          if (existing.size !== car.size) {
-            await supabase.from('cars').update({ size: car.size }).eq('id', existing.id);
+          // Update size/vehicle_type in case admin tweaked them
+          const needsUpdate = existing.size !== car.size || existing.vehicle_type !== vehicleType;
+          if (needsUpdate) {
+            await supabase.from('cars').update({ size: car.size, vehicle_type: vehicleType }).eq('id', existing.id);
           }
           await refetchCars();
-          return fromRow({ ...existing, size: car.size });
+          return fromRow({ ...existing, size: car.size, vehicle_type: vehicleType });
         }
       }
       let query;

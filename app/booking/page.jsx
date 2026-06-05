@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import {
   ArrowLeft,
   ArrowRight,
+  Bike,
   Calendar,
   Car,
   Check,
@@ -168,20 +169,20 @@ function CarCombobox({ cars, vehicle, vehicleYear, onChange }) {
     const label = `${car.make} ${car.model}`;
     setQuery(label);
     setOpen(false);
-    onChange({ vehicle: label, vehicleYear: String(car.year) });
+    onChange({ vehicle: label, vehicleYear: String(car.year), vehicleType: car.vehicleType || 1 });
   };
 
   const handleChange = (e) => {
     const val = e.target.value;
     setQuery(val);
     setOpen(true);
-    onChange({ vehicle: val, vehicleYear });
+    onChange({ vehicle: val, vehicleYear, vehicleType: null });
   };
 
   const handleClear = () => {
     setQuery('');
     setOpen(false);
-    onChange({ vehicle: '', vehicleYear: '' });
+    onChange({ vehicle: '', vehicleYear: '', vehicleType: null });
   };
 
   return (
@@ -275,11 +276,14 @@ function BookingFlow() {
     nickname: '',
     email: '',
     phone: '',
+    vehicleType: 1,
     vehicle: '',
     vehicleYear: '',
     notes: '',
     coffeeOrder: '',
   });
+  // null = user is typing free-text; number = vehicleType inherited from a catalog selection
+  const [catalogVehicleType, setCatalogVehicleType] = useState(null);
 
   const [selectedDetailerIds, setSelectedDetailerIds] = useState([]);
   // 'extend' = service runs past closing, 'tomorrow' = move booking to next day
@@ -450,6 +454,7 @@ function BookingFlow() {
         phone: details.phone,
         vehicle: vehicleStr,
         vehicleYear: vehicleYearStr,
+        vehicleType: selectedCar?.vehicleType ?? catalogVehicleType ?? details.vehicleType ?? 1,
         notes: details.notes,
         isVip,
         memberId: vipMember?.id || null,
@@ -845,7 +850,7 @@ function BookingFlow() {
               </div>
 
               {memberOwnedCars.length > 0 ? (
-                <div>
+                <div className="space-y-3">
                   <Field label="Pick a car *">
                     <select
                       value={selectedCarId || ''}
@@ -862,60 +867,94 @@ function BookingFlow() {
                     </select>
                   </Field>
                   {!selectedCarId && (
-                    <div className="grid md:grid-cols-[1fr_120px] gap-5 mt-3">
-                      <Field label="Vehicle Make & Model *">
-                        <CarCombobox
-                          cars={cars}
-                          vehicle={details.vehicle}
-                          vehicleYear={details.vehicleYear}
-                          onChange={({ vehicle, vehicleYear }) =>
-                            setDetails((d) => ({ ...d, vehicle, vehicleYear }))
-                          }
-                        />
-                      </Field>
-                      <Field label="Year *">
-                        <input
-                          type="text"
-                          required
-                          inputMode="numeric"
-                          pattern="[0-9]*"
-                          value={details.vehicleYear}
-                          onChange={(e) =>
-                            setDetails((d) => ({ ...d, vehicleYear: e.target.value }))
-                          }
-                          className="input"
-                          placeholder="2022"
-                        />
-                      </Field>
+                    <div className="space-y-3">
+                      <div className="grid md:grid-cols-[1fr_120px] gap-5">
+                        <Field label="Vehicle Make & Model *">
+                          <CarCombobox
+                            cars={cars}
+                            vehicle={details.vehicle}
+                            vehicleYear={details.vehicleYear}
+                            onChange={({ vehicle, vehicleYear, vehicleType }) => {
+                              setDetails((d) => ({ ...d, vehicle, vehicleYear }));
+                              setCatalogVehicleType(vehicleType);
+                            }}
+                          />
+                        </Field>
+                        <Field label="Year *">
+                          <input
+                            type="text"
+                            required
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            value={details.vehicleYear}
+                            onChange={(e) =>
+                              setDetails((d) => ({ ...d, vehicleYear: e.target.value }))
+                            }
+                            className="input"
+                            placeholder="2022"
+                          />
+                        </Field>
+                      </div>
+                      {catalogVehicleType === null && (
+                        <Field label="Vehicle Type *">
+                          <div className="flex gap-1 bg-surface/70 border border-white/[0.08] rounded-[4px] p-1">
+                            <button type="button" onClick={() => setDetails((d) => ({ ...d, vehicleType: 1 }))}
+                              className={`flex-1 flex items-center justify-center gap-2 px-3 py-1.5 rounded-[2px] text-sm transition-colors ${details.vehicleType !== 2 ? 'bg-gold/20 text-gold' : 'text-muted hover:text-cream'}`}>
+                              <Car className="w-3.5 h-3.5" /> 4-Wheel
+                            </button>
+                            <button type="button" onClick={() => setDetails((d) => ({ ...d, vehicleType: 2 }))}
+                              className={`flex-1 flex items-center justify-center gap-2 px-3 py-1.5 rounded-[2px] text-sm transition-colors ${details.vehicleType === 2 ? 'bg-sky-400/20 text-sky-400' : 'text-muted hover:text-cream'}`}>
+                              <Bike className="w-3.5 h-3.5" /> Big Bike
+                            </button>
+                          </div>
+                        </Field>
+                      )}
                     </div>
                   )}
                 </div>
               ) : (
-                <div className="grid md:grid-cols-[1fr_120px] gap-5">
-                  <Field label="Vehicle Make & Model *">
-                    <CarCombobox
-                      cars={cars}
-                      vehicle={details.vehicle}
-                      vehicleYear={details.vehicleYear}
-                      onChange={({ vehicle, vehicleYear }) =>
-                        setDetails((d) => ({ ...d, vehicle, vehicleYear }))
-                      }
-                    />
-                  </Field>
-                  <Field label="Year *">
-                    <input
-                      type="text"
-                      required
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      value={details.vehicleYear}
-                      onChange={(e) =>
-                        setDetails((d) => ({ ...d, vehicleYear: e.target.value }))
-                      }
-                      className="input"
-                      placeholder="2022"
-                    />
-                  </Field>
+                <div className="space-y-3">
+                  <div className="grid md:grid-cols-[1fr_120px] gap-5">
+                    <Field label="Vehicle Make & Model *">
+                      <CarCombobox
+                        cars={cars}
+                        vehicle={details.vehicle}
+                        vehicleYear={details.vehicleYear}
+                        onChange={({ vehicle, vehicleYear, vehicleType }) => {
+                          setDetails((d) => ({ ...d, vehicle, vehicleYear }));
+                          setCatalogVehicleType(vehicleType);
+                        }}
+                      />
+                    </Field>
+                    <Field label="Year *">
+                      <input
+                        type="text"
+                        required
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        value={details.vehicleYear}
+                        onChange={(e) =>
+                          setDetails((d) => ({ ...d, vehicleYear: e.target.value }))
+                        }
+                        className="input"
+                        placeholder="2022"
+                      />
+                    </Field>
+                  </div>
+                  {catalogVehicleType === null && (
+                    <Field label="Vehicle Type *">
+                      <div className="flex gap-1 bg-surface/70 border border-white/[0.08] rounded-[4px] p-1">
+                        <button type="button" onClick={() => setDetails((d) => ({ ...d, vehicleType: 1 }))}
+                          className={`flex-1 flex items-center justify-center gap-2 px-3 py-1.5 rounded-[2px] text-sm transition-colors ${details.vehicleType !== 2 ? 'bg-gold/20 text-gold' : 'text-muted hover:text-cream'}`}>
+                          <Car className="w-3.5 h-3.5" /> 4-Wheel
+                        </button>
+                        <button type="button" onClick={() => setDetails((d) => ({ ...d, vehicleType: 2 }))}
+                          className={`flex-1 flex items-center justify-center gap-2 px-3 py-1.5 rounded-[2px] text-sm transition-colors ${details.vehicleType === 2 ? 'bg-sky-400/20 text-sky-400' : 'text-muted hover:text-cream'}`}>
+                          <Bike className="w-3.5 h-3.5" /> Big Bike
+                        </button>
+                      </div>
+                    </Field>
+                  )}
                 </div>
               )}
 

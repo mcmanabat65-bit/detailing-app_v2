@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   ArrowLeft,
+  Bike,
   Calendar,
   Car,
   Check,
@@ -130,14 +131,14 @@ function CarCombobox({ cars, vehicle, vehicleYear, onChange }) {
       <input
         type="text"
         value={query}
-        onChange={(e) => { setQuery(e.target.value); setOpen(true); onChange({ vehicle: e.target.value, vehicleYear }); }}
+        onChange={(e) => { setQuery(e.target.value); setOpen(true); onChange({ vehicle: e.target.value, vehicleYear, vehicleType: null }); }}
         onFocus={() => setOpen(true)}
         className="w-full bg-surface/70 border border-white/[0.08] rounded-[4px] py-[10px] pl-10 pr-8 text-[13px] text-cream placeholder-muted focus:outline-none focus:border-gold/50 transition-colors"
         placeholder="Search or type (e.g. Toyota Fortuner)"
         autoComplete="off"
       />
       {query && (
-        <button type="button" onClick={() => { setQuery(''); setOpen(false); onChange({ vehicle: '', vehicleYear: '' }); }}
+        <button type="button" onClick={() => { setQuery(''); setOpen(false); onChange({ vehicle: '', vehicleYear: '', vehicleType: null }); }}
           className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted hover:text-cream transition-colors" aria-label="Clear">
           <X className="w-3.5 h-3.5" />
         </button>
@@ -147,7 +148,7 @@ function CarCombobox({ cars, vehicle, vehicleYear, onChange }) {
           {suggestions.map((car) => (
             <li key={car.id}>
               <button type="button"
-                onMouseDown={() => { const label = `${car.make} ${car.model}`; setQuery(label); setOpen(false); onChange({ vehicle: label, vehicleYear: String(car.year) }); }}
+                onMouseDown={() => { const label = `${car.make} ${car.model}`; setQuery(label); setOpen(false); onChange({ vehicle: label, vehicleYear: String(car.year), vehicleType: car.vehicleType || 1 }); }}
                 className="w-full text-left px-4 py-2.5 text-sm text-cream hover:bg-gold/10 hover:text-gold transition-colors flex items-center justify-between gap-3">
                 <span>{car.year} {car.make} {car.model}</span>
                 <span className="text-[10px] uppercase tracking-widest text-muted shrink-0">{car.size}</span>
@@ -293,11 +294,10 @@ function BookingItem({ item, index, services, catMap, cars, coffees, memberCars 
 
   const handleFleetSelect = (carId) => {
     if (!carId) {
-      // "Different car" selected — clear fleet car, reset fields for manual entry
-      onUpdate({ fleetCarId: null, vehicle: '', vehicleYear: '' });
+      onUpdate({ fleetCarId: null, vehicle: '', vehicleYear: '', vehicleTypeFromCatalog: false });
     } else {
       const car = memberCars.find((c) => c.id === carId);
-      if (car) onUpdate({ fleetCarId: car.id, vehicle: `${car.make} ${car.model}`, vehicleYear: String(car.year) });
+      if (car) onUpdate({ fleetCarId: car.id, vehicle: `${car.make} ${car.model}`, vehicleYear: String(car.year), vehicleType: car.vehicleType || 1, vehicleTypeFromCatalog: true });
     }
   };
 
@@ -341,25 +341,44 @@ function BookingItem({ item, index, services, catMap, cars, coffees, memberCars 
 
       {/* Manual car entry — shown when no fleet or "Different car" is selected */}
       {!usingFleetCar && (
-        <div className="grid sm:grid-cols-[1fr_120px] gap-4 items-end">
-          <Field label="Make &amp; Model *">
-            <CarCombobox
-              cars={cars}
-              vehicle={item.vehicle}
-              vehicleYear={item.vehicleYear}
-              onChange={({ vehicle, vehicleYear }) => onUpdate({ vehicle, vehicleYear })}
-            />
-          </Field>
-          <Field label="Year *">
-            <input
-              type="text"
-              inputMode="numeric"
-              value={item.vehicleYear}
-              onChange={(e) => onUpdate({ vehicleYear: e.target.value })}
-              className="w-full bg-surface/70 border border-white/[0.08] rounded-[4px] py-[10px] px-3 text-[13px] text-cream placeholder-muted focus:outline-none focus:border-gold/50 transition-colors"
-              placeholder="2022"
-            />
-          </Field>
+        <div className="space-y-3">
+          <div className="grid sm:grid-cols-[1fr_120px] gap-4 items-end">
+            <Field label="Make &amp; Model *">
+              <CarCombobox
+                cars={cars}
+                vehicle={item.vehicle}
+                vehicleYear={item.vehicleYear}
+                onChange={({ vehicle, vehicleYear, vehicleType }) =>
+                  onUpdate({ vehicle, vehicleYear, ...(vehicleType !== null ? { vehicleType, vehicleTypeFromCatalog: true } : { vehicleTypeFromCatalog: false }) })
+                }
+              />
+            </Field>
+            <Field label="Year *">
+              <input
+                type="text"
+                inputMode="numeric"
+                value={item.vehicleYear}
+                onChange={(e) => onUpdate({ vehicleYear: e.target.value })}
+                className="w-full bg-surface/70 border border-white/[0.08] rounded-[4px] py-[10px] px-3 text-[13px] text-cream placeholder-muted focus:outline-none focus:border-gold/50 transition-colors"
+                placeholder="2022"
+              />
+            </Field>
+          </div>
+          {/* Vehicle type toggle — only when not auto-filled from catalog */}
+          {!item.vehicleTypeFromCatalog && (
+            <Field label="Vehicle Type">
+              <div className="flex gap-1 bg-surface/70 border border-white/[0.08] rounded-[4px] p-1">
+                <button type="button" onClick={() => onUpdate({ vehicleType: 1 })}
+                  className={`flex-1 flex items-center justify-center gap-2 px-3 py-1.5 rounded-[2px] text-sm transition-colors ${item.vehicleType !== 2 ? 'bg-gold/20 text-gold' : 'text-muted hover:text-cream'}`}>
+                  <Car className="w-3.5 h-3.5" /> 4-Wheel
+                </button>
+                <button type="button" onClick={() => onUpdate({ vehicleType: 2 })}
+                  className={`flex-1 flex items-center justify-center gap-2 px-3 py-1.5 rounded-[2px] text-sm transition-colors ${item.vehicleType === 2 ? 'bg-sky-400/20 text-sky-400' : 'text-muted hover:text-cream'}`}>
+                  <Bike className="w-3.5 h-3.5" /> Big Bike
+                </button>
+              </div>
+            </Field>
+          )}
         </div>
       )}
 
@@ -533,7 +552,7 @@ function AdminNewBookingForm() {
   // Booking items — each is one car + one service
   // fleetCarId: UUID of selected fleet car, or null = manual entry
   // ---------------------------------------------------------------------------
-  const newItem = () => ({ id: Date.now(), vehicle: '', vehicleYear: '', serviceId: services[0]?.id || null, coffeeOrder: '', isVip: false, fleetCarId: null, addOns: [] });
+  const newItem = () => ({ id: Date.now(), vehicle: '', vehicleYear: '', vehicleType: 1, vehicleTypeFromCatalog: false, serviceId: services[0]?.id || null, coffeeOrder: '', isVip: false, fleetCarId: null, addOns: [] });
   const [items, setItems] = useState(() => [newItem()]);
 
   const addItem = () => setItems((prev) => [...prev, newItem()]);
@@ -655,6 +674,7 @@ function AdminNewBookingForm() {
           phone: customer.phone,
           vehicle: it.vehicle,
           vehicleYear: it.vehicleYear,
+          vehicleType: it.vehicleType ?? 1,
           notes: customer.notes,
           isVip: customer.isVip,
           memberId: customer.memberId || null,

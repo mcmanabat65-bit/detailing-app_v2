@@ -2,6 +2,7 @@
 
 import { memo, useEffect, useMemo, useState } from 'react';
 import {
+  Bike,
   Car,
   CheckCircle2,
   Clock,
@@ -121,8 +122,27 @@ const STATUS_META = {
   },
 };
 
+// 1 = car, 2 = motorcycle
+const VEHICLE_META = {
+  1: {
+    Icon: Car,
+    iconClass: 'text-gold',
+    borderClass: 'vehicle-border-car',
+    badge: '4-Wheel',
+    badgeClass: 'text-gold/70',
+  },
+  2: {
+    Icon: Bike,
+    iconClass: 'text-sky-400',
+    borderClass: 'vehicle-border-bike',
+    badge: 'Big Bike',
+    badgeClass: 'text-sky-400/80',
+  },
+};
+
 const JobCard = memo(function JobCard({ booking, catMap, status, detailerMap }) {
   const meta = STATUS_META[status] ?? STATUS_META.upcoming;
+  const vtype = VEHICLE_META[booking.vehicleType] ?? VEHICLE_META[1];
   const cat = catMap[booking.serviceCategory];
   const catColor = cat?.color ?? 'bg-white/10 text-cream';
   const catName = cat?.name ?? booking.serviceCategory ?? '—';
@@ -130,7 +150,7 @@ const JobCard = memo(function JobCard({ booking, catMap, status, detailerMap }) 
 
   return (
     <div
-      className={`glass-card rounded-md p-6 flex flex-col gap-5 transition-all duration-500 ${meta.cardClass}`}
+      className={`glass-card rounded-md p-6 flex flex-col gap-5 transition-all duration-500 ${meta.cardClass} ${vtype.borderClass}`}
     >
       {/* Service name + status */}
       <div className="flex items-start justify-between gap-3">
@@ -154,13 +174,20 @@ const JobCard = memo(function JobCard({ booking, catMap, status, detailerMap }) 
       <div className="border-t border-white/5" />
 
       {/* Vehicle + customer */}
-      <div className="flex items-center gap-2.5">
-        <Car className="w-5 h-5 text-gold shrink-0" />
-        <span className="text-cream text-lg font-medium leading-tight flex-1 min-w-0 truncate">
-          {vehicle}
-        </span>
+      <div className="flex items-start justify-between gap-2.5">
+        <div className="flex-1 min-w-0">
+          <span className="text-cream text-lg font-medium leading-tight block truncate">
+            {vehicle}
+          </span>
+          <div className="flex items-center gap-1.5 mt-0.5">
+            <vtype.Icon className={`w-3.5 h-3.5 ${vtype.iconClass} shrink-0`} />
+            <span className={`text-[10px] uppercase tracking-widest ${vtype.badgeClass}`}>
+              {vtype.badge}
+            </span>
+          </div>
+        </div>
         {booking.isVip && (
-          <Crown className="w-4 h-4 text-gold shrink-0" aria-label="VIP member" />
+          <Crown className="w-4 h-4 text-gold shrink-0 mt-0.5" aria-label="VIP member" />
         )}
       </div>
       {booking.nickname && (

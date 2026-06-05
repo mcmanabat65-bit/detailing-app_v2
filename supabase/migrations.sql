@@ -470,7 +470,8 @@ begin
   insert into bookings (
     id, service_id, service_name, service_price, service_duration, service_category,
     date, time, customer_name, email, phone, vehicle, vehicle_year, notes,
-    is_vip, member_id, car_id, coffee_order, status, detailers_assigned, occupies_slots
+    is_vip, member_id, car_id, coffee_order, status, detailers_assigned, occupies_slots,
+    vehicle_type
   ) values (
     v_id,
     (p->>'service_id')::int,
@@ -492,7 +493,8 @@ begin
     p->>'coffee_order',
     coalesce(nullif(p->>'status', ''), 'pending'),
     v_clamped_ids,
-    p_occupies_slots
+    p_occupies_slots,
+    coalesce((nullif(p->>'vehicle_type', ''))::smallint, 1)
   )
   returning * into v_row;
 
@@ -501,3 +503,11 @@ end;
 $$;
 
 notify pgrst, 'reload schema';
+
+-- Phase 5 — Vehicle type color coding (monitor differentiation)
+-- Distinguishes 4-wheel cars from big bikes / motorcycles on the shop monitor.
+-- Phase 5 — Vehicle type is a property of the car catalog, not the booking form.
+-- The booking inherits vehicle_type from the selected car at booking time.
+-- 1 = car (4-wheel), 2 = motorcycle (big bike)
+alter table cars    add column if not exists vehicle_type smallint not null default 1 check (vehicle_type in (1, 2));
+alter table bookings add column if not exists vehicle_type smallint not null default 1 check (vehicle_type in (1, 2));
