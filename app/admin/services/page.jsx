@@ -16,6 +16,8 @@ import {
   Check,
   AlertTriangle,
   Search,
+  LayoutGrid,
+  Table2,
 } from 'lucide-react';
 import { AdminLayout } from '@/components/AdminLayout';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
@@ -315,6 +317,7 @@ function ServicesAdmin() {
   const [saving, setSaving] = useState(false);
   const [reordering, setReordering] = useState(false);
   const [query, setQuery] = useState('');
+  const [view, setView] = useState('cards');
   const [draggedIdx, setDraggedIdx] = useState(null);
   const [dragOverIdx, setDragOverIdx] = useState(null);
   const dragFromIdx = useRef(null);
@@ -398,10 +401,23 @@ function ServicesAdmin() {
         </div>
 
         <div className="flex items-center gap-3 sm:ml-auto">
-          {/* <div className="text-sm text-muted whitespace-nowrap">
-            <span className="text-cream">{filtered.length}</span>
-            {query ? ` of ${services.length}` : ''} service{services.length !== 1 ? 's' : ''}
-          </div> */}
+          {/* View toggle */}
+          <div className="flex items-center border border-white/10 rounded-sm overflow-hidden">
+            <button
+              onClick={() => setView('cards')}
+              aria-label="Card view"
+              className={`p-2 transition-colors ${view === 'cards' ? 'bg-gold/15 text-gold' : 'text-muted hover:text-cream'}`}
+            >
+              <LayoutGrid className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => setView('table')}
+              aria-label="Table view"
+              className={`p-2 transition-colors border-l border-white/10 ${view === 'table' ? 'bg-gold/15 text-gold' : 'text-muted hover:text-cream'}`}
+            >
+              <Table2 className="w-4 h-4" />
+            </button>
+          </div>
           <button
             onClick={openAdd}
             className="inline-flex items-center gap-2 px-4 py-2.5 bg-gold text-obsidian font-semibold text-sm rounded-sm hover:bg-gold-light transition-colors whitespace-nowrap"
@@ -420,12 +436,12 @@ function ServicesAdmin() {
         </p>
       )}
 
-      {/* Service cards */}
+      {/* Services — card or table view */}
       {filtered.length === 0 ? (
         <div className="glass-card rounded-md py-20 text-center text-muted">
           {query ? `No services match "${query}".` : 'No services yet. Add your first service package.'}
         </div>
-      ) : (
+      ) : view === 'cards' ? (
         <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
           {filtered.map((svc, idx) => (
             <div
@@ -550,6 +566,130 @@ function ServicesAdmin() {
               </div>
             </div>
           ))}
+        </div>
+      ) : (
+        /* Table view */
+        <div className="glass-card rounded-md overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[800px]">
+              <thead>
+                <tr className="text-left text-[10px] uppercase tracking-widest text-muted border-b border-white/5">
+                  <th className="px-4 py-3 w-8" />
+                  <th className="px-4 py-3 w-12">ID</th>
+                  <th className="px-4 py-3">Name</th>
+                  <th className="px-4 py-3">Category</th>
+                  <th className="px-4 py-3">Price</th>
+                  <th className="px-4 py-3">Duration</th>
+                  <th className="px-4 py-3">Detailers</th>
+                  <th className="px-4 py-3 text-center">Inclusions</th>
+                  <th className="px-4 py-3 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((svc, idx) => (
+                  <tr
+                    key={svc.id}
+                    draggable={!isSearching && !reordering}
+                    onDragStart={() => { dragFromIdx.current = idx; setDraggedIdx(idx); }}
+                    onDragEnd={() => { setDraggedIdx(null); setDragOverIdx(null); dragFromIdx.current = null; }}
+                    onDragOver={(e) => { e.preventDefault(); if (dragFromIdx.current !== null) setDragOverIdx(idx); }}
+                    onDragLeave={() => setDragOverIdx(null)}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      if (dragFromIdx.current !== null && dragFromIdx.current !== idx) {
+                        handleReorder(dragFromIdx.current, idx);
+                      }
+                      dragFromIdx.current = null;
+                      setDraggedIdx(null);
+                      setDragOverIdx(null);
+                    }}
+                    className={`border-b border-white/5 hover:bg-white/[0.02] transition-all ${
+                      draggedIdx === idx ? 'opacity-40' : ''
+                    } ${dragOverIdx === idx && draggedIdx !== idx ? 'ring-1 ring-inset ring-gold/60' : ''}`}
+                  >
+                    <td className="px-4 py-3">
+                      <button
+                        type="button"
+                        aria-label="Drag to reorder"
+                        disabled={isSearching || reordering}
+                        className={`transition-colors ${
+                          isSearching || reordering
+                            ? 'text-muted/20 cursor-not-allowed'
+                            : 'text-muted/40 hover:text-gold cursor-grab active:cursor-grabbing'
+                        }`}
+                      >
+                        <GripVertical className="w-4 h-4" />
+                      </button>
+                    </td>
+                    <td className="px-4 py-3 font-mono text-xs text-muted">{svc.id}</td>
+                    <td className="px-4 py-3">
+                      <div className="font-serif text-cream leading-tight">{svc.name}</div>
+                      {svc.popular && (
+                        <span className="inline-flex items-center gap-0.5 text-[10px] text-gold mt-0.5">
+                          <Star className="w-2.5 h-2.5" /> Popular
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`text-[10px] uppercase tracking-widest px-2 py-0.5 rounded-sm ${getCatColor(svc.category)}`}>
+                        {catMap[svc.category]?.name ?? svc.category}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-gold font-medium">{formatCurrency(svc.price)}</td>
+                    <td className="px-4 py-3">
+                      <span className="flex items-center gap-1 text-cream/80">
+                        <Clock className="w-3 h-3 text-gold shrink-0" />
+                        {svc.duration}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="flex items-center gap-1 text-cream/80">
+                        <Users className="w-3 h-3 text-gold shrink-0" />
+                        {svc.minDetailers}–{svc.recommendedDetailers}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-center text-cream/60 text-xs">
+                      {svc.inclusions?.length || 0}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          onClick={() => handleReorder(idx, idx - 1)}
+                          disabled={idx === 0 || isSearching || reordering}
+                          aria-label="Move up"
+                          className="p-1.5 text-muted hover:text-gold disabled:opacity-25 disabled:cursor-not-allowed transition-colors"
+                        >
+                          <ChevronUp className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleReorder(idx, idx + 1)}
+                          disabled={idx === filtered.length - 1 || isSearching || reordering}
+                          aria-label="Move down"
+                          className="p-1.5 text-muted hover:text-gold disabled:opacity-25 disabled:cursor-not-allowed transition-colors"
+                        >
+                          <ChevronDown className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => openEdit(svc)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs border border-white/10 text-cream/70 rounded-sm hover:border-gold/50 hover:text-gold transition-colors"
+                        >
+                          <Pencil className="w-3 h-3" />
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => setConfirmDelete(svc)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs border border-white/10 text-cream/70 rounded-sm hover:border-danger/50 hover:text-danger transition-colors"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          Delete
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
