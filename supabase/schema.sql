@@ -183,6 +183,18 @@ create table if not exists recurring_schedules (
 create index if not exists recurring_schedules_member_idx on recurring_schedules (member_id);
 create index if not exists recurring_schedules_active_idx on recurring_schedules (member_id, is_active);
 
+-- Admin-managed catalog of common add-on services.
+-- Quick-pick items shown when the admin adds extras to a booking.
+create table if not exists addon_catalog (
+  id         uuid primary key default gen_random_uuid(),
+  name       text not null,
+  default_price integer not null default 0,
+  sort_order integer not null default 0,
+  created_at timestamptz not null default now()
+);
+create unique index if not exists addon_catalog_name_lower_idx on addon_catalog (lower(name));
+create index  if not exists addon_catalog_sort_idx             on addon_catalog (sort_order);
+
 -- ---------------------------------------------------------------------
 -- RPC: add_booking — atomic capacity-aware insert
 -- ---------------------------------------------------------------------
@@ -403,6 +415,7 @@ alter table services           enable row level security;
 alter table cars               enable row level security;
 alter table member_cars           enable row level security;
 alter table recurring_schedules   enable row level security;
+alter table addon_catalog         enable row level security;
 alter table coffees               enable row level security;
 alter table service_categories enable row level security;
 
@@ -431,6 +444,7 @@ create policy "public all cars"               on cars               for all to a
 create policy "public all coffees"            on coffees            for all to anon, authenticated using (true) with check (true);
 create policy "public all member_cars"           on member_cars           for all to anon, authenticated using (true) with check (true);
 create policy "public all recurring_schedules"   on recurring_schedules   for all to anon, authenticated using (true) with check (true);
+create policy "public all addon_catalog"         on addon_catalog         for all to anon, authenticated using (true) with check (true);
 create policy "public all service_categories"    on service_categories    for all to anon, authenticated using (true) with check (true);
 
 -- =====================================================================

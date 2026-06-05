@@ -31,6 +31,22 @@ alter table services add column if not exists description text;
 -- Add plate_number to member_cars (per-member vehicle, not the shared catalog)
 alter table member_cars add column if not exists plate_number text;
 
+-- Add-ons: per-booking extras + admin catalog
+alter table bookings add column if not exists add_ons jsonb not null default '[]';
+
+create table if not exists addon_catalog (
+  id            uuid primary key default gen_random_uuid(),
+  name          text not null,
+  default_price integer not null default 0,
+  sort_order    integer not null default 0,
+  created_at    timestamptz not null default now()
+);
+create unique index if not exists addon_catalog_name_lower_idx on addon_catalog (lower(name));
+create index  if not exists addon_catalog_sort_idx             on addon_catalog (sort_order);
+alter table addon_catalog enable row level security;
+drop policy if exists "public all addon_catalog" on addon_catalog;
+create policy "public all addon_catalog" on addon_catalog for all to anon, authenticated using (true) with check (true);
+
 -- Add coffees table (Phase 1.2)
 create table if not exists coffees (
   id uuid primary key default gen_random_uuid(),

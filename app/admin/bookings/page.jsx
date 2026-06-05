@@ -20,6 +20,7 @@ import {
   ChevronRight,
   Play,
   History,
+  ListPlus,
 } from 'lucide-react';
 import { sendEmail } from '@/lib/sendEmail';
 import { bookingConfirmationHtml } from '@/lib/emailTemplates';
@@ -43,8 +44,10 @@ function BookingsTable() {
     services,
     bookings,
     detailers,
+    addonCatalog,
     updateBookingStatus,
     updateBookingDetailers,
+    updateBookingAddOns,
     fetchBookingLogs,
     deleteBooking,
     showToast,
@@ -71,6 +74,7 @@ function BookingsTable() {
   const [logPanel, setLogPanel] = useState(null); // { booking, logs }
   const [logLoading, setLogLoading] = useState(false);
   const [statusPending, setStatusPending] = useState(null); // booking id currently being updated
+  const [addOnsModal, setAddOnsModal] = useState(null); // booking object
 
   const openLog = async (booking) => {
     setLogLoading(true);
@@ -299,7 +303,14 @@ function BookingsTable() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="text-cream">{b.serviceName}</div>
-                      <div className="text-xs text-muted">{formatCurrency(b.servicePrice)}</div>
+                      <div className="text-xs text-muted flex items-center gap-1.5 flex-wrap">
+                        {formatCurrency(b.servicePrice)}
+                        {b.addOns?.length > 0 && (
+                          <span className="text-gold/80">
+                            +{formatCurrency(b.addOns.reduce((s, a) => s + (a.price || 0), 0))} add-ons
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-3 text-cream/85">{formatDateShort(b.date)}</td>
                     <td className="px-4 py-3 text-cream/85">{b.time}</td>
@@ -428,6 +439,20 @@ function BookingsTable() {
                             <XCircle className="w-4 h-4" />
                           </button>
                         )}
+                        {/* Add-Ons */}
+                        <button
+                          onClick={() => setAddOnsModal(b)}
+                          aria-label="Manage add-ons"
+                          title="Add-ons"
+                          className="relative p-2 text-cream/70 hover:text-gold hover:bg-gold/10 rounded-sm transition-colors"
+                        >
+                          <ListPlus className="w-4 h-4" />
+                          {b.addOns?.length > 0 && (
+                            <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-gold text-obsidian text-[8px] font-bold flex items-center justify-center leading-none">
+                              {b.addOns.length}
+                            </span>
+                          )}
+                        </button>
                         <button
                           onClick={() => openLog(b)}
                           aria-label="View status history"
@@ -463,6 +488,21 @@ function BookingsTable() {
       {/* Pagination */}
       {totalPages > 1 && (
         <Pagination page={safePage} totalPages={totalPages} onPageChange={setPage} />
+      )}
+
+      {/* Add-Ons modal */}
+      {addOnsModal && (
+        <AddOnsModal
+          booking={addOnsModal}
+          catalog={addonCatalog}
+          onSave={async (addOns) => {
+            const result = await updateBookingAddOns(addOnsModal.id, addOns);
+            if (result?.error) showToast(result.error, 'error');
+            else showToast('Add-ons saved.', 'success');
+            setAddOnsModal(null);
+          }}
+          onClose={() => setAddOnsModal(null)}
+        />
       )}
 
       {/* Cancellation reason modal */}
@@ -744,6 +784,178 @@ function StatusBadge({ status }) {
   );
   return (
     <span className="text-[10px] uppercase tracking-widest px-2 py-1 rounded-sm bg-white/5 text-muted">{status}</span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Add-Ons Modal
+// ---------------------------------------------------------------------------
+function AddOnsModal({ booking, catalog, onSave, onClose }) {
+  const [addOns, setAddOns] = useState(() =>
+    Array.isArray(booking.addOns) ? booking.addOns.map((a) => ({ ...a })) : []
+  );
+  const [custom, setCustom] = useState({ name: '', price: '' });
+  const [saving, setSaving] = useState(false);
+
+  const addOnsTotal = addOns.reduce((s, a) => s + (Number(a.price) || 0), 0);
+  const grandTotal  = (booking.servicePrice || 0) + addOnsTotal;
+
+  const addFromCatalog = (item) => {
+    if (addOns.some((a) => a.name === item.name)) return;
+    setAddOns((prev) => [...prev, { name: item.name, price: item.defaultPrice ?? 0, notes: '' }]);
+  };
+
+  const addCustom = () => {
+    if (!custom.name.trim()) return;
+    setAddOns((prev) => [...prev, { name: custom.name.trim(), price: Number(custom.price) || 0, notes: '' }]);
+    setCustom({ name: '', price: '' });
+  };
+
+  const update = (i, key, val) =>
+    setAddOns((prev) => prev.map((a, idx) => idx === i ? { ...a, [key]: key === 'price' ? val : val } : a));
+
+  const remove = (i) => setAddOns((prev) => prev.filter((_, idx) => idx !== i));
+
+  const handleSave = async () => {
+    setSaving(true);
+    await onSave(addOns.map((a) => ({ name: a.name, price: Number(a.price) || 0, notes: a.notes || '' })));
+    setSaving(false);
+  };
+
+  return (
+    <div onClick={onClose} className="fixed inset-0 bg-black/70 z-50 flex items-start justify-center p-5 pt-12 animate-fade-in overflow-y-auto">
+      <div onClick={(e) => e.stopPropagation()} className="glass-card rounded-md w-full max-w-lg p-6 mb-8">
+        <div className="flex items-start justify-between mb-4">
+          <div>
+            <h3 className="font-serif text-2xl text-cream flex items-center gap-2">
+              <ListPlus className="w-5 h-5 text-gold" />
+              Add-Ons
+            </h3>
+            <p className="text-xs text-muted mt-0.5">
+              {booking.customerName} — {booking.serviceName} · {booking.date}
+            </p>
+          </div>
+          <button onClick={onClose} aria-label="Close" className="text-cream/70 hover:text-cream"><X className="w-5 h-5" /></button>
+        </div>
+
+        {/* Quick-pick from catalog */}
+        {catalog.length > 0 && (
+          <div className="mb-4">
+            <div className="text-[10px] uppercase tracking-widest text-muted mb-2">Quick add from catalog</div>
+            <div className="flex flex-wrap gap-2">
+              {catalog.map((item) => {
+                const added = addOns.some((a) => a.name === item.name);
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => addFromCatalog(item)}
+                    disabled={added}
+                    className={`text-xs px-3 py-1.5 rounded-sm border transition-colors ${
+                      added
+                        ? 'border-gold/30 bg-gold/10 text-gold/50 cursor-not-allowed'
+                        : 'border-white/10 text-cream/70 hover:border-gold/50 hover:text-gold'
+                    }`}
+                  >
+                    {item.name} · {formatCurrency(item.defaultPrice ?? 0)}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Custom entry */}
+        <div className="mb-4">
+          <div className="text-[10px] uppercase tracking-widest text-muted mb-2">Add custom</div>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={custom.name}
+              onChange={(e) => setCustom((c) => ({ ...c, name: e.target.value }))}
+              onKeyDown={(e) => e.key === 'Enter' && addCustom()}
+              placeholder="Service / item name"
+              className="flex-1 bg-surface/70 border border-white/[0.08] rounded-sm px-3 py-2 text-sm text-cream placeholder-[var(--color-muted)] focus:outline-none focus:border-gold/50 transition-colors"
+            />
+            <div className="relative w-28">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted text-sm">₱</span>
+              <input
+                type="number"
+                min="0"
+                value={custom.price}
+                onChange={(e) => setCustom((c) => ({ ...c, price: e.target.value }))}
+                onKeyDown={(e) => e.key === 'Enter' && addCustom()}
+                placeholder="0"
+                className="w-full bg-surface/70 border border-white/[0.08] rounded-sm pl-7 pr-3 py-2 text-sm text-cream placeholder-[var(--color-muted)] focus:outline-none focus:border-gold/50 transition-colors"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={addCustom}
+              disabled={!custom.name.trim()}
+              className="px-3 py-2 bg-white/5 border border-white/10 text-cream/70 rounded-sm hover:border-gold/50 hover:text-gold transition-colors disabled:opacity-30"
+            >
+              <Plus className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* Current add-ons list */}
+        {addOns.length > 0 ? (
+          <div className="mb-5 space-y-2">
+            <div className="text-[10px] uppercase tracking-widest text-muted mb-2">Added ({addOns.length})</div>
+            {addOns.map((a, i) => (
+              <div key={i} className="flex items-center gap-2 bg-surface/60 border border-white/5 rounded-sm px-3 py-2">
+                <span className="flex-1 text-sm text-cream truncate">{a.name}</span>
+                <div className="relative w-24 shrink-0">
+                  <span className="absolute left-2 top-1/2 -translate-y-1/2 text-muted text-xs">₱</span>
+                  <input
+                    type="number"
+                    min="0"
+                    value={a.price}
+                    onChange={(e) => update(i, 'price', e.target.value)}
+                    className="w-full bg-transparent border border-white/10 rounded-sm pl-5 pr-2 py-1 text-sm text-cream focus:outline-none focus:border-gold/50 transition-colors"
+                  />
+                </div>
+                <button onClick={() => remove(i)} aria-label="Remove" className="text-muted/50 hover:text-danger transition-colors p-1">
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="mb-5 py-6 text-center text-muted text-sm border border-dashed border-white/10 rounded-sm">
+            No add-ons yet — pick from catalog or enter a custom item above.
+          </div>
+        )}
+
+        {/* Total breakdown */}
+        <div className="bg-surface/60 rounded-sm px-4 py-3 mb-5 border border-white/5 space-y-1.5">
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted">Package ({booking.serviceName})</span>
+            <span className="text-cream">{formatCurrency(booking.servicePrice || 0)}</span>
+          </div>
+          {addOns.map((a, i) => (
+            <div key={i} className="flex items-center justify-between text-sm">
+              <span className="text-muted">↳ {a.name}</span>
+              <span className="text-gold/80">{formatCurrency(Number(a.price) || 0)}</span>
+            </div>
+          ))}
+          <div className="flex items-center justify-between pt-2 border-t border-white/5">
+            <span className="text-cream font-medium">Total</span>
+            <span className="text-gold font-serif text-lg">{formatCurrency(grandTotal)}</span>
+          </div>
+        </div>
+
+        <div className="flex gap-3">
+          <button onClick={onClose} className="flex-1 px-4 py-2.5 border border-white/10 text-cream/85 rounded-sm hover:border-gold/50 transition-colors">Cancel</button>
+          <button onClick={handleSave} disabled={saving}
+            className="flex-1 px-4 py-2.5 bg-gold text-obsidian font-semibold rounded-sm hover:bg-gold-light transition-colors disabled:opacity-60 inline-flex items-center justify-center gap-2">
+            {saving ? 'Saving…' : 'Save Add-Ons'}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

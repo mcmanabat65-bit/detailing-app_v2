@@ -12,6 +12,7 @@ import {
   Clock,
   Coffee,
   Crown,
+  ListPlus,
   Loader2,
   Plus,
   Search,
@@ -280,9 +281,15 @@ function ServiceDropdown({ services, catMap, value, onChange }) {
 // ---------------------------------------------------------------------------
 // A single car + service item in the booking
 // ---------------------------------------------------------------------------
-function BookingItem({ item, index, services, catMap, cars, coffees, memberCars = [], onUpdate, onRemove, canRemove }) {
+function BookingItem({ item, index, services, catMap, cars, coffees, memberCars = [], addonCatalog = [], onUpdate, onRemove, canRemove }) {
   const coffeeOptions = coffees.filter((c) => c.available !== false).map((c) => c.name);
   const usingFleetCar = memberCars.length > 0 && Boolean(item.fleetCarId);
+  const [customAddon, setCustomAddon] = useState({ name: '', price: '' });
+  const addCustomAddon = () => {
+    if (!customAddon.name.trim()) return;
+    onUpdate({ addOns: [...(item.addOns || []), { name: customAddon.name.trim(), price: Number(customAddon.price) || 0, notes: '' }] });
+    setCustomAddon({ name: '', price: '' });
+  };
 
   const handleFleetSelect = (carId) => {
     if (!carId) {
@@ -381,6 +388,91 @@ function BookingItem({ item, index, services, catMap, cars, coffees, memberCars 
         </Field>
       )}
 
+      {/* Add-Ons */}
+      <div>
+        <div className="flex items-center gap-1.5 mb-2">
+          <ListPlus className="w-3.5 h-3.5 text-gold" />
+          <div className="text-[11px] uppercase tracking-widest text-cream/60">Add-Ons (optional)</div>
+        </div>
+
+        {addonCatalog.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mb-2.5">
+            {addonCatalog.map((cat) => {
+              const added = (item.addOns || []).some((a) => a.name === cat.name);
+              return (
+                <button
+                  key={cat.id}
+                  type="button"
+                  disabled={added}
+                  onClick={() => {
+                    if (added) return;
+                    onUpdate({ addOns: [...(item.addOns || []), { name: cat.name, price: cat.defaultPrice ?? 0, notes: '' }] });
+                  }}
+                  className={`text-xs px-2.5 py-1 rounded-sm border transition-colors ${
+                    added
+                      ? 'border-gold/30 bg-gold/10 text-gold/50 cursor-not-allowed'
+                      : 'border-white/10 text-cream/70 hover:border-gold/50 hover:text-gold'
+                  }`}
+                >
+                  {cat.name} · {formatCurrency(cat.defaultPrice ?? 0)}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        <div className="flex gap-2 mb-2.5">
+          <input
+            type="text"
+            value={customAddon.name}
+            onChange={(e) => setCustomAddon((c) => ({ ...c, name: e.target.value }))}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addCustomAddon(); } }}
+            placeholder="Custom add-on name"
+            className="flex-1 bg-surface/70 border border-white/[0.08] rounded-[4px] py-[8px] px-3 text-[13px] text-cream placeholder-muted focus:outline-none focus:border-gold/50 transition-colors"
+          />
+          <div className="relative w-24 shrink-0">
+            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted text-sm">₱</span>
+            <input
+              type="number"
+              min="0"
+              value={customAddon.price}
+              onChange={(e) => setCustomAddon((c) => ({ ...c, price: e.target.value }))}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addCustomAddon(); } }}
+              placeholder="0"
+              className="w-full bg-surface/70 border border-white/[0.08] rounded-[4px] py-[8px] pl-7 pr-2 text-[13px] text-cream placeholder-muted focus:outline-none focus:border-gold/50 transition-colors"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={addCustomAddon}
+            disabled={!customAddon.name.trim()}
+            aria-label="Add custom add-on"
+            className="px-3 py-2 bg-white/5 border border-white/10 text-cream/70 rounded-sm hover:border-gold/50 hover:text-gold transition-colors disabled:opacity-30"
+          >
+            <Plus className="w-4 h-4" />
+          </button>
+        </div>
+
+        {(item.addOns || []).length > 0 && (
+          <div className="space-y-1.5">
+            {(item.addOns || []).map((a, i) => (
+              <div key={i} className="flex items-center gap-2 bg-surface/50 border border-white/5 rounded-sm px-3 py-1.5">
+                <span className="flex-1 text-sm text-cream truncate">{a.name}</span>
+                <span className="text-gold/80 text-xs shrink-0">{formatCurrency(Number(a.price) || 0)}</span>
+                <button
+                  type="button"
+                  onClick={() => onUpdate({ addOns: (item.addOns || []).filter((_, idx) => idx !== i) })}
+                  aria-label="Remove add-on"
+                  className="text-muted/50 hover:text-danger transition-colors p-0.5"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
     </div>
   );
 }
@@ -392,8 +484,8 @@ function AdminNewBookingForm() {
   const router = useRouter();
   const {
     services, serviceCategories, bookings, blockedSlots, settings,
-    cars, coffees, detailers, members, getCarsForMember,
-    addBooking, upsertCar, addCarToMember, showToast,
+    cars, coffees, detailers, members, getCarsForMember, addonCatalog,
+    addBooking, upsertCar, addCarToMember, updateBookingAddOns, showToast,
   } = useApp();
 
   const catMap = useMemo(() => {
@@ -441,7 +533,7 @@ function AdminNewBookingForm() {
   // Booking items — each is one car + one service
   // fleetCarId: UUID of selected fleet car, or null = manual entry
   // ---------------------------------------------------------------------------
-  const newItem = () => ({ id: Date.now(), vehicle: '', vehicleYear: '', serviceId: services[0]?.id || null, coffeeOrder: '', isVip: false, fleetCarId: null });
+  const newItem = () => ({ id: Date.now(), vehicle: '', vehicleYear: '', serviceId: services[0]?.id || null, coffeeOrder: '', isVip: false, fleetCarId: null, addOns: [] });
   const [items, setItems] = useState(() => [newItem()]);
 
   const addItem = () => setItems((prev) => [...prev, newItem()]);
@@ -576,6 +668,9 @@ function AdminNewBookingForm() {
           setSubmitting(false);
           return;
         }
+        if (it.addOns && it.addOns.length > 0 && result?.id) {
+          await updateBookingAddOns(result.id, it.addOns);
+        }
         results.push(result);
       }
       showToast(`${results.length} booking${results.length !== 1 ? 's' : ''} created successfully.`, 'success');
@@ -616,7 +711,8 @@ function AdminNewBookingForm() {
 
   const totalPrice = items.reduce((sum, it) => {
     const svc = services.find((s) => s.id === it.serviceId);
-    return sum + (svc?.price || 0);
+    const addOnsTotal = (it.addOns || []).reduce((s, a) => s + (Number(a.price) || 0), 0);
+    return sum + (svc?.price || 0) + addOnsTotal;
   }, 0);
 
   // ---------------------------------------------------------------------------
@@ -806,6 +902,7 @@ function AdminNewBookingForm() {
                 cars={cars}
                 coffees={coffees}
                 memberCars={memberFleet}
+                addonCatalog={addonCatalog}
                 onUpdate={(patch) => updateItem(it.id, patch)}
                 onRemove={() => removeItem(it.id)}
                 canRemove={items.length > 1}
@@ -862,13 +959,22 @@ function AdminNewBookingForm() {
             <div className="border-t border-white/8 pt-3 space-y-2">
               {items.map((it, i) => {
                 const svc = services.find((s) => s.id === it.serviceId);
+                const addOnsTotal = (it.addOns || []).reduce((s, a) => s + (Number(a.price) || 0), 0);
                 return (
-                  <div key={it.id} className="flex items-start justify-between gap-3 text-sm">
-                    <div className="text-cream/70 min-w-0 flex-1">
-                      <div className="truncate">{it.vehicle || `Vehicle ${i + 1}`} {it.vehicleYear && `· ${it.vehicleYear}`}</div>
-                      <div className="text-muted text-xs">{svc?.name || '—'}</div>
+                  <div key={it.id} className="space-y-0.5">
+                    <div className="flex items-start justify-between gap-3 text-sm">
+                      <div className="text-cream/70 min-w-0 flex-1">
+                        <div className="truncate">{it.vehicle || `Vehicle ${i + 1}`} {it.vehicleYear && `· ${it.vehicleYear}`}</div>
+                        <div className="text-muted text-xs">{svc?.name || '—'}</div>
+                      </div>
+                      <div className="text-gold shrink-0 text-xs">{svc ? formatCurrency(svc.price + addOnsTotal) : '—'}</div>
                     </div>
-                    <div className="text-gold shrink-0 text-xs">{svc ? formatCurrency(svc.price) : '—'}</div>
+                    {(it.addOns || []).map((a, ai) => (
+                      <div key={ai} className="flex items-center justify-between gap-2 text-xs pl-2">
+                        <span className="text-muted truncate">↳ {a.name}</span>
+                        <span className="text-gold/70 shrink-0">{formatCurrency(Number(a.price) || 0)}</span>
+                      </div>
+                    ))}
                   </div>
                 );
               })}

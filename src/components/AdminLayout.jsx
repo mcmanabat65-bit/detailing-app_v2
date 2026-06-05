@@ -19,6 +19,7 @@ import {
   Coffee,
   Tag,
   Quote,
+  ListPlus,
 } from 'lucide-react';
 import Image from 'next/image';
 import { useApp } from '@/context/AppContext';
@@ -32,6 +33,7 @@ const links = [
   { href: '/admin/monitor', label: 'Shop Monitor', icon: Monitor },
   { href: '/admin/cars', label: 'Cars', icon: Car },
   { href: '/admin/services', label: 'Services', icon: Wrench },
+  { href: '/admin/addons', label: 'Add-Ons', icon: ListPlus },
   { href: '/admin/categories', label: 'Categories', icon: Tag },
   { href: '/admin/coffees', label: 'Coffee Menu', icon: Coffee },
   { href: '/admin/testimonials', label: 'Testimonials', icon: Quote },

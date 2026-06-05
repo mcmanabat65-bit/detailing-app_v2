@@ -52,6 +52,7 @@ export function AppProvider({ children }) {
   const [detailers, setDetailers] = useState([]);
   const [testimonials, setTestimonials] = useState([]);
   const [recurringSchedules, setRecurringSchedules] = useState([]);
+  const [addonCatalog, setAddonCatalog] = useState([]);
   const [settings, setSettings] = useState({ ...DEFAULT_SETTINGS });
   const [adminSession, setAdminSessionState] = useState(false);
   const [hydrated, setHydrated] = useState(false);
@@ -214,6 +215,17 @@ export function AppProvider({ children }) {
     setRecurringSchedules((data || []).map(fromRow));
   }, []);
 
+  const refetchAddonCatalog = useCallback(async () => {
+    if (!supabase) return;
+    const { data, error } = await supabase
+      .from('addon_catalog')
+      .select('*')
+      .order('sort_order', { ascending: true })
+      .order('name',       { ascending: true });
+    if (error) { console.error('[addon_catalog] fetch error', error); return; }
+    setAddonCatalog((data || []).map(fromRow));
+  }, []);
+
   const refetchSettings = useCallback(async () => {
     if (!supabase) return;
     const { data, error } = await supabase
@@ -269,6 +281,7 @@ export function AppProvider({ children }) {
       refetchSettings(),
       refetchTestimonials(),
       refetchRecurringSchedules(),
+      refetchAddonCatalog(),
     ]).finally(() => {
       settled = true;
       clearTimeout(timer);
@@ -276,7 +289,7 @@ export function AppProvider({ children }) {
     });
 
     return () => subscription.unsubscribe();
-  }, [refetchServices, refetchBookings, refetchMembers, refetchBlockedSlots, refetchCars, refetchMemberCars, refetchCoffees, refetchServiceCategories, refetchDetailers, refetchSettings, refetchTestimonials, refetchRecurringSchedules]);
+  }, [refetchServices, refetchBookings, refetchMembers, refetchBlockedSlots, refetchCars, refetchMemberCars, refetchCoffees, refetchServiceCategories, refetchDetailers, refetchSettings, refetchTestimonials, refetchRecurringSchedules, refetchAddonCatalog]);
 
   // Global Realtime subscription — one shared WebSocket channel for the entire
   // app. Any page that reads `bookings` from context (bookings, schedule,
@@ -975,6 +988,71 @@ export function AppProvider({ children }) {
     [supabase, members, recurringSchedules, services, cars, bookings, settings, addBooking]
   );
 
+  // ===== Add-on Catalog =====
+  const upsertAddonCatalogItem = useCallback(
+    async (item) => {
+      if (!supabase) return { error: 'Database not connected.' };
+      const name = (item.name || '').trim();
+      if (!name) return { error: 'Name is required.' };
+      const price = Number(item.defaultPrice ?? item.default_price ?? 0);
+      if (!Number.isFinite(price) || price < 0) return { error: 'Price must be 0 or more.' };
+      const row = { name, default_price: price };
+      let query;
+      if (item.id) {
+        query = supabase.from('addon_catalog').update(row).eq('id', item.id).select().single();
+      } else {
+        const { data: last } = await supabase.from('addon_catalog').select('sort_order').order('sort_order', { ascending: false }).limit(1).maybeSingle();
+        query = supabase.from('addon_catalog').insert({ ...row, sort_order: (last?.sort_order ?? 0) + 1 }).select().single();
+      }
+      const { data, error } = await query;
+      if (error) return { error: error.message };
+      await refetchAddonCatalog();
+      return fromRow(data);
+    },
+    [refetchAddonCatalog]
+  );
+
+  const deleteAddonCatalogItem = useCallback(
+    async (id) => {
+      if (!supabase) return { error: 'Database not connected.' };
+      const { error } = await supabase.from('addon_catalog').delete().eq('id', id);
+      if (error) return { error: error.message };
+      await refetchAddonCatalog();
+      return { ok: true };
+    },
+    [refetchAddonCatalog]
+  );
+
+  const reorderAddonCatalog = useCallback(
+    async (orderedIds) => {
+      if (!supabase) return { error: 'Database not connected.' };
+      const results = await Promise.all(
+        orderedIds.map((id, i) => supabase.from('addon_catalog').update({ sort_order: i + 1 }).eq('id', id))
+      );
+      const failed = results.find((r) => r.error);
+      if (failed) return { error: failed.error.message };
+      await refetchAddonCatalog();
+      return { ok: true };
+    },
+    [refetchAddonCatalog]
+  );
+
+  // ===== Booking Add-Ons =====
+  // add_ons is a JSONB array on the bookings row: [{ name, price, notes }]
+  const updateBookingAddOns = useCallback(
+    async (bookingId, addOns) => {
+      if (!supabase) return { error: 'Database not connected.' };
+      const { error } = await supabase
+        .from('bookings')
+        .update({ add_ons: addOns })
+        .eq('id', bookingId);
+      if (error) return { error: error.message };
+      await refetchBookings();
+      return { ok: true };
+    },
+    [refetchBookings]
+  );
+
   // ===== Service Categories =====
   const upsertServiceCategory = useCallback(
     async (cat) => {
@@ -1194,6 +1272,11 @@ export function AppProvider({ children }) {
       serviceCategories,
       upsertServiceCategory,
       deleteServiceCategory,
+      addonCatalog,
+      upsertAddonCatalogItem,
+      deleteAddonCatalogItem,
+      reorderAddonCatalog,
+      updateBookingAddOns,
       recurringSchedules,
       getRecurringSchedulesForMember,
       addRecurringSchedule,
@@ -1258,6 +1341,11 @@ export function AppProvider({ children }) {
       serviceCategories,
       upsertServiceCategory,
       deleteServiceCategory,
+      addonCatalog,
+      upsertAddonCatalogItem,
+      deleteAddonCatalogItem,
+      reorderAddonCatalog,
+      updateBookingAddOns,
       recurringSchedules,
       getRecurringSchedulesForMember,
       addRecurringSchedule,
