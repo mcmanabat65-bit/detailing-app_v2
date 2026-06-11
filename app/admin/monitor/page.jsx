@@ -112,7 +112,7 @@ const STATUS_META = {
     label: 'In Progress',
     dotClass: 'bg-gold animate-pulse',
     textClass: 'text-gold',
-    cardClass: 'ring-1 ring-gold/40 shadow-xl shadow-gold/10',
+    cardClass: 'shadow-xl shadow-gold/10',
   },
   done: {
     label: 'Done',
