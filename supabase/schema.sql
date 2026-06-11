@@ -46,7 +46,9 @@ create table if not exists services (
   sort_order integer not null default 0
 );
 
-insert into services (id, name, price, duration, category, inclusions, popular, min_detailers, recommended_detailers, sort_order) values
+insert into services (id, name, price, duration, category, inclusions, popular, min_detailers, recommended_detailers, sort_order)
+overriding system value
+values
   (1, 'The Essential',      1500,  '2–3 hrs',  'exterior', array['Exterior Hand Wash','Tire Dressing','Window Cleaning','Interior Vacuum'],                                                               false, 1, 1, 1),
   (2, 'The Executive',      3500,  '4–5 hrs',  'full',     array['Full Exterior Detail','Clay Bar Treatment','Interior Deep Clean','Dashboard Polish','Leather Conditioning','Engine Bay Cleaning'],      true,  1, 2, 2),
   (3, 'The Obsidian Elite', 6000,  '6–8 hrs',  'premium',  array['Everything in Executive','Paint Correction','Ceramic Coating Prep','Odor Elimination','Headlight Restoration','VIP Lounge Priority'],  false, 2, 3, 3),

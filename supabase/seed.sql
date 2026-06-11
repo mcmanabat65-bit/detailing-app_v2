@@ -62,7 +62,7 @@ insert into bookings (
    current_date + 1, '10:00 AM',
    'Juan dela Cruz', 'juan.delacruz@email.com', '0917 123 4567',
    'Toyota Fortuner', '2019', 'Small scratch on rear bumper.',
-   true, 'Macchiato', 'confirmed', null, 2,
+   true, 'Macchiato', 'confirmed', null, '{}'::uuid[],
    array['10:00 AM','10:30 AM','11:00 AM','11:30 AM','1:00 PM','1:30 PM','2:00 PM','2:30 PM','3:00 PM','3:30 PM'],
    now() - interval '5 hours'),
 
@@ -70,7 +70,7 @@ insert into bookings (
    current_date + 2, '9:00 AM',
    'Maria Santos', 'maria.santos@email.com', '0918 456 7890',
    'Honda CR-V', '2021', '',
-   false, '', 'confirmed', null, 1,
+   false, '', 'confirmed', null, '{}'::uuid[],
    array['9:00 AM','9:30 AM','10:00 AM','10:30 AM','11:00 AM','11:30 AM'],
    now() - interval '4 hours'),
 
@@ -78,7 +78,7 @@ insert into bookings (
    current_date + 3, '8:00 AM',
    'Ramon Aquino', 'ramon.aquino@email.com', '0920 333 1122',
    'BMW 320i', '2018', 'Pay extra attention to the wheels.',
-   true, 'Cappuccino', 'confirmed', null, 2,
+   true, 'Cappuccino', 'confirmed', null, '{}'::uuid[],
    array['8:00 AM','8:30 AM','9:00 AM','9:30 AM','10:00 AM','10:30 AM','11:00 AM','11:30 AM','1:00 PM','1:30 PM','2:00 PM','2:30 PM'],
    now() - interval '3 hours'),
 
@@ -86,7 +86,7 @@ insert into bookings (
    current_date + 4, '11:00 AM',
    'Liza Reyes', 'liza.reyes@email.com', '0925 789 1234',
    'Mazda 3', '2022', 'Pick-up at 5pm.',
-   false, '', 'confirmed', null, 1,
+   false, '', 'confirmed', null, '{}'::uuid[],
    array['11:00 AM','11:30 AM','1:00 PM','1:30 PM','2:00 PM','2:30 PM','3:00 PM','3:30 PM'],
    now() - interval '2 hours'),
 
@@ -94,7 +94,7 @@ insert into bookings (
    current_date + 6, '8:00 AM',
    'Carlos Bautista', 'carlos.bautista@email.com', '0917 990 8877',
    'Ford Ranger Raptor', '2020', 'Off-roading dust — needs deep clean.',
-   true, 'Latte', 'confirmed', null, 3,
+   true, 'Latte', 'confirmed', null, '{}'::uuid[],
    array['8:00 AM','8:30 AM','9:00 AM','9:30 AM','10:00 AM','10:30 AM','11:00 AM','11:30 AM','1:00 PM','1:30 PM','2:00 PM','2:30 PM','3:00 PM','3:30 PM','4:00 PM','4:30 PM'],
    now() - interval '1 hour'),
 
@@ -104,7 +104,7 @@ insert into bookings (
    current_date - 2, '8:00 AM',
    'Angelo Villanueva', 'angelo.villanueva@email.com', '0917 234 5678',
    'Mitsubishi Montero', '2020', '',
-   false, '', 'confirmed', null, 1,
+   false, '', 'confirmed', null, '{}'::uuid[],
    array['8:00 AM','8:30 AM','9:00 AM','9:30 AM','10:00 AM','10:30 AM'],
    now() - interval '3 days'),
 
@@ -112,7 +112,7 @@ insert into bookings (
    current_date - 3, '8:00 AM',
    'Sofia Dela Torre', 'sofia.delatorre@email.com', '0920 876 5432',
    'Toyota Corolla Cross', '2023', 'Recently bought, first full detail.',
-   true, 'Americano', 'confirmed', null, 2,
+   true, 'Americano', 'confirmed', null, '{}'::uuid[],
    array['8:00 AM','8:30 AM','9:00 AM','9:30 AM','10:00 AM','10:30 AM','11:00 AM','11:30 AM','1:00 PM','1:30 PM'],
    now() - interval '4 days'),
 
@@ -120,7 +120,7 @@ insert into bookings (
    current_date - 4, '1:00 PM',
    'Noel Pascual', 'noel.pascual@email.com', '0915 321 6549',
    'Nissan Terra', '2021', 'Dog hair all over the seats.',
-   false, '', 'cancelled', 'Customer request', 1,
+   false, '', 'cancelled', 'Customer request', '{}'::uuid[],
    array['1:00 PM','1:30 PM','2:00 PM','2:30 PM','3:00 PM','3:30 PM','4:00 PM','4:30 PM'],
    now() - interval '5 days'),
 
@@ -128,7 +128,7 @@ insert into bookings (
    current_date - 5, '8:00 AM',
    'Kristine Padilla', 'kristine.padilla@email.com', '0918 112 2334',
    'Honda Civic', '2019', 'Several swirl marks on hood and roof.',
-   false, '', 'confirmed', null, 2,
+   false, '', 'confirmed', null, '{}'::uuid[],
    array['8:00 AM','8:30 AM','9:00 AM','9:30 AM','10:00 AM','10:30 AM','11:00 AM','11:30 AM','1:00 PM','1:30 PM','2:00 PM','2:30 PM'],
    now() - interval '6 days'),
 
@@ -136,7 +136,7 @@ insert into bookings (
    current_date - 7, '10:00 AM',
    'Ricardo Flores', 'ricardo.flores@email.com', '0917 445 5566',
    'Hyundai Tucson', '2022', '',
-   false, '', 'no_show', null, 1,
+   false, '', 'no_show', null, '{}'::uuid[],
    array['10:00 AM','10:30 AM','11:00 AM','11:30 AM','1:00 PM','1:30 PM','2:00 PM','2:30 PM','3:00 PM','3:30 PM'],
    now() - interval '8 days'),
 
@@ -144,7 +144,7 @@ insert into bookings (
    current_date - 8, '9:00 AM',
    'Maricel Ocampo', 'maricel.ocampo@email.com', '0925 667 7889',
    'Suzuki Swift', '2023', 'Just needs a quick wash before event.',
-   false, '', 'confirmed', null, 1,
+   false, '', 'confirmed', null, '{}'::uuid[],
    array['9:00 AM','9:30 AM','10:00 AM','10:30 AM','11:00 AM','11:30 AM'],
    now() - interval '9 days'),
 
@@ -152,7 +152,7 @@ insert into bookings (
    current_date - 10, '8:00 AM',
    'Juan dela Cruz', 'juan.delacruz@email.com', '0917 123 4567',
    'Toyota Fortuner', '2019', 'Repeat client — VIP priority.',
-   true, 'Macchiato', 'confirmed', null, 3,
+   true, 'Macchiato', 'confirmed', null, '{}'::uuid[],
    array['8:00 AM','8:30 AM','9:00 AM','9:30 AM','10:00 AM','10:30 AM','11:00 AM','11:30 AM','1:00 PM','1:30 PM','2:00 PM','2:30 PM','3:00 PM','3:30 PM','4:00 PM','4:30 PM'],
    now() - interval '11 days'),
 
@@ -160,7 +160,7 @@ insert into bookings (
    current_date - 12, '11:00 AM',
    'Carlos Bautista', 'carlos.bautista@email.com', '0917 990 8877',
    'Ford Ranger Raptor', '2020', 'Mud and sand from weekend trip.',
-   true, 'Brewed Coffee', 'cancelled', 'Schedule conflict', 1,
+   true, 'Brewed Coffee', 'cancelled', 'Schedule conflict', '{}'::uuid[],
    array['11:00 AM','11:30 AM','1:00 PM','1:30 PM','2:00 PM','2:30 PM','3:00 PM','3:30 PM'],
    now() - interval '13 days')
 

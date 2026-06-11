@@ -99,7 +99,14 @@ on conflict (lower(slug)) do nothing;
 -- so new services get their id assigned by the database automatically.
 -- Also add a trigger to auto-assign sort_order = max(sort_order) + 1 on insert
 -- so new services always appear last without the admin setting it manually.
-alter table services alter column id add generated always as identity;
+do $$ begin
+  if not exists (
+    select 1 from information_schema.columns
+    where table_name = 'services' and column_name = 'id' and is_identity = 'YES'
+  ) then
+    execute 'alter table services alter column id add generated always as identity';
+  end if;
+end $$;
 select setval(pg_get_serial_sequence('services', 'id'), (select coalesce(max(id), 0) from services));
 
 create or replace function services_auto_sort_order()
