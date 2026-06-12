@@ -12,6 +12,8 @@ const links = [
   { href: '/services', label: 'Services' },
   // { href: '/booking', label: 'Book' },
   { href: '/membership', label: 'Membership' },
+  { href: '/faq', label: 'FAQ' },
+  { href: '/schedule', label: 'Schedule' },
   { href: '/live', label: 'Live', live: true },
 ];
 
