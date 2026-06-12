@@ -28,7 +28,7 @@ import { AdminLayout } from '@/components/AdminLayout';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { useApp } from '@/context/AppContext';
 import { formatCurrency } from '@/data/services';
-import { formatDateLong } from '@/utils/bookingUtils';
+import { formatDateLong, getBusyDetailerIds } from '@/utils/bookingUtils';
 import { sendEmail } from '@/lib/sendEmail';
 import { bookingConfirmationHtml } from '@/lib/emailTemplates';
 
@@ -290,7 +290,24 @@ function BookingDetailView() {
     }
   }, [booking?.id]);
 
+  // Detailers committed to another booking that overlaps this one's slots —
+  // they can be unassigned here but not newly assigned.
+  const busyDetailerIds = useMemo(
+    () =>
+      booking
+        ? getBusyDetailerIds(booking.date, booking.time, booking.serviceDuration, {
+            bookings,
+            excludeBookingId: booking.id,
+          })
+        : new Set(),
+    [booking, bookings]
+  );
+
   const toggleDetailer = (id) => {
+    if (!selectedDetailerIds.includes(id) && busyDetailerIds.has(id)) {
+      showToast('That detailer already has an overlapping booking at this time.', 'error');
+      return;
+    }
     setSelectedDetailerIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     );
@@ -539,13 +556,18 @@ function BookingDetailView() {
                 <div className="flex flex-wrap gap-2">
                   {activeDetailers.map((d) => {
                     const selected = selectedDetailerIds.includes(d.id);
+                    const busy = !selected && busyDetailerIds.has(d.id);
                     return (
                       <button
                         key={d.id}
                         type="button"
+                        disabled={busy}
                         onClick={() => toggleDetailer(d.id)}
+                        title={busy ? 'Already booked at this time' : undefined}
                         className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm border transition-colors ${
-                          selected
+                          busy
+                            ? 'bg-white/[0.02] border-white/5 text-muted/60 cursor-not-allowed'
+                            : selected
                             ? 'bg-gold/15 border-gold/60 text-gold'
                             : 'bg-white/[0.04] border-white/10 text-cream/70 hover:border-white/20 hover:text-cream'
                         }`}
@@ -554,6 +576,7 @@ function BookingDetailView() {
                           {d.name.split(' ').slice(0, 2).map((w) => w[0]).join('')}
                         </span>
                         {d.nickname ? `"${d.nickname}"` : d.name.split(' ')[0]}
+                        {busy && <span className="text-[10px] uppercase tracking-wide text-danger/80">Busy</span>}
                         {selected && <Check className="w-3 h-3 shrink-0" />}
                       </button>
                     );

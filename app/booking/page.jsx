@@ -23,6 +23,7 @@ import { formatCurrency } from '@/data/services';
 import {
   formatDateLong,
   formatDateShort,
+  getBusyDetailerIds,
   getDaysConsumed,
   getMultiDayBlockedDates,
   getTimeAvailability,
@@ -352,6 +353,25 @@ function BookingFlow() {
         : null,
     [date, time, service, hydrated, bookings, blockedSlots, settings, overflowMode]
   );
+
+  // Detailers already committed to an overlapping booking at the chosen
+  // date/time — these can't be offered as a preferred detailer.
+  const busyDetailerIds = useMemo(
+    () =>
+      hydrated && date && time && service
+        ? getBusyDetailerIds(date, time, service.duration, { bookings })
+        : new Set(),
+    [date, time, service, hydrated, bookings]
+  );
+
+  // If the date/time changes after a detailer was picked, drop any selection
+  // that is no longer free at the new time.
+  useEffect(() => {
+    setSelectedDetailerIds((prev) => {
+      const next = prev.filter((id) => !busyDetailerIds.has(id));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [busyDetailerIds]);
 
   // For multi-day services, compute which additional dates will be occupied
   // so we can show an informational callout in the time slot panel.
@@ -963,13 +983,18 @@ function BookingFlow() {
                   <div className="flex flex-wrap gap-2 mt-1">
                     {activeDetailers.map((d) => {
                       const selected = selectedDetailerIds.includes(d.id);
+                      const busy = busyDetailerIds.has(d.id);
                       return (
                         <button
                           key={d.id}
                           type="button"
+                          disabled={busy}
                           onClick={() => toggleDetailer(d.id)}
+                          title={busy ? 'Already booked at the selected time' : undefined}
                           className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm border transition-colors ${
-                            selected
+                            busy
+                              ? 'bg-white/[0.02] border-white/5 text-muted/60 cursor-not-allowed'
+                              : selected
                               ? 'bg-gold/15 border-gold/60 text-gold'
                               : 'bg-white/[0.04] border-white/10 text-cream/70 hover:border-white/20 hover:text-cream'
                           }`}
@@ -978,13 +1003,19 @@ function BookingFlow() {
                             {(d.name || '?').split(' ').slice(0, 2).map((w) => w[0]).join('')}
                           </span>
                           {d.nickname ? `"${d.nickname}"` : d.name.split(' ')[0]}
-                          {selected && <Check className="w-3 h-3 shrink-0" />}
+                          {busy && (
+                            <span className="text-[10px] uppercase tracking-wide text-danger/80">Busy</span>
+                          )}
+                          {selected && !busy && <Check className="w-3 h-3 shrink-0" />}
                         </button>
                       );
                     })}
                   </div>
                   <p className="text-xs text-muted mt-2">
                     We'll do our best to honor your preference. Subject to availability.
+                    {busyDetailerIds.size > 0 && (
+                      <> Detailers marked busy already have a booking at your selected time.</>
+                    )}
                   </p>
                 </Field>
               )}

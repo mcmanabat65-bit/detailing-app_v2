@@ -26,6 +26,7 @@ import { useApp } from '@/context/AppContext';
 import { formatCurrency } from '@/data/services';
 import {
   formatDateLong,
+  getBusyDetailerIds,
   getDaysConsumed,
   getMultiDayBlockedDates,
   getTimeAvailability,
@@ -632,6 +633,24 @@ function AdminNewBookingForm() {
     return { days, lastDate: extra[extra.length - 1] };
   }, [longestService, date]);
 
+  // Detailers already committed to an overlapping booking at the chosen
+  // date/time — these can't be assigned to this booking.
+  const busyDetailerIds = useMemo(
+    () =>
+      date && time && longestService
+        ? getBusyDetailerIds(date, time, longestService.duration, { bookings })
+        : new Set(),
+    [date, time, longestService, bookings]
+  );
+
+  // Drop any selected detailer that became busy after a date/time change.
+  useEffect(() => {
+    setSelectedDetailerIds((prev) => {
+      const next = prev.filter((id) => !busyDetailerIds.has(id));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [busyDetailerIds]);
+
   // ---------------------------------------------------------------------------
   // Submit — creates one booking per item
   // ---------------------------------------------------------------------------
@@ -644,6 +663,12 @@ function AdminNewBookingForm() {
     }
     if (!date) { showToast('Pick a date.', 'error'); return; }
     if (!time) { showToast('Pick a time.', 'error'); return; }
+    // Each item becomes its own booking at the same slot — the same detailer
+    // can't be on two of them at once, so specific assignment is single-item only.
+    if (items.length > 1 && selectedDetailerIds.length > 0) {
+      showToast('Specific detailers can\'t be assigned when booking multiple vehicles at the same time slot — clear the detailer selection or book them separately.', 'error');
+      return;
+    }
 
     for (const it of items) {
       if (!it.vehicle || !it.vehicleYear) {
@@ -938,10 +963,14 @@ function AdminNewBookingForm() {
               <div className="flex flex-wrap gap-2">
                 {activeDetailers.map((d) => {
                   const selected = selectedDetailerIds.includes(d.id);
+                  const busy = busyDetailerIds.has(d.id);
                   return (
-                    <button key={d.id} type="button" onClick={() => toggleDetailer(d.id)}
+                    <button key={d.id} type="button" disabled={busy} onClick={() => toggleDetailer(d.id)}
+                      title={busy ? 'Already booked at the selected time' : undefined}
                       className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm border transition-colors ${
-                        selected
+                        busy
+                          ? 'bg-white/[0.02] border-white/5 text-muted/60 cursor-not-allowed'
+                          : selected
                           ? 'bg-gold/15 border-gold/60 text-gold'
                           : 'bg-white/[0.04] border-white/10 text-cream/70 hover:border-white/20 hover:text-cream'
                       }`}>
@@ -949,13 +978,17 @@ function AdminNewBookingForm() {
                         {(d.name || '?').split(' ').slice(0, 2).map((w) => w[0]).join('')}
                       </span>
                       {d.nickname ? `"${d.nickname}"` : d.name.split(' ')[0]}
-                      {selected && <Check className="w-3 h-3 shrink-0" />}
+                      {busy && <span className="text-[10px] uppercase tracking-wide text-danger/80">Busy</span>}
+                      {selected && !busy && <Check className="w-3 h-3 shrink-0" />}
                     </button>
                   );
                 })}
               </div>
               {selectedDetailerIds.length === 0 && (
                 <p className="text-xs text-muted">No detailer selected — will use default pool size.</p>
+              )}
+              {busyDetailerIds.size > 0 && (
+                <p className="text-xs text-muted">Detailers marked busy already have a booking at the selected time.</p>
               )}
             </section>
           )}

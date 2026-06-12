@@ -81,7 +81,7 @@ const LiveCard = memo(function LiveCard({ booking, catMap }) {
               isActive ? 'text-gold' : 'text-muted'
             }`}
           >
-            {isActive ? 'In Progress' : 'Upcoming'}
+            {isActive ? 'On-Going' : 'Upcoming'}
           </span>
         </div>
       </div>

@@ -191,6 +191,37 @@ export const computeDetailersUsedAt = (date, time, bookings = []) => {
 };
 
 /**
+ * Collect the IDs of detailers already committed to another active booking
+ * that overlaps the range a booking of `serviceDuration` starting at
+ * (date, time) would occupy. Returns a Set of detailer UUIDs.
+ *
+ * This is the identity-level companion to computeDetailersUsedAt (which only
+ * counts heads): use it to prevent assigning a specific detailer to two
+ * overlapping bookings.
+ */
+export const getBusyDetailerIds = (date, time, serviceDuration, opts = {}) => {
+  const { bookings = [], excludeBookingId = null } = opts;
+  const busy = new Set();
+  if (!date || !time) return busy;
+  const range = occupiedRange(time, getSlotsConsumed(serviceDuration || '1 hr'));
+  if (range.length === 0) return busy;
+  for (const b of bookings) {
+    if (!isActiveBooking(b) || b.id === excludeBookingId) continue;
+    if (!Array.isArray(b.detailersAssigned) || b.detailersAssigned.length === 0) continue;
+    let overlaps = false;
+    if (b.date === date) {
+      const bRange = occupiedRange(b.time, getSlotsConsumed(b.serviceDuration || '1 hr'));
+      overlaps = bRange.some((t) => range.includes(t));
+    } else {
+      const days = getDaysConsumed(b.serviceDuration || '');
+      overlaps = days > 1 && getMultiDayBlockedDates(b.date, days).includes(date);
+    }
+    if (overlaps) for (const id of b.detailersAssigned) busy.add(id);
+  }
+  return busy;
+};
+
+/**
  * Across the slots that a booking starting at `time` would occupy, return
  * the smallest remaining-detailer capacity. That is the binding constraint.
  *

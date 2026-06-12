@@ -28,7 +28,7 @@ import { AdminLayout } from '@/components/AdminLayout';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { useApp } from '@/context/AppContext';
 import { formatCurrency } from '@/data/services';
-import { formatDateShort } from '@/utils/bookingUtils';
+import { formatDateShort, getBusyDetailerIds } from '@/utils/bookingUtils';
 
 const CANCEL_REASONS = [
   'Customer request',
@@ -134,9 +134,18 @@ function BookingsTable() {
 
   const handleDetailerToggle = async (booking, detailerId) => {
     const current = Array.isArray(booking.detailersAssigned) ? booking.detailersAssigned : [];
-    const next = current.includes(detailerId)
-      ? current.filter((id) => id !== detailerId)
-      : [...current, detailerId];
+    const isAdding = !current.includes(detailerId);
+    if (isAdding) {
+      const busy = getBusyDetailerIds(booking.date, booking.time, booking.serviceDuration, {
+        bookings,
+        excludeBookingId: booking.id,
+      });
+      if (busy.has(detailerId)) {
+        showToast('That detailer already has an overlapping booking at this time.', 'error');
+        return;
+      }
+    }
+    const next = isAdding ? [...current, detailerId] : current.filter((id) => id !== detailerId);
     if (next.length === 0) { showToast('At least one detailer must be assigned.', 'error'); return; }
     const result = await updateBookingDetailers(booking.id, next);
     if (result?.error) showToast(result.error, 'error');
@@ -290,6 +299,9 @@ function BookingsTable() {
                 const assigned = Array.isArray(b.detailersAssigned) ? b.detailersAssigned : [];
                 const isEditable = b.status === 'confirmed' || b.status === 'pending' || b.status === 'on-going';
                 const isPickerOpen = detailerPickerBookingId === b.id;
+                const busyIds = isPickerOpen
+                  ? getBusyDetailerIds(b.date, b.time, b.serviceDuration, { bookings, excludeBookingId: b.id })
+                  : null;
 
                 return (
                   <tr key={b.id} className="border-b border-white/5 hover:bg-white/[0.02]">
@@ -338,19 +350,26 @@ function BookingsTable() {
                           <div className="absolute left-0 top-7 z-20 bg-surface border border-white/10 rounded-sm shadow-xl p-3 min-w-[180px] space-y-1">
                             {activeDetailers.map((d) => {
                               const sel = assigned.includes(d.id);
+                              // Already-assigned detailers stay clickable so they can be removed.
+                              const busy = !sel && busyIds?.has(d.id);
                               return (
                                 <button
                                   key={d.id}
                                   type="button"
+                                  disabled={busy}
                                   onClick={() => handleDetailerToggle(b, d.id)}
+                                  title={busy ? 'Already booked at this time' : undefined}
                                   className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-sm text-sm text-left transition-colors ${
-                                    sel ? 'bg-gold/10 text-gold' : 'text-cream/70 hover:bg-white/5 hover:text-cream'
+                                    busy
+                                      ? 'text-muted/50 cursor-not-allowed'
+                                      : sel ? 'bg-gold/10 text-gold' : 'text-cream/70 hover:bg-white/5 hover:text-cream'
                                   }`}
                                 >
                                   <span className="w-5 h-5 rounded-full bg-white/10 flex items-center justify-center text-[10px] font-semibold shrink-0">
                                     {d.name.split(' ').slice(0, 2).map((w) => w[0]).join('')}
                                   </span>
                                   <span className="flex-1 truncate">{d.nickname ? `"${d.nickname}"` : d.name.split(' ')[0]}</span>
+                                  {busy && <span className="text-[10px] uppercase tracking-wide text-danger/70 shrink-0">Busy</span>}
                                   {sel && <X className="w-3 h-3 shrink-0" />}
                                 </button>
                               );

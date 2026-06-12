@@ -239,6 +239,7 @@ declare
   v_detailer_ids uuid[];
   v_requested int;
   v_clamped_ids uuid[];
+  v_conflict_names text;
   v_id text;
   v_date date;
   v_row bookings;
@@ -273,6 +274,24 @@ begin
     );
   end if;
 
+  -- Per-detailer conflict guard: a specific detailer cannot be assigned to
+  -- two bookings whose slots overlap on the same date.
+  select string_agg(distinct dt.name, ', ') into v_conflict_names
+  from bookings b
+  cross join lateral unnest(b.detailers_assigned) as busy(id)
+  join detailers dt on dt.id = busy.id
+  where b.date = v_date
+    and b.status not in ('cancelled', 'no_show')
+    and b.occupies_slots && p_occupies_slots
+    and busy.id = any (v_detailer_ids);
+
+  if v_conflict_names is not null then
+    return jsonb_build_object(
+      'error',
+      'Already booked at this time: ' || v_conflict_names || '. Choose a different detailer or time slot.'
+    );
+  end if;
+
   -- Clamp to available capacity
   v_clamped_ids := v_detailer_ids[1:least(v_requested, v_min)];
 
@@ -283,7 +302,7 @@ begin
 
   insert into bookings (
     id, service_id, service_name, service_price, service_duration, service_category,
-    date, time, customer_name, email, phone, vehicle, vehicle_year, notes,
+    date, time, customer_name, nickname, email, phone, vehicle, vehicle_year, notes,
     is_vip, member_id, car_id, coffee_order, status, detailers_assigned, occupies_slots,
     vehicle_type
   ) values (
@@ -296,6 +315,7 @@ begin
     v_date,
     p->>'time',
     p->>'customer_name',
+    nullif(p->>'nickname', ''),
     p->>'email',
     p->>'phone',
     p->>'vehicle',
@@ -332,6 +352,7 @@ declare
   v_min int := 2147483647;
   v_count int;
   v_slot text;
+  v_conflict_names text;
   v_booking bookings;
   v_row bookings;
 begin
@@ -371,6 +392,25 @@ begin
     return jsonb_build_object(
       'error',
       'Only ' || v_min || ' detailer(s) available across this booking''s hours.'
+    );
+  end if;
+
+  -- Per-detailer conflict guard: a specific detailer cannot be assigned to
+  -- two bookings whose slots overlap on the same date.
+  select string_agg(distinct dt.name, ', ') into v_conflict_names
+  from bookings b
+  cross join lateral unnest(b.detailers_assigned) as busy(id)
+  join detailers dt on dt.id = busy.id
+  where b.date = v_booking.date
+    and b.id <> p_id
+    and b.status not in ('cancelled', 'no_show')
+    and b.occupies_slots && v_booking.occupies_slots
+    and busy.id = any (p_detailer_ids);
+
+  if v_conflict_names is not null then
+    return jsonb_build_object(
+      'error',
+      'Already booked at this time: ' || v_conflict_names || '. Choose a different detailer.'
     );
   end if;
 
