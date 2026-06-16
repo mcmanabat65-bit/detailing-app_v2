@@ -717,4 +717,194 @@ begin
 end;
 $$;
 
+-- Admin roles (Phase 3 — super_admin vs admin access tiers)
+-- Maps an admin's login email to a role. Resolution is by email match against
+-- the logged-in Supabase Auth user. When this table is empty the first
+-- logged-in user is treated as super_admin (bootstrap).
+create table if not exists admin_users (
+  id         uuid primary key default gen_random_uuid(),
+  email      text not null unique,
+  role       text not null default 'admin' check (role in ('super_admin', 'admin')),
+  created_at timestamptz not null default now()
+);
+alter table admin_users enable row level security;
+drop policy if exists "admin all admin_users" on admin_users;
+-- Authenticated only — admin emails/roles are not exposed to anonymous visitors.
+create policy "admin all admin_users" on admin_users for all to authenticated using (true) with check (true);
+
+-- Seed the boss account (replace the email). Safe to re-run.
+--   insert into admin_users (email, role) values ('boss@samahuzai.com', 'super_admin')
+--   on conflict (email) do update set role = excluded.role;
+
+notify pgrst, 'reload schema';
+
+-- =====================================================================
+-- Phase 3 — Role-based Row Level Security (defense in depth)
+-- =====================================================================
+-- Goal: a plain `admin` (e.g. the barista) can READ what the UI needs and
+-- CREATE bookings, but cannot perform sensitive WRITES — even if they bypass
+-- the UI and call the API directly. Only a `super_admin` can edit/cancel/delete
+-- bookings or manage members, cars, coffees, services, settings, staff, etc.
+--
+-- Design:
+--   * SELECT stays open (anon + authenticated) to avoid any public-site or
+--     admin-UI read regressions (matches prior behaviour). Two exceptions keep
+--     their stricter prior reads: car_condition_logs and admin_users
+--     (authenticated only).
+--   * WRITES are role-gated via is_super_admin(). Public submission flows keep
+--     their anon carve-outs: membership (members/cars/member_cars inserts),
+--     testimonial submissions, and booking inserts.
+-- Idempotent — safe to re-run.
+-- =====================================================================
+
+-- Helper: is the *current* user a super admin?
+-- SECURITY DEFINER so it can read admin_users regardless of that table's RLS.
+-- Bootstrap: when admin_users is empty, any authenticated user counts as
+-- super_admin so the boss can sign in and assign the first roles.
+create or replace function public.is_super_admin()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select auth.uid() is not null
+     and (
+       exists (
+         select 1 from admin_users
+         where lower(email) = lower(coalesce(auth.jwt() ->> 'email', ''))
+           and role = 'super_admin'
+       )
+       or not exists (select 1 from admin_users)
+     );
+$$;
+
+-- Drop every legacy wide-open / prior policy we are replacing -------------------
+drop policy if exists "public all bookings"            on bookings;
+drop policy if exists "public all members"             on members;
+drop policy if exists "public all blocked_slots"       on blocked_slots;
+drop policy if exists "public all settings"            on settings;
+drop policy if exists "public all services"            on services;
+drop policy if exists "public all cars"                on cars;
+drop policy if exists "public all coffees"             on coffees;
+drop policy if exists "public all member_cars"         on member_cars;
+drop policy if exists "admin all car_condition_logs"   on car_condition_logs;
+drop policy if exists "public all recurring_schedules" on recurring_schedules;
+drop policy if exists "public all addon_catalog"       on addon_catalog;
+drop policy if exists "public all service_categories"  on service_categories;
+drop policy if exists "public all detailers"           on detailers;
+drop policy if exists "public read testimonials"       on testimonials;
+drop policy if exists "admin all testimonials"         on testimonials;
+drop policy if exists "public submit testimonials"     on testimonials;
+drop policy if exists "admin all booking_status_logs"  on booking_status_logs;
+drop policy if exists "admin all admin_users"          on admin_users;
+
+-- bookings: anyone reads; anon + staff create; only super_admin edits/deletes ---
+drop policy if exists "bookings_select" on bookings;
+drop policy if exists "bookings_insert" on bookings;
+drop policy if exists "bookings_update" on bookings;
+drop policy if exists "bookings_delete" on bookings;
+create policy "bookings_select" on bookings for select to anon, authenticated using (true);
+create policy "bookings_insert" on bookings for insert to anon, authenticated with check (true);
+create policy "bookings_update" on bookings for update to authenticated using (is_super_admin()) with check (is_super_admin());
+create policy "bookings_delete" on bookings for delete to authenticated using (is_super_admin());
+
+-- booking_status_logs: staff read; only super_admin writes ---------------------
+drop policy if exists "bsl_select" on booking_status_logs;
+drop policy if exists "bsl_insert" on booking_status_logs;
+drop policy if exists "bsl_update" on booking_status_logs;
+drop policy if exists "bsl_delete" on booking_status_logs;
+create policy "bsl_select" on booking_status_logs for select to authenticated using (true);
+create policy "bsl_insert" on booking_status_logs for insert to authenticated with check (is_super_admin());
+create policy "bsl_update" on booking_status_logs for update to authenticated using (is_super_admin()) with check (is_super_admin());
+create policy "bsl_delete" on booking_status_logs for delete to authenticated using (is_super_admin());
+
+-- members: anyone reads; anon applies (public form); only super_admin manages ---
+drop policy if exists "members_select"      on members;
+drop policy if exists "members_insert_anon" on members;
+drop policy if exists "members_insert_auth" on members;
+drop policy if exists "members_update"      on members;
+drop policy if exists "members_delete"      on members;
+create policy "members_select"      on members for select to anon, authenticated using (true);
+create policy "members_insert_anon" on members for insert to anon with check (true);
+create policy "members_insert_auth" on members for insert to authenticated with check (is_super_admin());
+create policy "members_update"      on members for update to authenticated using (is_super_admin()) with check (is_super_admin());
+create policy "members_delete"      on members for delete to authenticated using (is_super_admin());
+
+-- cars: read open; anon + staff may add (membership / booking auto-save);
+-- only super_admin edits/deletes the shared catalog ----------------------------
+drop policy if exists "cars_select" on cars;
+drop policy if exists "cars_insert" on cars;
+drop policy if exists "cars_update" on cars;
+drop policy if exists "cars_delete" on cars;
+create policy "cars_select" on cars for select to anon, authenticated using (true);
+create policy "cars_insert" on cars for insert to anon, authenticated with check (true);
+create policy "cars_update" on cars for update to authenticated using (is_super_admin()) with check (is_super_admin());
+create policy "cars_delete" on cars for delete to authenticated using (is_super_admin());
+
+-- member_cars: read open; anon + staff may link (membership / booking);
+-- only super_admin edits/removes ----------------------------------------------
+drop policy if exists "member_cars_select" on member_cars;
+drop policy if exists "member_cars_insert" on member_cars;
+drop policy if exists "member_cars_update" on member_cars;
+drop policy if exists "member_cars_delete" on member_cars;
+create policy "member_cars_select" on member_cars for select to anon, authenticated using (true);
+create policy "member_cars_insert" on member_cars for insert to anon, authenticated with check (true);
+create policy "member_cars_update" on member_cars for update to authenticated using (is_super_admin()) with check (is_super_admin());
+create policy "member_cars_delete" on member_cars for delete to authenticated using (is_super_admin());
+
+-- testimonials: read open; anon submits as pending; super_admin manages --------
+drop policy if exists "testimonials_select"      on testimonials;
+drop policy if exists "testimonials_insert_anon" on testimonials;
+drop policy if exists "testimonials_insert_auth" on testimonials;
+drop policy if exists "testimonials_update"      on testimonials;
+drop policy if exists "testimonials_delete"      on testimonials;
+create policy "testimonials_select"      on testimonials for select to anon, authenticated using (true);
+create policy "testimonials_insert_anon" on testimonials for insert to anon with check (status = 'pending');
+create policy "testimonials_insert_auth" on testimonials for insert to authenticated with check (is_super_admin());
+create policy "testimonials_update"      on testimonials for update to authenticated using (is_super_admin()) with check (is_super_admin());
+create policy "testimonials_delete"      on testimonials for delete to authenticated using (is_super_admin());
+
+-- Super-admin-managed catalogs (read open, writes super_admin only) ------------
+-- services, service_categories, coffees, detailers, addon_catalog,
+-- settings, blocked_slots, recurring_schedules
+do $$
+declare t text;
+begin
+  foreach t in array array[
+    'services','service_categories','coffees','detailers','addon_catalog',
+    'settings','blocked_slots','recurring_schedules'
+  ] loop
+    execute format('drop policy if exists %I on %I', t||'_select', t);
+    execute format('drop policy if exists %I on %I', t||'_insert', t);
+    execute format('drop policy if exists %I on %I', t||'_update', t);
+    execute format('drop policy if exists %I on %I', t||'_delete', t);
+    execute format('create policy %I on %I for select to anon, authenticated using (true)', t||'_select', t);
+    execute format('create policy %I on %I for insert to authenticated with check (is_super_admin())', t||'_insert', t);
+    execute format('create policy %I on %I for update to authenticated using (is_super_admin()) with check (is_super_admin())', t||'_update', t);
+    execute format('create policy %I on %I for delete to authenticated using (is_super_admin())', t||'_delete', t);
+  end loop;
+end $$;
+
+-- car_condition_logs: staff read; super_admin writes (PII — no anon read) ------
+drop policy if exists "ccl_select" on car_condition_logs;
+drop policy if exists "ccl_insert" on car_condition_logs;
+drop policy if exists "ccl_update" on car_condition_logs;
+drop policy if exists "ccl_delete" on car_condition_logs;
+create policy "ccl_select" on car_condition_logs for select to authenticated using (true);
+create policy "ccl_insert" on car_condition_logs for insert to authenticated with check (is_super_admin());
+create policy "ccl_update" on car_condition_logs for update to authenticated using (is_super_admin()) with check (is_super_admin());
+create policy "ccl_delete" on car_condition_logs for delete to authenticated using (is_super_admin());
+
+-- admin_users: any staff may read (needed for role resolution);
+-- only super_admin manages (bootstrap: first user when table is empty) ---------
+drop policy if exists "admin_users_select" on admin_users;
+drop policy if exists "admin_users_insert" on admin_users;
+drop policy if exists "admin_users_update" on admin_users;
+drop policy if exists "admin_users_delete" on admin_users;
+create policy "admin_users_select" on admin_users for select to authenticated using (true);
+create policy "admin_users_insert" on admin_users for insert to authenticated with check (is_super_admin());
+create policy "admin_users_update" on admin_users for update to authenticated using (is_super_admin()) with check (is_super_admin());
+create policy "admin_users_delete" on admin_users for delete to authenticated using (is_super_admin());
+
 notify pgrst, 'reload schema';

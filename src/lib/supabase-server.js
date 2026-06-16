@@ -31,7 +31,7 @@ export async function fetchServices() {
 
 const STATIC_TESTIMONIALS = [
   { id: '1', name: 'Jehnsen Enrique', car: 'Nissan Navara Owner', quote: 'I have been to every detailer in BGC. Samahuzai Carwash and Auto Detailing is the only one I trust with my Navara. The finish is mirror-grade.', rating: 5 },
-  { id: '2', name: 'Azi Acosta', car: 'Range Rover Velar', quote: 'The lounge alone is worth it. I came in for a wash and left feeling like I had spent the morning at a five-star hotel.', rating: 5 },
+  { id: '2', name: 'Dricks Espinosa', car: 'Range Rover Velar', quote: 'The lounge alone is worth it. I came in for a wash and left feeling like I had spent the morning at a five-star hotel.', rating: 5 },
   { id: '3', name: 'Vince Tacloban', car: 'BMW M3 Competition', quote: 'Ceramic coating turned out flawless. Six months in, still beading like the day I drove out. Worth every peso.', rating: 5 },
 ];
 

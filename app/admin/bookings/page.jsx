@@ -51,7 +51,11 @@ function BookingsTable() {
     fetchBookingLogs,
     deleteBooking,
     showToast,
+    can,
   } = useApp();
+
+  // Plain admins can view and create bookings, but not edit existing ones.
+  const canEdit = can('bookings.edit');
 
   const activeDetailers = useMemo(
     () => (detailers || []).filter((d) => d.isActive !== false),
@@ -334,10 +338,10 @@ function BookingsTable() {
                       <div className="relative">
                         <button
                           type="button"
-                          disabled={!isEditable || activeDetailers.length === 0}
+                          disabled={!isEditable || activeDetailers.length === 0 || !canEdit}
                           onClick={() => setDetailerPickerBookingId(isPickerOpen ? null : b.id)}
                           className="inline-flex items-center gap-1.5 text-sm text-cream/80 hover:text-gold disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                          title={activeDetailers.length === 0 ? 'No detailers in roster' : 'Assign detailers'}
+                          title={!canEdit ? 'View only' : activeDetailers.length === 0 ? 'No detailers in roster' : 'Assign detailers'}
                         >
                           <Users className="w-3.5 h-3.5 text-gold shrink-0" />
                           {assigned.length === 0 ? (
@@ -403,6 +407,8 @@ function BookingsTable() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-1">
+                        {canEdit && (
+                        <>
                         {/* Confirm — pending only */}
                         {b.status === 'pending' && (
                           <button
@@ -476,6 +482,8 @@ function BookingsTable() {
                             </span>
                           )}
                         </button>
+                        </>
+                        )}
                         <button
                           onClick={() => openLog(b)}
                           aria-label="View status history"
@@ -484,13 +492,15 @@ function BookingsTable() {
                         >
                           <History className="w-4 h-4" />
                         </button>
-                        <button
-                          onClick={() => setConfirmDelete(b)}
-                          aria-label="Delete booking"
-                          className="p-2 text-cream/70 hover:text-danger hover:bg-danger/10 rounded-sm transition-colors"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        {canEdit && (
+                          <button
+                            onClick={() => setConfirmDelete(b)}
+                            aria-label="Delete booking"
+                            className="p-2 text-cream/70 hover:text-danger hover:bg-danger/10 rounded-sm transition-colors"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -984,7 +994,7 @@ function AddOnsModal({ booking, catalog, onSave, onClose }) {
 
 export default function AdminBookingsPage() {
   return (
-    <ProtectedRoute>
+    <ProtectedRoute permission="bookings.view">
       <BookingsTable />
     </ProtectedRoute>
   );

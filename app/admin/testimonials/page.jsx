@@ -123,7 +123,7 @@ export default function TestimonialsPage() {
   };
 
   return (
-    <ProtectedRoute>
+    <ProtectedRoute permission="testimonials.manage">
       <AdminLayout title="Testimonials">
         <div className="space-y-6">
           {/* Header */}

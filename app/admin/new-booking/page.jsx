@@ -1079,7 +1079,7 @@ function AdminNewBookingForm() {
 
 export default function AdminNewBookingPage() {
   return (
-    <ProtectedRoute>
+    <ProtectedRoute permission="bookings.create">
       <AdminNewBookingForm />
     </ProtectedRoute>
   );

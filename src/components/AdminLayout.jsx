@@ -20,31 +20,37 @@ import {
   Tag,
   Quote,
   ListPlus,
+  ShieldCheck,
 } from 'lucide-react';
 import Image from 'next/image';
 import { useApp } from '@/context/AppContext';
+import { PERMISSIONS, ROLE_LABELS } from '@/lib/permissions';
 
 const links = [
-  { href: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/admin/bookings', label: 'Bookings', icon: ClipboardList },
-  { href: '/admin/schedule', label: 'Schedule', icon: CalendarDays },
-  { href: '/admin/members', label: 'VIP Members', icon: Users },
-  { href: '/admin/detailers', label: 'Detailers', icon: UserCog },
-  { href: '/admin/monitor', label: 'Shop Monitor', icon: Monitor },
-  { href: '/admin/cars', label: 'Cars', icon: Car },
-  { href: '/admin/services', label: 'Services', icon: Wrench },
-  { href: '/admin/addons', label: 'Add-Ons', icon: ListPlus },
-  { href: '/admin/categories', label: 'Categories', icon: Tag },
-  { href: '/admin/coffees', label: 'Coffee Menu', icon: Coffee },
-  { href: '/admin/testimonials', label: 'Testimonials', icon: Quote },
-  { href: '/admin/settings', label: 'Settings', icon: SettingsIcon },
+  { href: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard, perm: PERMISSIONS.DASHBOARD_VIEW },
+  { href: '/admin/bookings', label: 'Bookings', icon: ClipboardList, perm: PERMISSIONS.BOOKINGS_VIEW },
+  { href: '/admin/schedule', label: 'Schedule', icon: CalendarDays, perm: PERMISSIONS.SCHEDULE_VIEW },
+  { href: '/admin/members', label: 'VIP Members', icon: Users, perm: PERMISSIONS.MEMBERS_MANAGE },
+  { href: '/admin/detailers', label: 'Detailers', icon: UserCog, perm: PERMISSIONS.DETAILERS_MANAGE },
+  { href: '/admin/monitor', label: 'Shop Monitor', icon: Monitor, perm: PERMISSIONS.MONITOR_VIEW },
+  { href: '/admin/cars', label: 'Cars', icon: Car, perm: PERMISSIONS.CARS_MANAGE },
+  { href: '/admin/services', label: 'Services', icon: Wrench, perm: PERMISSIONS.SERVICES_MANAGE },
+  { href: '/admin/addons', label: 'Add-Ons', icon: ListPlus, perm: PERMISSIONS.ADDONS_MANAGE },
+  { href: '/admin/categories', label: 'Categories', icon: Tag, perm: PERMISSIONS.CATEGORIES_MANAGE },
+  { href: '/admin/coffees', label: 'Coffee Menu', icon: Coffee, perm: PERMISSIONS.COFFEES_MANAGE },
+  { href: '/admin/testimonials', label: 'Testimonials', icon: Quote, perm: PERMISSIONS.TESTIMONIALS_MANAGE },
+  { href: '/admin/staff', label: 'Staff Access', icon: ShieldCheck, perm: PERMISSIONS.STAFF_MANAGE },
+  { href: '/admin/settings', label: 'Settings', icon: SettingsIcon, perm: PERMISSIONS.SETTINGS_VIEW },
 ];
 
 export function AdminLayout({ children, title }) {
-  const { signOut, showToast } = useApp();
+  const { signOut, showToast, can, adminRole } = useApp();
   const router = useRouter();
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+
+  const visibleLinks = links.filter((l) => !l.perm || can(l.perm));
+  const roleLabel = adminRole ? ROLE_LABELS[adminRole] : null;
 
   const handleLogout = async () => {
     await signOut();
@@ -74,8 +80,17 @@ export function AdminLayout({ children, title }) {
           </div>
         </Link>
 
+        {roleLabel && (
+          <div className="px-6 py-3 border-b border-white/5">
+            <span className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-gold bg-gold/10 border border-gold/30 rounded-full px-2.5 py-1">
+              <ShieldCheck className="w-3 h-3" />
+              {roleLabel}
+            </span>
+          </div>
+        )}
+
         <nav className="flex-1 px-3 py-6 space-y-1">
-          {links.map((l) => {
+          {visibleLinks.map((l) => {
             const I = l.icon;
             const active = isActive(l.href);
             return (
@@ -129,7 +144,15 @@ export function AdminLayout({ children, title }) {
           </button>
         </div>
         <nav className="flex-1 px-3 py-4 space-y-1">
-          {links.map((l) => {
+          {roleLabel && (
+            <div className="px-4 pb-3">
+              <span className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-gold bg-gold/10 border border-gold/30 rounded-full px-2.5 py-1">
+                <ShieldCheck className="w-3 h-3" />
+                {roleLabel}
+              </span>
+            </div>
+          )}
+          {visibleLinks.map((l) => {
             const I = l.icon;
             const active = isActive(l.href);
             return (

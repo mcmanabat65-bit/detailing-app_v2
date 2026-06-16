@@ -442,7 +442,7 @@ function MonitorView() {
 
 export default function MonitorPage() {
   return (
-    <ProtectedRoute>
+    <ProtectedRoute permission="monitor.view">
       <MonitorView />
     </ProtectedRoute>
   );

@@ -378,7 +378,7 @@ function CategoriesAdmin() {
 
 export default function AdminCategoriesPage() {
   return (
-    <ProtectedRoute>
+    <ProtectedRoute permission="categories.manage">
       <CategoriesAdmin />
     </ProtectedRoute>
   );

@@ -473,7 +473,7 @@ function CarsAdmin() {
 
 export default function AdminCarsPage() {
   return (
-    <ProtectedRoute>
+    <ProtectedRoute permission="cars.manage">
       <CarsAdmin />
     </ProtectedRoute>
   );

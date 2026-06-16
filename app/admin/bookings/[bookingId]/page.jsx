@@ -259,8 +259,11 @@ function BookingDetailView() {
   const {
     bookings, services, detailers, addonCatalog,
     updateBookingStatus, updateBookingDetailers, updateBookingAddOns,
-    fetchBookingLogs, deleteBooking, showToast,
+    fetchBookingLogs, deleteBooking, showToast, can,
   } = useApp();
+
+  // Plain admins can view bookings but not edit them.
+  const canEdit = can('bookings.edit');
 
   const booking = useMemo(() => bookings.find((b) => b.id === bookingId) ?? null, [bookings, bookingId]);
 
@@ -485,22 +488,24 @@ function BookingDetailView() {
               </DetailRow>
             </div>
 
-            {/* Add-Ons panel */}
-            <div className="border-t border-white/5 pt-5">
-              <div className="flex items-center gap-2 mb-4">
-                <ListPlus className="w-4 h-4 text-gold" />
-                <h3 className="text-cream text-sm font-medium">Manage Add-Ons</h3>
+            {/* Add-Ons panel — editing is restricted to super admins */}
+            {canEdit && (
+              <div className="border-t border-white/5 pt-5">
+                <div className="flex items-center gap-2 mb-4">
+                  <ListPlus className="w-4 h-4 text-gold" />
+                  <h3 className="text-cream text-sm font-medium">Manage Add-Ons</h3>
+                </div>
+                <AddOnsPanel
+                  booking={booking}
+                  catalog={addonCatalog}
+                  onSave={async (addOns) => {
+                    const result = await updateBookingAddOns(booking.id, addOns);
+                    if (result?.error) showToast(result.error, 'error');
+                    else showToast('Add-ons saved.', 'success');
+                  }}
+                />
               </div>
-              <AddOnsPanel
-                booking={booking}
-                catalog={addonCatalog}
-                onSave={async (addOns) => {
-                  const result = await updateBookingAddOns(booking.id, addOns);
-                  if (result?.error) showToast(result.error, 'error');
-                  else showToast('Add-ons saved.', 'success');
-                }}
-              />
-            </div>
+            )}
           </section>
 
           {/* Vehicle */}
@@ -541,7 +546,7 @@ function BookingDetailView() {
                   <Users className="w-4 h-4 text-gold" />
                   Detailers
                 </h2>
-                {isEditable && detailersDirty && (
+                {isEditable && canEdit && detailersDirty && (
                   <button
                     onClick={saveDetailers}
                     disabled={detailerSaving}
@@ -552,7 +557,7 @@ function BookingDetailView() {
                   </button>
                 )}
               </div>
-              {isEditable ? (
+              {isEditable && canEdit ? (
                 <div className="flex flex-wrap gap-2">
                   {activeDetailers.map((d) => {
                     const selected = selectedDetailerIds.includes(d.id);
@@ -680,7 +685,8 @@ function BookingDetailView() {
             )}
           </div>
 
-          {/* Actions */}
+          {/* Actions — restricted to super admins */}
+          {canEdit && (
           <div className="glass-card rounded-md p-5 space-y-2">
             <h2 className="font-serif text-base text-cream mb-3">Actions</h2>
 
@@ -748,6 +754,7 @@ function BookingDetailView() {
               </button>
             </div>
           </div>
+          )}
         </aside>
       </div>
 
@@ -840,7 +847,7 @@ function BookingDetailView() {
 
 export default function BookingDetailPage() {
   return (
-    <ProtectedRoute>
+    <ProtectedRoute permission="bookings.view">
       <BookingDetailView />
     </ProtectedRoute>
   );

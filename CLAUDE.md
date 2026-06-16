@@ -262,6 +262,44 @@ showToast(message, type)
 - Session timeout: 1 hour absolute (enforced client-side in `ProtectedRoute`)
 - Create admin users in Supabase Dashboard → Authentication → Users
 
+### Admin Roles (two tiers)
+
+Two access levels, resolved by login-email match against the `admin_users` table:
+
+- **`super_admin`** — the boss; unrestricted access to everything.
+- **`admin`** — limited staff (e.g. a barista covering the shop). Can create and
+  view bookings, the schedule, and the shop monitor. **Cannot** edit bookings
+  (status changes, detailer assignment, add-ons, delete) or open sensitive pages
+  (members, cars, coffees, services, categories, detailers, testimonials,
+  add-ons, settings, staff).
+
+How it works:
+
+- Roles + permission keys live in `src/lib/permissions.js` (`ROLES`,
+  `PERMISSIONS`, `can(role, permission)`). `super_admin` passes every check;
+  `admin` is limited to an allowlist.
+- `AppContext` resolves the current role into `adminRole`, plus helpers
+  `can(permission)` and `isSuperAdmin`. Resolution: empty `admin_users` table →
+  first signed-in user is `super_admin` (bootstrap); authenticated but unlisted
+  → `admin` (least privilege).
+- **UI gating**: `ProtectedRoute permission="..."` blocks whole pages (bouncing
+  to `/admin/dashboard`), `AdminLayout` hides nav links the role can't use, and
+  individual edit actions are wrapped in `can(...)` checks.
+- **DB enforcement (RLS)**: role-based Row Level Security backs the UI. Reads
+  stay open (no public-site / admin-UI regressions); sensitive **writes** require
+  `is_super_admin()` — a `SECURITY DEFINER` SQL helper that matches the JWT email
+  against `admin_users` (empty table → bootstrap super_admin). So a plain `admin`
+  physically cannot edit/cancel/delete bookings, manage members/cars/coffees/
+  services/settings/staff, or block slots — even calling the API directly. Public
+  submission flows keep anon write carve-outs (membership inserts, testimonial
+  submissions, booking inserts). See the "Phase 3 — Role-based RLS" block in
+  `migrations.sql`.
+- The boss manages who is which via **Staff Access** (`/admin/staff`, super-admin
+  only). Accounts are still *created* in the Supabase Dashboard; their role is
+  *assigned* by email on this page (or directly in the `admin_users` table).
+- DB: `admin_users (email unique, role)` — see `schema.sql` / `migrations.sql`.
+  Its own RLS is authenticated-read / super-admin-write.
+
 ---
 
 ## Email (Resend)
@@ -395,7 +433,7 @@ Paste the relevant block from `supabase/migrations.sql` into Supabase Dashboard 
 - **Online booking is disabled** for the public — shows an unavailable page. Admin can still access the booking flow.
 - **Visit-first membership** — VIP applications require an in-person visit; the online form is a secondary step.
 - **No payment integration** — booking is a reservation only.
-- **Single admin user** — auth is one Supabase Auth account, not role-based.
+- **Two-tier roles** — `super_admin` (full) and `admin` (booking create/view only). Resolved by email via the `admin_users` table; enforced both in the UI and at the DB via role-based RLS (see Admin Roles under Auth).
 - **Email sender unverified** — using Resend sandbox domain; verify `samahuzai.ph` in Resend to use custom from address.
 
 ---

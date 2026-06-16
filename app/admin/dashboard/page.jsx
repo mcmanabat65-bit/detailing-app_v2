@@ -28,8 +28,12 @@ import { sendEmail } from '@/lib/sendEmail';
 import { bookingConfirmationHtml } from '@/lib/emailTemplates';
 
 function Dashboard() {
-  const { bookings, members, updateMemberStatus, updateBookingStatus, showToast } = useApp();
+  const { bookings, members, updateMemberStatus, updateBookingStatus, showToast, can } = useApp();
   const today = toIsoDate(new Date());
+
+  // Plain admins can monitor bookings but not approve/decline or manage members.
+  const canEditBookings = can('bookings.edit');
+  const canManageMembers = can('members.manage');
 
   const stats = useMemo(() => {
     const confirmed = bookings.filter((b) => b.status === 'confirmed');
@@ -177,7 +181,7 @@ function Dashboard() {
         />
       </div>
 
-      {stats.pendingBookings.length > 0 && (
+      {canEditBookings && stats.pendingBookings.length > 0 && (
         <section className="glass-card rounded-md p-6 mb-6 border border-gold/30 animate-fade-in">
           <div className="flex items-center justify-between mb-5 gap-3 flex-wrap">
             <div>
@@ -243,7 +247,7 @@ function Dashboard() {
         </section>
       )}
 
-      {stats.pendingMembers.length > 0 && (
+      {canManageMembers && stats.pendingMembers.length > 0 && (
         <section className="glass-card rounded-md p-6 mb-6 border border-gold/30 animate-fade-in">
           <div className="flex items-center justify-between mb-5 gap-3 flex-wrap">
             <div>
@@ -443,7 +447,7 @@ function StatCard({ icon: Icon, label, value, accent, sub }) {
 
 export default function AdminDashboardPage() {
   return (
-    <ProtectedRoute>
+    <ProtectedRoute permission="dashboard.view">
       <Dashboard />
     </ProtectedRoute>
   );

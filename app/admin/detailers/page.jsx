@@ -507,7 +507,7 @@ function DetailersAdmin() {
 
 export default function DetailersPage() {
   return (
-    <ProtectedRoute>
+    <ProtectedRoute permission="detailers.manage">
       <DetailersAdmin />
     </ProtectedRoute>
   );

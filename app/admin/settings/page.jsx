@@ -231,7 +231,7 @@ function Field({ label, hint, children }) {
 
 export default function AdminSettingsPage() {
   return (
-    <ProtectedRoute>
+    <ProtectedRoute permission="settings.view">
       <SettingsForm />
     </ProtectedRoute>
   );

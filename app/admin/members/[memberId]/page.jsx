@@ -1047,7 +1047,7 @@ function GenerateResultModal({ result, onClose }) {
 
 export default function MemberDetailPage() {
   return (
-    <ProtectedRoute>
+    <ProtectedRoute permission="members.manage">
       <MemberDetailContent />
     </ProtectedRoute>
   );

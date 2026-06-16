@@ -303,7 +303,7 @@ function CoffeesAdmin() {
 
 export default function AdminCoffeesPage() {
   return (
-    <ProtectedRoute>
+    <ProtectedRoute permission="coffees.manage">
       <CoffeesAdmin />
     </ProtectedRoute>
   );

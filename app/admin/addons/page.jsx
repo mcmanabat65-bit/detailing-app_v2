@@ -221,5 +221,5 @@ function AddonsAdmin() {
 }
 
 export default function AdminAddonsPage() {
-  return <ProtectedRoute><AddonsAdmin /></ProtectedRoute>;
+  return <ProtectedRoute permission="addons.manage"><AddonsAdmin /></ProtectedRoute>;
 }

@@ -7,8 +7,8 @@ import { useApp } from '@/context/AppContext';
 const SESSION_TIMEOUT_MS = 3 * 24 * 60 * 60 * 1000; // 3 days
 const SESSION_START_KEY = 'obsidian_session_start';
 
-export function ProtectedRoute({ children }) {
-  const { adminSession, hydrated, signOut } = useApp();
+export function ProtectedRoute({ children, permission = null }) {
+  const { adminSession, hydrated, signOut, adminRole, can } = useApp();
   const router = useRouter();
   const pathname = usePathname();
 
@@ -45,7 +45,21 @@ export function ProtectedRoute({ children }) {
     router.replace(`/admin/login?next=${next}`);
   }, [hydrated, adminSession, pathname, router]);
 
+  // Role-based gate: once the role has resolved, bounce admins who lack the
+  // required permission back to the dashboard (which both roles can view).
+  useEffect(() => {
+    if (!hydrated || !adminSession) return;
+    if (!permission) return;
+    if (adminRole == null) return; // still resolving
+    if (!can(permission)) router.replace('/admin/dashboard');
+  }, [hydrated, adminSession, permission, adminRole, can, router]);
+
   if (!hydrated || !adminSession) return null;
+  // When a permission is required, wait for the role then enforce it.
+  if (permission) {
+    if (adminRole == null) return null;
+    if (!can(permission)) return null;
+  }
 
   return children;
 }

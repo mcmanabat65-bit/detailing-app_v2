@@ -650,7 +650,7 @@ function Pagination({ page, totalPages, onPageChange }) {
 
 export default function AdminMembersPage() {
   return (
-    <ProtectedRoute>
+    <ProtectedRoute permission="members.manage">
       <MembersAdmin />
     </ProtectedRoute>
   );

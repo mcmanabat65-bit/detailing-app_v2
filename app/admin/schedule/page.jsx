@@ -40,8 +40,11 @@ const weekDates = (anchor) => {
 };
 
 function Schedule() {
-  const { bookings, blockedSlots, settings, detailers, toggleBlockedSlot, showToast } =
+  const { bookings, blockedSlots, settings, detailers, toggleBlockedSlot, showToast, can } =
     useApp();
+
+  // Blocking/unblocking slots is a schedule-editing action — super admin only.
+  const canEdit = can('bookings.edit');
 
   const detailerMap = useMemo(() => {
     const m = {};
@@ -373,6 +376,7 @@ function Schedule() {
           </div>
         </div>
 
+        {canEdit && (
         <aside className="glass-card rounded-md p-5 h-fit">
           <h3 className="font-serif text-xl text-cream mb-1">Block a slot</h3>
           <p className="text-xs text-muted mb-4">
@@ -449,6 +453,7 @@ function Schedule() {
             </div>
           )}
         </aside>
+        )}
       </div>
 
       {drawer && (
@@ -519,6 +524,7 @@ function Schedule() {
                 <Info label="Label" value={drawer.data.label} />
                 <Info label="Date" value={formatDateLong(drawer.data.date)} />
                 <Info label="Time" value={drawer.data.time} />
+                {canEdit && (
                 <button
                   onClick={async () => {
                     const result = await toggleBlockedSlot(
@@ -538,6 +544,7 @@ function Schedule() {
                   <Trash2 className="w-4 h-4" />
                   Remove block
                 </button>
+                )}
               </div>
             )}
           </div>
@@ -574,7 +581,7 @@ function Legend({ swatch, label }) {
 
 export default function AdminSchedulePage() {
   return (
-    <ProtectedRoute>
+    <ProtectedRoute permission="schedule.view">
       <Schedule />
     </ProtectedRoute>
   );

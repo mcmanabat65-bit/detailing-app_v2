@@ -773,7 +773,7 @@ function ServicesAdmin() {
 
 export default function AdminServicesPage() {
   return (
-    <ProtectedRoute>
+    <ProtectedRoute permission="services.manage">
       <ServicesAdmin />
     </ProtectedRoute>
   );

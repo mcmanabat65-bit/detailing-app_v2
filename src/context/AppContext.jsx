@@ -17,6 +17,7 @@ import {
 import { services as staticServices } from '@/data/services';
 import { timeSlots } from '@/data/timeSlots';
 import { supabase, isSupabaseConfigured, fromRow, toRow } from '@/lib/supabase';
+import { ROLES, can as canForRole, isValidRole } from '@/lib/permissions';
 
 const AppContext = createContext(null);
 
@@ -56,6 +57,9 @@ export function AppProvider({ children }) {
   const [carConditionLogs, setCarConditionLogs] = useState([]);
   const [settings, setSettings] = useState({ ...DEFAULT_SETTINGS });
   const [adminSession, setAdminSessionState] = useState(false);
+  const [authEmail, setAuthEmail] = useState(null);
+  const [adminUsers, setAdminUsers] = useState([]);
+  const [adminUsersHydrated, setAdminUsersHydrated] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   const [supabaseError, setSupabaseError] = useState(null);
   const [toasts, setToasts] = useState([]);
@@ -253,6 +257,23 @@ export function AppProvider({ children }) {
     // If no row yet, keep DEFAULT_SETTINGS — schema seed may not have run
   }, []);
 
+  // admin_users is authenticated-read-only, so it only resolves once a session
+  // exists. adminUsersHydrated flips true after each attempt so role resolution
+  // can wait until we actually know the list (avoids a wrong-role flash).
+  const refetchAdminUsers = useCallback(async () => {
+    if (!supabase) { setAdminUsersHydrated(true); return; }
+    const { data, error } = await supabase
+      .from('admin_users')
+      .select('*')
+      .order('created_at', { ascending: true });
+    if (error) {
+      console.error('[admin_users] fetch error', error);
+    } else {
+      setAdminUsers((data || []).map(fromRow));
+    }
+    setAdminUsersHydrated(true);
+  }, []);
+
   // Hydrate everything in parallel on mount.
   useEffect(() => {
     if (!supabase) {
@@ -260,15 +281,20 @@ export function AppProvider({ children }) {
       return;
     }
 
+    const applySession = (session) => {
+      setAdminSessionState(!!session);
+      setAuthEmail(session?.user?.email?.trim().toLowerCase() || null);
+    };
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => setAdminSessionState(!!session)
+      (_event, session) => applySession(session)
     );
 
     // Resolve auth session first so adminSession is accurate before hydrated=true.
     // This prevents ProtectedRoute from seeing hydrated=true + adminSession=false
     // in the same render cycle and bouncing back to login after a fresh login.
     const authPromise = supabase.auth.getSession()
-      .then(({ data: { session } }) => setAdminSessionState(!!session))
+      .then(({ data: { session } }) => applySession(session))
       .catch(() => {});
 
     let settled = false;
@@ -303,6 +329,19 @@ export function AppProvider({ children }) {
 
     return () => subscription.unsubscribe();
   }, [refetchServices, refetchBookings, refetchMembers, refetchBlockedSlots, refetchCars, refetchMemberCars, refetchCoffees, refetchServiceCategories, refetchDetailers, refetchSettings, refetchTestimonials, refetchRecurringSchedules, refetchAddonCatalog]);
+
+  // Resolve the current admin's role from admin_users whenever the session
+  // changes. admin_users is authenticated-read-only, so we (re)fetch it on
+  // login and clear it on logout.
+  useEffect(() => {
+    if (adminSession) {
+      setAdminUsersHydrated(false);
+      refetchAdminUsers();
+    } else {
+      setAdminUsers([]);
+      setAdminUsersHydrated(true);
+    }
+  }, [adminSession, refetchAdminUsers]);
 
   // Global Realtime subscription — one shared WebSocket channel for the entire
   // app. Any page that reads `bookings` from context (bookings, schedule,
@@ -1175,10 +1214,66 @@ export function AppProvider({ children }) {
     [settings, refetchSettings]
   );
 
+  // ===== Admin users / roles =====
+  const upsertAdminUser = useCallback(
+    async ({ id, email, role }) => {
+      if (!supabase) return { error: 'Database not connected.' };
+      const cleanEmail = (email || '').trim().toLowerCase();
+      if (!cleanEmail) return { error: 'Email is required.' };
+      if (!isValidRole(role)) return { error: 'Invalid role.' };
+      const row = { email: cleanEmail, role };
+      let query;
+      if (id) {
+        query = supabase.from('admin_users').update(row).eq('id', id).select().single();
+      } else {
+        query = supabase.from('admin_users').insert(row).select().single();
+      }
+      const { data, error } = await query;
+      if (error) {
+        if (error.code === '23505') return { error: 'That email already has a role assigned.' };
+        return { error: error.message };
+      }
+      await refetchAdminUsers();
+      return fromRow(data);
+    },
+    [refetchAdminUsers]
+  );
+
+  const deleteAdminUser = useCallback(
+    async (id) => {
+      if (!supabase) return { error: 'Database not connected.' };
+      const { error } = await supabase.from('admin_users').delete().eq('id', id);
+      if (error) return { error: error.message };
+      await refetchAdminUsers();
+      return { ok: true };
+    },
+    [refetchAdminUsers]
+  );
+
+  // Current admin's role. Resolved by email match against admin_users.
+  //  - Returns null while still resolving (so callers can wait, not flash).
+  //  - Empty table → first logged-in user is super_admin (bootstrap).
+  //  - Authenticated but not listed → 'admin' (least privilege).
+  const adminRole = useMemo(() => {
+    if (!adminSession) return null;
+    if (!adminUsersHydrated) return null;
+    if (adminUsers.length === 0) return ROLES.SUPER_ADMIN;
+    const match = adminUsers.find((u) => u.email === authEmail);
+    return match ? match.role : ROLES.ADMIN;
+  }, [adminSession, adminUsersHydrated, adminUsers, authEmail]);
+
+  const isSuperAdmin = adminRole === ROLES.SUPER_ADMIN;
+
+  const can = useCallback(
+    (permission) => canForRole(adminRole, permission),
+    [adminRole]
+  );
+
   // ===== Admin session — backed by Supabase Auth =====
   const signOut = useCallback(async () => {
     if (supabase) await supabase.auth.signOut();
     setAdminSessionState(false);
+    setAuthEmail(null);
   }, []);
 
   // Keep setAdminSession as a no-op shim so existing call-sites don't break
@@ -1351,6 +1446,14 @@ export function AppProvider({ children }) {
       generateRecurringBookings,
       settings,
       adminSession,
+      adminRole,
+      isSuperAdmin,
+      can,
+      authEmail,
+      adminUsers,
+      adminUsersHydrated,
+      upsertAdminUser,
+      deleteAdminUser,
       hydrated,
       supabaseError,
       toasts,
@@ -1424,6 +1527,14 @@ export function AppProvider({ children }) {
       generateRecurringBookings,
       settings,
       adminSession,
+      adminRole,
+      isSuperAdmin,
+      can,
+      authEmail,
+      adminUsers,
+      adminUsersHydrated,
+      upsertAdminUser,
+      deleteAdminUser,
       hydrated,
       supabaseError,
       toasts,

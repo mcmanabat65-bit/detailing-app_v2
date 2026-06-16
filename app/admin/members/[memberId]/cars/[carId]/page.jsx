@@ -752,7 +752,7 @@ function CarDetailContent() {
 
 export default function CarDetailPage() {
   return (
-    <ProtectedRoute>
+    <ProtectedRoute permission="cars.manage">
       <CarDetailContent />
     </ProtectedRoute>
   );
