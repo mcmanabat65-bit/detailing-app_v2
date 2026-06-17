@@ -1,8 +1,10 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import {
   Car,
+  ChevronRight,
   Plus,
   Trash2,
   Star,
@@ -207,9 +209,13 @@ function Fleet() {
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="text-cream font-medium">
+                    <Link
+                      href={`/portal/fleet/${c.linkId}`}
+                      className="inline-flex items-center gap-1 text-cream font-medium hover:text-gold transition-colors"
+                    >
                       {c.year} {c.make} {c.model}
-                    </span>
+                      <ChevronRight className="w-4 h-4 text-muted" />
+                    </Link>
                     {i === 0 && (
                       <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-widest text-gold bg-gold/10 border border-gold/30 rounded-full px-2 py-0.5">
                         <Star className="w-3 h-3" />

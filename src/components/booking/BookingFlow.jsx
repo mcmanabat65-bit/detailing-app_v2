@@ -35,6 +35,18 @@ import { useApp } from '@/context/AppContext';
 import { sendEmail } from '@/lib/sendEmail';
 import { bookingReceivedHtml } from '@/lib/emailTemplates';
 
+// Service names encode the eligible car size as a trailing suffix, e.g.
+// "The Essential (M)". Map that suffix to a cars.size bucket. Returns null for
+// names with no recognizable size suffix — those are size-agnostic and shown
+// for every car. XL and XXL both map to the `xl` car bucket.
+const SIZE_BY_SUFFIX = { S: 'small', M: 'medium', L: 'large', XL: 'xl', XXL: 'xl' };
+const SIZE_LABEL = { small: 'Small', medium: 'Medium', large: 'Large', xl: 'XL' };
+function serviceSizeFromName(name) {
+  const m = String(name || '').match(/\(([^)]+)\)\s*$/);
+  if (!m) return null;
+  return SIZE_BY_SUFFIX[m[1].trim().toUpperCase()] ?? null;
+}
+
 // --- Mini calendar (one month) ---
 function MiniCalendar({ monthDate, selected, onSelect }) {
   const year = monthDate.getFullYear();
@@ -90,8 +102,7 @@ function MiniCalendar({ monthDate, selected, onSelect }) {
   );
 }
 
-function StepDots({ step }) {
-  const labels = ['Service', 'Date & Time', 'Your Details'];
+function StepDots({ step, labels }) {
   return (
     <div className="flex items-center justify-center gap-0 mb-12">
       {labels.map((label, i) => {
@@ -170,14 +181,14 @@ function CarCombobox({ cars, vehicle, vehicleYear, onChange }) {
     const label = `${car.make} ${car.model}`;
     setQuery(label);
     setOpen(false);
-    onChange({ vehicle: label, vehicleYear: String(car.year), vehicleType: car.vehicleType || 1 });
+    onChange({ vehicle: label, vehicleYear: String(car.year), vehicleType: car.vehicleType || 1, size: car.size || null });
   };
 
   const handleChange = (e) => {
     const val = e.target.value;
     setQuery(val);
     setOpen(true);
-    onChange({ vehicle: val, vehicleYear, vehicleType: null });
+    onChange({ vehicle: val, vehicleYear, vehicleType: null, size: null });
   };
 
   const handleClear = () => {
@@ -228,8 +239,103 @@ function CarCombobox({ cars, vehicle, vehicleYear, onChange }) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// CarSelector — the vehicle picker shared by the details step (admin/public
+// flow) and the dedicated car-first step (member portal flow). Members with a
+// fleet pick from a dropdown; everyone else (or "use a different car") falls
+// back to the searchable catalog + manual entry. A catalog pick carries its
+// size up so the member flow can filter services by it.
+// ---------------------------------------------------------------------------
+function CarSelector({
+  memberOwnedCars,
+  selectedCarId,
+  setSelectedCarId,
+  cars,
+  details,
+  setDetails,
+  catalogVehicleType,
+  setCatalogVehicleType,
+  setManualCarSize,
+}) {
+  const handleComboChange = ({ vehicle, vehicleYear, vehicleType, size }) => {
+    setDetails((d) => ({ ...d, vehicle, vehicleYear }));
+    setCatalogVehicleType(vehicleType);
+    setManualCarSize(size ?? null);
+  };
+
+  const manualEntry = (
+    <div className="space-y-3">
+      <div className="grid md:grid-cols-[1fr_120px] gap-5">
+        <Field label="Vehicle Make & Model *">
+          <CarCombobox
+            cars={cars}
+            vehicle={details.vehicle}
+            vehicleYear={details.vehicleYear}
+            onChange={handleComboChange}
+          />
+        </Field>
+        <Field label="Year *">
+          <input
+            type="text"
+            required
+            inputMode="numeric"
+            pattern="[0-9]*"
+            value={details.vehicleYear}
+            onChange={(e) =>
+              setDetails((d) => ({ ...d, vehicleYear: e.target.value }))
+            }
+            className="input"
+            placeholder="2022"
+          />
+        </Field>
+      </div>
+      {catalogVehicleType === null && (
+        <Field label="Vehicle Type *">
+          <div className="flex gap-1 bg-surface/70 border border-white/[0.08] rounded-[4px] p-1">
+            <button type="button" onClick={() => setDetails((d) => ({ ...d, vehicleType: 1 }))}
+              className={`flex-1 flex items-center justify-center gap-2 px-3 py-1.5 rounded-[2px] text-sm transition-colors ${details.vehicleType !== 2 ? 'bg-gold/20 text-gold' : 'text-muted hover:text-cream'}`}>
+              <Car className="w-3.5 h-3.5" /> 4-Wheel
+            </button>
+            <button type="button" onClick={() => setDetails((d) => ({ ...d, vehicleType: 2 }))}
+              className={`flex-1 flex items-center justify-center gap-2 px-3 py-1.5 rounded-[2px] text-sm transition-colors ${details.vehicleType === 2 ? 'bg-sky-400/20 text-sky-400' : 'text-muted hover:text-cream'}`}>
+              <Bike className="w-3.5 h-3.5" /> Big Bike
+            </button>
+          </div>
+        </Field>
+      )}
+    </div>
+  );
+
+  if (memberOwnedCars.length === 0) return manualEntry;
+
+  return (
+    <div className="space-y-3">
+      <Field label="Pick a car *">
+        <select
+          value={selectedCarId || ''}
+          onChange={(e) => setSelectedCarId(e.target.value || null)}
+          className="input"
+        >
+          {memberOwnedCars.map((c, i) => (
+            <option key={c.id} value={c.id}>
+              {c.year} {c.make} {c.model}{c.plateNumber ? ` · ${c.plateNumber}` : ''} ({c.size})
+              {i === 0 ? ' — default' : ''}
+            </option>
+          ))}
+          <option value="">+ Use a different car (manual entry)</option>
+        </select>
+      </Field>
+      {!selectedCarId && manualEntry}
+    </div>
+  );
+}
+
 /**
- * The 3-step booking flow (Service → Date & Time → Details).
+ * The booking flow.
+ *
+ * Public/admin flow: Service → Date & Time → Details.
+ * Member portal flow (member prop): Your Car → Service → Date & Time → Details,
+ * where the service list is filtered to the selected car's size.
  *
  * Props:
  *  - member?:      when provided (the signed-in VIP), prefills name/email/phone
@@ -270,8 +376,20 @@ export function BookingFlow({ member = null, onComplete = null }) {
     return m;
   }, [serviceCategories]);
 
+  // The member portal flow puts a car-selection step first and filters the
+  // service list by the chosen car's size. The admin/public flow is unchanged.
+  const isMemberFlow = Boolean(member);
+  const stepKeys = isMemberFlow
+    ? ['car', 'service', 'datetime', 'details']
+    : ['service', 'datetime', 'details'];
+  const stepLabels = isMemberFlow
+    ? ['Your Car', 'Service', 'Date & Time', 'Your Details']
+    : ['Service', 'Date & Time', 'Your Details'];
+
   const preSelectedId = searchParams.get('service');
   const [step, setStep] = useState(1);
+  const currentKey = stepKeys[step - 1];
+  const isLastStep = step === stepKeys.length;
   const [serviceId, setServiceId] = useState(
     preSelectedId ? Number(preSelectedId) : null
   );
@@ -306,6 +424,8 @@ export function BookingFlow({ member = null, onComplete = null }) {
   }, [member]);
   // null = user is typing free-text; number = vehicleType inherited from a catalog selection
   const [catalogVehicleType, setCatalogVehicleType] = useState(null);
+  // Size of a manually-picked catalog car (null for free-text / fleet picks).
+  const [manualCarSize, setManualCarSize] = useState(null);
 
   const [selectedDetailerIds, setSelectedDetailerIds] = useState([]);
   // 'extend' = service runs past closing, 'tomorrow' = move booking to next day
@@ -358,6 +478,27 @@ export function BookingFlow({ member = null, onComplete = null }) {
     () => memberOwnedCars.find((c) => c.id === selectedCarId) || null,
     [memberOwnedCars, selectedCarId]
   );
+
+  // The car size driving the service filter: the picked fleet car's size, else
+  // a manually-picked catalog car's size, else null (free-text → no filtering).
+  const selectedCarSize = selectedCar ? selectedCar.size || null : manualCarSize;
+
+  // In the member flow, only show services whose name suffix matches the car's
+  // size. Services with no size suffix are size-agnostic and always shown.
+  const visibleServices = useMemo(() => {
+    if (!isMemberFlow || !selectedCarSize) return services;
+    return services.filter((s) => {
+      const sz = serviceSizeFromName(s.name);
+      return sz === null || sz === selectedCarSize;
+    });
+  }, [services, isMemberFlow, selectedCarSize]);
+
+  // If the car changes such that the chosen service no longer fits, drop it.
+  useEffect(() => {
+    if (serviceId && !visibleServices.some((s) => s.id === serviceId)) {
+      setServiceId(null);
+    }
+  }, [visibleServices, serviceId]);
 
   // Live availability for the chosen time — recomputes when time, date, or
   // bookings change so the indicator reflects current detailer capacity.
@@ -428,13 +569,18 @@ export function BookingFlow({ member = null, onComplete = null }) {
   };
 
   const handleNext = () => {
-    if (step === 1) {
+    if (currentKey === 'car') {
+      const hasCar = selectedCar || (details.vehicle && details.vehicleYear);
+      if (!hasCar) {
+        showToast('Please select or enter your car.', 'error');
+        return;
+      }
+    } else if (currentKey === 'service') {
       if (!serviceId) {
         showToast('Please choose a package first.', 'error');
         return;
       }
-      setStep(2);
-    } else if (step === 2) {
+    } else if (currentKey === 'datetime') {
       if (!date) {
         showToast('Pick a date.', 'error');
         return;
@@ -443,8 +589,8 @@ export function BookingFlow({ member = null, onComplete = null }) {
         showToast('Pick a time slot.', 'error');
         return;
       }
-      setStep(3);
     }
+    setStep((s) => s + 1);
   };
 
   const handleBack = () => setStep((s) => Math.max(1, s - 1));
@@ -510,7 +656,7 @@ export function BookingFlow({ member = null, onComplete = null }) {
           'error'
         );
         setTime('');
-        setStep(2);
+        setStep(stepKeys.indexOf('datetime') + 1);
         return;
       }
       showToast('Booking received — awaiting admin confirmation.', 'success');
@@ -590,12 +736,45 @@ export function BookingFlow({ member = null, onComplete = null }) {
           </h1>
         </div>
 
-        <StepDots step={step} />
+        <StepDots step={step} labels={stepLabels} />
 
-        {/* STEP 1 — SERVICE */}
-        {step === 1 && (
+        {/* STEP (member flow) — CAR */}
+        {currentKey === 'car' && (
+          <div className="max-w-2xl mx-auto glass-card rounded-md p-6 md:p-8 space-y-5">
+            <div className="text-cream font-serif text-2xl">
+              Which car are we detailing?
+            </div>
+            <p className="text-xs text-muted -mt-3">
+              We'll tailor the available packages to your vehicle's size.
+            </p>
+            <CarSelector
+              memberOwnedCars={memberOwnedCars}
+              selectedCarId={selectedCarId}
+              setSelectedCarId={setSelectedCarId}
+              cars={cars}
+              details={details}
+              setDetails={setDetails}
+              catalogVehicleType={catalogVehicleType}
+              setCatalogVehicleType={setCatalogVehicleType}
+              setManualCarSize={setManualCarSize}
+            />
+            {selectedCarSize && (
+              <div className="text-[11px] text-gold/80 uppercase tracking-widest px-2 py-1 bg-gold/10 rounded-sm inline-block">
+                Showing packages for {SIZE_LABEL[selectedCarSize] ?? selectedCarSize} vehicles
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* STEP — SERVICE */}
+        {currentKey === 'service' && (
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5 stagger">
-            {services.map((s) => {
+            {visibleServices.length === 0 && (
+              <div className="col-span-full text-center text-muted py-12">
+                No packages are available for this vehicle size yet.
+              </div>
+            )}
+            {visibleServices.map((s) => {
               const selected = serviceId === s.id;
               return (
                 <button
@@ -634,8 +813,8 @@ export function BookingFlow({ member = null, onComplete = null }) {
           </div>
         )}
 
-        {/* STEP 2 — DATE & TIME */}
-        {step === 2 && (
+        {/* STEP — DATE & TIME */}
+        {currentKey === 'datetime' && (
           <div className="grid lg:grid-cols-[1fr_320px] gap-6 lg:items-start">
             <div className="space-y-5">
               <div className="flex items-center justify-between">
@@ -832,8 +1011,8 @@ export function BookingFlow({ member = null, onComplete = null }) {
           </div>
         )}
 
-        {/* STEP 3 — DETAILS */}
-        {step === 3 && (
+        {/* STEP — DETAILS */}
+        {currentKey === 'details' && (
           <form
             onSubmit={handleSubmit}
             className="grid md:grid-cols-[1fr_320px] gap-6"
@@ -896,113 +1075,20 @@ export function BookingFlow({ member = null, onComplete = null }) {
                 </Field>
               </div>
 
-              {memberOwnedCars.length > 0 ? (
-                <div className="space-y-3">
-                  <Field label="Pick a car *">
-                    <select
-                      value={selectedCarId || ''}
-                      onChange={(e) => setSelectedCarId(e.target.value || null)}
-                      className="input"
-                    >
-                      {memberOwnedCars.map((c, i) => (
-                        <option key={c.id} value={c.id}>
-                          {c.year} {c.make} {c.model}{c.plateNumber ? ` · ${c.plateNumber}` : ''} ({c.size})
-                          {i === 0 ? ' — default' : ''}
-                        </option>
-                      ))}
-                      <option value="">+ Use a different car (manual entry)</option>
-                    </select>
-                  </Field>
-                  {!selectedCarId && (
-                    <div className="space-y-3">
-                      <div className="grid md:grid-cols-[1fr_120px] gap-5">
-                        <Field label="Vehicle Make & Model *">
-                          <CarCombobox
-                            cars={cars}
-                            vehicle={details.vehicle}
-                            vehicleYear={details.vehicleYear}
-                            onChange={({ vehicle, vehicleYear, vehicleType }) => {
-                              setDetails((d) => ({ ...d, vehicle, vehicleYear }));
-                              setCatalogVehicleType(vehicleType);
-                            }}
-                          />
-                        </Field>
-                        <Field label="Year *">
-                          <input
-                            type="text"
-                            required
-                            inputMode="numeric"
-                            pattern="[0-9]*"
-                            value={details.vehicleYear}
-                            onChange={(e) =>
-                              setDetails((d) => ({ ...d, vehicleYear: e.target.value }))
-                            }
-                            className="input"
-                            placeholder="2022"
-                          />
-                        </Field>
-                      </div>
-                      {catalogVehicleType === null && (
-                        <Field label="Vehicle Type *">
-                          <div className="flex gap-1 bg-surface/70 border border-white/[0.08] rounded-[4px] p-1">
-                            <button type="button" onClick={() => setDetails((d) => ({ ...d, vehicleType: 1 }))}
-                              className={`flex-1 flex items-center justify-center gap-2 px-3 py-1.5 rounded-[2px] text-sm transition-colors ${details.vehicleType !== 2 ? 'bg-gold/20 text-gold' : 'text-muted hover:text-cream'}`}>
-                              <Car className="w-3.5 h-3.5" /> 4-Wheel
-                            </button>
-                            <button type="button" onClick={() => setDetails((d) => ({ ...d, vehicleType: 2 }))}
-                              className={`flex-1 flex items-center justify-center gap-2 px-3 py-1.5 rounded-[2px] text-sm transition-colors ${details.vehicleType === 2 ? 'bg-sky-400/20 text-sky-400' : 'text-muted hover:text-cream'}`}>
-                              <Bike className="w-3.5 h-3.5" /> Big Bike
-                            </button>
-                          </div>
-                        </Field>
-                      )}
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  <div className="grid md:grid-cols-[1fr_120px] gap-5">
-                    <Field label="Vehicle Make & Model *">
-                      <CarCombobox
-                        cars={cars}
-                        vehicle={details.vehicle}
-                        vehicleYear={details.vehicleYear}
-                        onChange={({ vehicle, vehicleYear, vehicleType }) => {
-                          setDetails((d) => ({ ...d, vehicle, vehicleYear }));
-                          setCatalogVehicleType(vehicleType);
-                        }}
-                      />
-                    </Field>
-                    <Field label="Year *">
-                      <input
-                        type="text"
-                        required
-                        inputMode="numeric"
-                        pattern="[0-9]*"
-                        value={details.vehicleYear}
-                        onChange={(e) =>
-                          setDetails((d) => ({ ...d, vehicleYear: e.target.value }))
-                        }
-                        className="input"
-                        placeholder="2022"
-                      />
-                    </Field>
-                  </div>
-                  {catalogVehicleType === null && (
-                    <Field label="Vehicle Type *">
-                      <div className="flex gap-1 bg-surface/70 border border-white/[0.08] rounded-[4px] p-1">
-                        <button type="button" onClick={() => setDetails((d) => ({ ...d, vehicleType: 1 }))}
-                          className={`flex-1 flex items-center justify-center gap-2 px-3 py-1.5 rounded-[2px] text-sm transition-colors ${details.vehicleType !== 2 ? 'bg-gold/20 text-gold' : 'text-muted hover:text-cream'}`}>
-                          <Car className="w-3.5 h-3.5" /> 4-Wheel
-                        </button>
-                        <button type="button" onClick={() => setDetails((d) => ({ ...d, vehicleType: 2 }))}
-                          className={`flex-1 flex items-center justify-center gap-2 px-3 py-1.5 rounded-[2px] text-sm transition-colors ${details.vehicleType === 2 ? 'bg-sky-400/20 text-sky-400' : 'text-muted hover:text-cream'}`}>
-                          <Bike className="w-3.5 h-3.5" /> Big Bike
-                        </button>
-                      </div>
-                    </Field>
-                  )}
-                </div>
+              {/* The member flow picks the car in step 1; here we only show it
+                  for the admin/public flow. */}
+              {!isMemberFlow && (
+                <CarSelector
+                  memberOwnedCars={memberOwnedCars}
+                  selectedCarId={selectedCarId}
+                  setSelectedCarId={setSelectedCarId}
+                  cars={cars}
+                  details={details}
+                  setDetails={setDetails}
+                  catalogVehicleType={catalogVehicleType}
+                  setCatalogVehicleType={setCatalogVehicleType}
+                  setManualCarSize={setManualCarSize}
+                />
               )}
 
               {activeDetailers.length > 0 && (
@@ -1150,7 +1236,7 @@ export function BookingFlow({ member = null, onComplete = null }) {
         )}
 
         {/* Step nav */}
-        {step < 3 && (
+        {!isLastStep && (
           <div className="flex items-center justify-between mt-10">
             <button
               type="button"
@@ -1172,7 +1258,7 @@ export function BookingFlow({ member = null, onComplete = null }) {
           </div>
         )}
 
-        {step === 3 && (
+        {isLastStep && (
           <div className="flex items-center justify-start mt-6">
             <button
               type="button"

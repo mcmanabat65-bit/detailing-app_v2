@@ -4,7 +4,8 @@
       "Bash(curl -s -o /dev/null -w \"home:%{http_code}\\\\n\" http://localhost:3997/)",
       "Bash(curl -s -o /dev/null -w \"dashboard\\(noauth\\):%{http_code} -> %{redirect_url}\\\\n\" http://localhost:3997/admin/dashboard)",
       "Bash(node -e \"const s=require\\('@supabase/ssr'\\); console.log\\(Object.keys\\(s\\)\\)\")",
-      "Bash(node -e \"try{require.resolve\\('server-only'\\);console.log\\('server-only: present'\\)}catch\\(e\\){console.log\\('server-only: MISSING'\\)}\")"
+      "Bash(node -e \"try{require.resolve\\('server-only'\\);console.log\\('server-only: present'\\)}catch\\(e\\){console.log\\('server-only: MISSING'\\)}\")",
+      "PowerShell(npx next lint --file src/components/booking/BookingFlow.jsx)"
     ]
   }
 }
