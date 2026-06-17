@@ -9,15 +9,18 @@ import { isSupabaseConfigured } from '@/lib/supabase';
 
 export function Providers({ children }) {
   const pathname = usePathname();
-  const isAdmin = pathname?.startsWith('/admin');
+  // Admin console and member portal both supply their own layout chrome, so the
+  // public Navbar/Footer are suppressed there.
+  const isAppShell =
+    pathname?.startsWith('/admin') || pathname?.startsWith('/portal');
 
   return (
     <AppProvider>
       {!isSupabaseConfigured && <SupabaseBanner />}
       <SupabaseErrorBanner />
-      {!isAdmin && <Navbar />}
+      {!isAppShell && <Navbar />}
       {children}
-      {!isAdmin && <Footer />}
+      {!isAppShell && <Footer />}
       <ToastContainer />
     </AppProvider>
   );

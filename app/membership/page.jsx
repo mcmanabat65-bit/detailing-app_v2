@@ -70,8 +70,8 @@ const perks = [
 ];
 
 export default function MembershipPage() {
-  const { addMember, upsertCar, addCarToMember, showToast, members } = useApp();
-  const [form, setForm] = useState({ name: '', email: '', phone: '' });
+  const { addMember, upsertCar, addCarToMember, memberSignUp, showToast, members } = useApp();
+  const [form, setForm] = useState({ name: '', email: '', phone: '', password: '', confirmPassword: '' });
   const [memberCars, setMemberCars] = useState([emptyCar()]);
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState(null);
@@ -86,7 +86,16 @@ export default function MembershipPage() {
   const doSubmit = async () => {
     const filled = memberCars.filter((c) => c.make.trim() || c.model.trim());
     setSubmitting(true);
-    const m = await addMember(form);
+
+    // 1) Create the pending member + link cars. These inserts run under the
+    //    anon key (members/cars/member_cars allow anon insert), so they must
+    //    happen BEFORE we create the auth account — once signUp establishes a
+    //    session, RLS would block a non-super-admin from inserting members.
+    const m = await addMember({
+      name: form.name,
+      email: form.email,
+      phone: form.phone,
+    });
     if (!m || m.error) {
       setSubmitting(false);
       showToast(m?.error || 'Could not submit application.', 'error');
@@ -103,9 +112,26 @@ export default function MembershipPage() {
         showToast(`Could not link ${car.make} ${car.model}: ${linked.error}`, 'error');
       }
     }
+
+    // 2) Create the login credentials in the same step. The account stays
+    //    unusable until an admin approves the membership (MemberRoute gates on
+    //    approved status), but the member never has to register twice.
+    const signup = await memberSignUp(form.email, form.password);
+    let needsConfirmation = false;
+    if (signup?.error) {
+      // Application is already saved — surface the credential issue without
+      // discarding it. They can finish setting up a login later at /portal.
+      showToast(
+        `Application saved, but we couldn't create your login: ${signup.error}`,
+        'error'
+      );
+    } else {
+      needsConfirmation = Boolean(signup?.needsConfirmation);
+    }
+
     setSubmitting(false);
-    setSuccess(m);
-    setForm({ name: '', email: '', phone: '' });
+    setSuccess({ ...m, needsConfirmation });
+    setForm({ name: '', email: '', phone: '', password: '', confirmPassword: '' });
     setMemberCars([emptyCar()]);
     showToast('Application submitted — pending review.', 'success');
   };
@@ -114,6 +140,16 @@ export default function MembershipPage() {
     e.preventDefault();
     if (!form.name || !form.email || !form.phone) {
       showToast('Please complete the form.', 'error');
+      return;
+    }
+
+    // Password — set once here so members don't have to register twice.
+    if (!form.password || form.password.length < 6) {
+      showToast('Password must be at least 6 characters.', 'error');
+      return;
+    }
+    if (form.password !== form.confirmPassword) {
+      showToast('Passwords do not match.', 'error');
       return;
     }
 
@@ -176,6 +212,12 @@ export default function MembershipPage() {
             </p>
             <p className="text-gold/80 text-xs mt-2.5 font-medium tracking-wide">
               Brgy. San Francisco Halang Rd, Biñan, Philippines 4024 · Mon – Sun, 7:00 AM – 5:00 PM
+            </p>
+            <p className="text-cream/70 text-xs mt-3">
+              Already an approved member?{' '}
+              <a href="/portal/signup" className="text-gold hover:underline">
+                Set up your member login →
+              </a>
             </p>
           </div>
         </div>
@@ -253,16 +295,32 @@ export default function MembershipPage() {
                 <p className="text-muted mb-2">
                   A manager will review your application — usually within 24 hours.
                 </p>
-                <p className="text-muted text-sm mb-6">
-                  Once approved, your VIP perks unlock automatically when you book under{' '}
-                  <span className="text-cream/80">{success.email}</span>.
+                <p className="text-muted text-sm mb-4">
+                  Your login is set up. Once approved, sign in to your member
+                  portal with{' '}
+                  <span className="text-cream/80">{success.email}</span> and the
+                  password you just chose.
                 </p>
-                <button
-                  onClick={() => setSuccess(null)}
-                  className="px-5 py-2.5 border border-white/10 text-cream/80 rounded-sm hover:border-gold/50 hover:text-gold transition-colors text-sm"
-                >
-                  Submit another application
-                </button>
+                {success.needsConfirmation && (
+                  <p className="text-gold/90 text-xs bg-gold/5 border border-gold/20 rounded-sm px-4 py-3 mb-4 leading-relaxed">
+                    One more thing — check your inbox and confirm your email
+                    address to activate your login.
+                  </p>
+                )}
+                <div className="flex flex-col sm:flex-row gap-3 justify-center mt-6">
+                  <a
+                    href="/portal/login"
+                    className="px-5 py-2.5 bg-gold text-obsidian font-semibold rounded-sm hover:bg-gold-light transition-colors text-sm"
+                  >
+                    Go to member sign in
+                  </a>
+                  <button
+                    onClick={() => setSuccess(null)}
+                    className="px-5 py-2.5 border border-white/10 text-cream/80 rounded-sm hover:border-gold/50 hover:text-gold transition-colors text-sm"
+                  >
+                    Submit another application
+                  </button>
+                </div>
               </div>
             ) : (
               <form onSubmit={handleSubmit} className="space-y-5">
@@ -308,6 +366,40 @@ export default function MembershipPage() {
                     placeholder="0917 123 4567"
                   />
                 </Field>
+
+                {/* Login credentials — set once, used after approval */}
+                <div className="grid md:grid-cols-2 gap-4">
+                  <Field label="Password *">
+                    <input
+                      type="password"
+                      required
+                      minLength={6}
+                      value={form.password}
+                      onChange={(e) =>
+                        setForm((f) => ({ ...f, password: e.target.value }))
+                      }
+                      className="member-input"
+                      placeholder="At least 6 characters"
+                    />
+                  </Field>
+                  <Field label="Confirm Password *">
+                    <input
+                      type="password"
+                      required
+                      minLength={6}
+                      value={form.confirmPassword}
+                      onChange={(e) =>
+                        setForm((f) => ({ ...f, confirmPassword: e.target.value }))
+                      }
+                      className="member-input"
+                      placeholder="Re-enter password"
+                    />
+                  </Field>
+                </div>
+                <p className="text-[11px] text-muted leading-relaxed -mt-1">
+                  You&apos;ll use your email and this password to sign in to your
+                  member portal once your application is approved.
+                </p>
 
                 {/* Cars (optional) */}
                 <div className="pt-2 border-t border-white/5">

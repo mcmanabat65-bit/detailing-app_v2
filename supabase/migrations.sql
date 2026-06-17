@@ -759,8 +759,9 @@ notify pgrst, 'reload schema';
 
 -- Helper: is the *current* user a super admin?
 -- SECURITY DEFINER so it can read admin_users regardless of that table's RLS.
--- Bootstrap: when admin_users is empty, any authenticated user counts as
--- super_admin so the boss can sign in and assign the first roles.
+-- Bootstrap: when NO super_admin is configured yet, any authenticated user
+-- counts as super_admin so the boss can sign in and assign the first roles
+-- (and can't lock themselves out by adding a plain admin before adding self).
 create or replace function public.is_super_admin()
 returns boolean
 language sql
@@ -775,7 +776,7 @@ as $$
          where lower(email) = lower(coalesce(auth.jwt() ->> 'email', ''))
            and role = 'super_admin'
        )
-       or not exists (select 1 from admin_users)
+       or not exists (select 1 from admin_users where role = 'super_admin')
      );
 $$;
 
@@ -906,5 +907,94 @@ create policy "admin_users_select" on admin_users for select to authenticated us
 create policy "admin_users_insert" on admin_users for insert to authenticated with check (is_super_admin());
 create policy "admin_users_update" on admin_users for update to authenticated using (is_super_admin()) with check (is_super_admin());
 create policy "admin_users_delete" on admin_users for delete to authenticated using (is_super_admin());
+
+-- =====================================================================
+-- Phase 4 — Member portal (self-service VIP login)
+-- =====================================================================
+-- Approved VIP members can now sign in (Supabase Auth) and manage their own
+-- profile, fleet, and bookings. This block lets a signed-in member touch ONLY
+-- their own rows, on top of the existing super_admin write policies.
+--
+-- Run this block in Supabase SQL Editor on existing databases. Re-runnable.
+--
+-- NOTE: anyone can create a Supabase Auth account, but portal ACCESS is gated
+-- in the app by current_member_id() resolving to an approved member. These
+-- policies make that the DB boundary too.
+
+-- Helper: the approved member id for the *current* JWT email (or null).
+-- SECURITY DEFINER so it reads members regardless of that table's RLS.
+create or replace function public.current_member_id()
+returns text
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select id from members
+  where lower(email) = lower(coalesce(auth.jwt() ->> 'email', ''))
+    and status = 'approved'
+  limit 1
+$$;
+
+-- Public VIP application: allow authenticated users to submit a pending member
+-- row too (a visitor may already hold a session from a prior portal sign-up, so
+-- the single-step membership form would otherwise hit RLS). Approvals/edits stay
+-- super_admin-only via members_update below. Mirrors bookings/cars insert policy.
+drop policy if exists "members_insert_auth" on members;
+create policy "members_insert_auth" on members for insert to authenticated with check (true);
+
+-- members: a member may update their OWN row (in addition to super_admin).
+-- A BEFORE UPDATE trigger keeps email + status immutable for non-super-admins
+-- so a member can't change the email tied to their login or self-approve.
+drop policy if exists "members_update"      on members;
+drop policy if exists "members_self_update" on members;
+create policy "members_update" on members
+  for update to authenticated
+  using (is_super_admin() or id = current_member_id())
+  with check (is_super_admin() or id = current_member_id());
+
+create or replace function public.members_self_update_guard()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not is_super_admin() then
+    if new.email is distinct from old.email then
+      raise exception 'Members cannot change their email.';
+    end if;
+    if new.status is distinct from old.status then
+      raise exception 'Members cannot change their membership status.';
+    end if;
+    -- Preserve admin-managed bookkeeping columns on self-updates.
+    new.member_since := old.member_since;
+    new.decided_at   := old.decided_at;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists members_self_update_guard on members;
+create trigger members_self_update_guard
+  before update on members
+  for each row execute function public.members_self_update_guard();
+
+-- member_cars: a member may manage cars in their OWN fleet (insert was already
+-- open to authenticated; tighten update/delete to own rows or super_admin).
+drop policy if exists "member_cars_update" on member_cars;
+drop policy if exists "member_cars_delete" on member_cars;
+create policy "member_cars_update" on member_cars
+  for update to authenticated
+  using (is_super_admin() or member_id = current_member_id())
+  with check (is_super_admin() or member_id = current_member_id());
+create policy "member_cars_delete" on member_cars
+  for delete to authenticated
+  using (is_super_admin() or member_id = current_member_id());
+
+-- cars (catalog) + bookings: no change. cars insert + bookings insert/select
+-- are already open enough for members to add catalog cars and create/read their
+-- own bookings (the portal filters bookings client-side by member). Member
+-- self-cancel of bookings is intentionally NOT enabled here.
 
 notify pgrst, 'reload schema';

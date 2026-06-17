@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard,
   ClipboardList,
@@ -45,7 +45,6 @@ const links = [
 
 export function AdminLayout({ children, title }) {
   const { signOut, showToast, can, adminRole } = useApp();
-  const router = useRouter();
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
 
@@ -53,9 +52,11 @@ export function AdminLayout({ children, title }) {
   const roleLabel = adminRole ? ROLE_LABELS[adminRole] : null;
 
   const handleLogout = async () => {
+    // Don't navigate here — clearing the session makes ProtectedRoute redirect
+    // to /admin/login on its own. A manual push/replace racing that redirect can
+    // cancel both navigations and leave a blank screen.
     await signOut();
     showToast('Signed out.', 'info');
-    router.push('/admin/login');
   };
 
   const isActive = (href) =>

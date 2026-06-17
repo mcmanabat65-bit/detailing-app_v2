@@ -506,9 +506,55 @@ as $$
          where lower(email) = lower(coalesce(auth.jwt() ->> 'email', ''))
            and role = 'super_admin'
        )
-       or not exists (select 1 from admin_users)
+       -- Bootstrap: "no super_admin configured" (not "table empty") so adding a
+       -- plain admin can't lock the boss out before they add themselves.
+       or not exists (select 1 from admin_users where role = 'super_admin')
      );
 $$;
+
+-- Helper: the approved member id for the *current* user (or null).
+-- Backs member-portal RLS so a signed-in member can touch only their own rows.
+-- SECURITY DEFINER so it reads members regardless of that table's RLS.
+create or replace function public.current_member_id()
+returns text
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select id from members
+  where lower(email) = lower(coalesce(auth.jwt() ->> 'email', ''))
+    and status = 'approved'
+  limit 1
+$$;
+
+-- Members may update their OWN row, but never their email (auth identity) or
+-- status (admin-controlled). This trigger enforces that for non-super-admins.
+create or replace function public.members_self_update_guard()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not is_super_admin() then
+    if new.email is distinct from old.email then
+      raise exception 'Members cannot change their email.';
+    end if;
+    if new.status is distinct from old.status then
+      raise exception 'Members cannot change their membership status.';
+    end if;
+    new.member_since := old.member_since;
+    new.decided_at   := old.decided_at;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists members_self_update_guard on members;
+create trigger members_self_update_guard
+  before update on members
+  for each row execute function public.members_self_update_guard();
 
 -- ---------------------------------------------------------------------
 -- Row Level Security (role-based — see migrations.sql Phase 3 for notes)
@@ -575,9 +621,14 @@ create policy "bookings_delete" on bookings for delete to authenticated using (i
 
 -- members: anyone reads; anon applies; only super_admin manages
 create policy "members_select"      on members for select to anon, authenticated using (true);
+-- Public VIP application — anyone may submit a pending member row. Authenticated
+-- is allowed too (a visitor may already hold a session, e.g. from a prior
+-- portal sign-up); approvals/edits stay super_admin-only via members_update.
 create policy "members_insert_anon" on members for insert to anon with check (true);
-create policy "members_insert_auth" on members for insert to authenticated with check (is_super_admin());
-create policy "members_update"      on members for update to authenticated using (is_super_admin()) with check (is_super_admin());
+create policy "members_insert_auth" on members for insert to authenticated with check (true);
+-- super_admin manages anyone; a member may update their own row (email/status
+-- kept immutable by the members_self_update_guard trigger above).
+create policy "members_update"      on members for update to authenticated using (is_super_admin() or id = current_member_id()) with check (is_super_admin() or id = current_member_id());
 create policy "members_delete"      on members for delete to authenticated using (is_super_admin());
 
 -- cars & member_cars: read open; anon + staff add (membership/booking); super edits/deletes
@@ -587,8 +638,9 @@ create policy "cars_update" on cars for update to authenticated using (is_super_
 create policy "cars_delete" on cars for delete to authenticated using (is_super_admin());
 create policy "member_cars_select" on member_cars for select to anon, authenticated using (true);
 create policy "member_cars_insert" on member_cars for insert to anon, authenticated with check (true);
-create policy "member_cars_update" on member_cars for update to authenticated using (is_super_admin()) with check (is_super_admin());
-create policy "member_cars_delete" on member_cars for delete to authenticated using (is_super_admin());
+-- super_admin manages any fleet; a member may manage cars in their own fleet.
+create policy "member_cars_update" on member_cars for update to authenticated using (is_super_admin() or member_id = current_member_id()) with check (is_super_admin() or member_id = current_member_id());
+create policy "member_cars_delete" on member_cars for delete to authenticated using (is_super_admin() or member_id = current_member_id());
 
 -- car_condition_logs: staff read (PII — no anon); super_admin writes
 create policy "ccl_select" on car_condition_logs for select to authenticated using (true);

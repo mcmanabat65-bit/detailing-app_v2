@@ -34,9 +34,10 @@ function RoleBadge({ role }) {
 }
 
 function StaffAccess() {
-  const { adminUsers, upsertAdminUser, deleteAdminUser, showToast, authEmail } = useApp();
+  const { adminUsers, upsertAdminUser, deleteAdminUser, createStaffAccount, showToast, authEmail } = useApp();
 
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [role, setRole] = useState(ROLES.ADMIN);
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(null);
@@ -76,12 +77,29 @@ function StaffAccess() {
 
   const handleAdd = async (e) => {
     e.preventDefault();
+    const targetEmail = email.trim().toLowerCase();
+    const pw = password.trim();
+    if (pw && pw.length < 6) {
+      showToast('Password must be at least 6 characters.', 'error');
+      return;
+    }
     setSaving(true);
-    const result = await upsertAdminUser({ email, role });
+
+    // The server route creates the Auth login account (when a password is
+    // given), assigns the role, and secures the bootstrap super-admin against
+    // lockout — all with the service-role key, so no client RLS limits apply.
+    const result = await createStaffAccount({ email: targetEmail, password: pw, role });
     setSaving(false);
     if (result?.error) { showToast(result.error, 'error'); return; }
-    showToast(`${email.trim().toLowerCase()} added as ${ROLE_LABELS[role]}.`, 'success');
+
+    showToast(
+      result.accountCreated
+        ? `Account created — ${targetEmail} can now sign in as ${ROLE_LABELS[role]}.`
+        : `${targetEmail} assigned as ${ROLE_LABELS[role]}.`,
+      'success'
+    );
     setEmail('');
+    setPassword('');
     setRole(ROLES.ADMIN);
   };
 
@@ -157,8 +175,10 @@ function StaffAccess() {
               </li>
             </ul>
             <p className="text-muted">
-              Accounts are still created in the Supabase Dashboard
-              (Authentication → Users). Add the same email here to grant a role.
+              Set a password below to create the login account and assign its role
+              in one step — no Supabase Dashboard needed. (Requires
+              <code className="text-gold/80 mx-1">SUPABASE_SERVICE_ROLE_KEY</code>
+              on the server.)
             </p>
           </div>
         </div>
@@ -169,7 +189,7 @@ function StaffAccess() {
             <UserPlus className="w-4 h-4 text-gold" />
             <h2 className="font-serif text-xl text-cream">Grant access</h2>
           </div>
-          <div className="grid md:grid-cols-[1fr_180px_auto] gap-3 items-end">
+          <div className="grid md:grid-cols-[1fr_1fr_150px_auto] gap-3 items-end">
             <label className="block">
               <div className="text-[11px] uppercase tracking-widest text-cream/70 mb-1.5">
                 Login email
@@ -180,6 +200,19 @@ function StaffAccess() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="barista@samahuzai.com"
+                className="w-full bg-surface/70 border border-white/10 rounded-sm py-2.5 px-3 text-sm text-cream focus:outline-none focus:border-gold/50 transition-colors"
+              />
+            </label>
+            <label className="block">
+              <div className="text-[11px] uppercase tracking-widest text-cream/70 mb-1.5">
+                Password
+              </div>
+              <input
+                type="text"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Set an initial password"
+                autoComplete="new-password"
                 className="w-full bg-surface/70 border border-white/10 rounded-sm py-2.5 px-3 text-sm text-cream focus:outline-none focus:border-gold/50 transition-colors"
               />
             </label>
@@ -205,6 +238,11 @@ function StaffAccess() {
               {saving ? 'Adding…' : 'Add'}
             </button>
           </div>
+          <p className="text-xs text-muted mt-3">
+            Set a password to create a ready-to-use login account (auto-confirmed,
+            min 6 characters) — share it with the staff member. Leave it blank to
+            only assign a role to an account that already exists.
+          </p>
         </form>
 
         {/* Staff list */}

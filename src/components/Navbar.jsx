@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import Image from 'next/image';
-import { Menu, X } from 'lucide-react';
+import { Menu, X, Crown } from 'lucide-react';
+import { useApp } from '@/context/AppContext';
 
 const links = [
   { href: '/', label: 'Home' },
@@ -24,6 +25,11 @@ export function Navbar() {
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const pathname = usePathname();
+  const { accountType } = useApp();
+  const isMember = accountType === 'member';
+  const memberLink = isMember
+    ? { href: '/portal', label: 'My Account' }
+    : { href: '/portal/login', label: 'Member Login' };
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 12);
@@ -78,12 +84,13 @@ export function Navbar() {
               </Link>
             );
           })}
-          {/* <Link
-            href="/booking"
-            className="px-5 py-2 bg-gold text-obsidian text-sm font-semibold rounded-sm hover:bg-gold-light transition-colors"
+          <Link
+            href={memberLink.href}
+            className="inline-flex items-center gap-1.5 px-4 py-2 border border-gold/40 text-gold text-sm font-semibold rounded-sm hover:bg-gold hover:text-obsidian transition-colors"
           >
-            Reserve
-          </Link> */}
+            <Crown className="w-3.5 h-3.5" />
+            {memberLink.label}
+          </Link>
         </nav>
 
         {/* Mobile toggle */}
@@ -121,10 +128,11 @@ export function Navbar() {
             );
           })}
           <Link
-            href="/booking"
-            className="mt-2 px-5 py-3 bg-gold text-obsidian text-center font-semibold rounded-sm"
+            href={memberLink.href}
+            className="mt-2 px-5 py-3 bg-gold text-obsidian text-center font-semibold rounded-sm inline-flex items-center justify-center gap-2"
           >
-            Reserve a Slot
+            <Crown className="w-4 h-4" />
+            {memberLink.label}
           </Link>
         </nav>
       </div>

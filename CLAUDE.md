@@ -256,11 +256,22 @@ showToast(message, type)
 
 ## Auth
 
-- Admin auth uses **Supabase Auth** (`supabase.auth.signInWithPassword`)
-- `ProtectedRoute` wraps all `/admin/*` pages — redirects to `/admin/login` if no session
-- A `obsidian_just_logged_in` sessionStorage flag prevents the 200ms race between login redirect and `onAuthStateChange` propagation
-- Session timeout: 1 hour absolute (enforced client-side in `ProtectedRoute`)
-- Create admin users in Supabase Dashboard → Authentication → Users
+- Admin **and** VIP members authenticate via the same **Supabase Auth** (`supabase.auth.signInWithPassword`). The *account type* is resolved by email, not by separate auth systems.
+- `ProtectedRoute` wraps all `/admin/*` pages — redirects to `/admin/login` if no session, and bounces a **member** session to `/portal`.
+- `MemberRoute` wraps all `/portal/*` pages — redirects to `/portal/login` if no session, bounces an **admin** to `/admin/dashboard`, and shows an inline "membership not active" notice for an authenticated user who isn't an approved member.
+- Session timeout: 3-day absolute (enforced client-side in `ProtectedRoute` / `MemberRoute`, shared `obsidian_session_start` localStorage key).
+- Create admin users in Supabase Dashboard → Authentication → Users. **VIP members self-register** at `/portal/signup` (see Member Portal below).
+
+### Account-type resolution (AppContext)
+
+`AppContext` derives `accountType` (`'admin' | 'member' | null`) plus `adminRole` and `currentMember` from the signed-in email:
+
+1. email in `admin_users` → that row's role → `accountType = 'admin'`
+2. else an **approved** member with that email → `currentMember` set → `accountType = 'member'`
+3. else `admin_users` is empty → first non-member login is `super_admin` (bootstrap)
+4. else (authenticated but neither) → **no access** (`accountType = null`)
+
+> ⚠️ Rule 4 is stricter than the old "unlisted → least-privilege admin" behavior. It is required because member sign-up is public — an unknown authenticated user must NOT inherit admin access. Real admins are always seeded in `admin_users` (or are the bootstrap first user).
 
 ### Admin Roles (two tiers)
 
@@ -338,6 +349,37 @@ Categories are a separate `service_categories` table (slug → name + color). Th
 - VIP detection at booking time: email match against approved members
 - Perks: free coffee, 10% discount, priority scheduling, lounge access, birthday special
 - Visit-first policy: a notice on `/membership` tells users to visit in person first
+
+---
+
+## Member Portal (`/portal`)
+
+Approved VIP members get a self-service portal. All pages are wrapped in
+`MemberRoute` + `PortalLayout` (`src/components/`).
+
+| Route | Purpose |
+|---|---|
+| `/portal/signup` | Self-service: an approved email sets a password (`memberSignUp` → `supabase.auth.signUp`). Honors the project's "Confirm email" setting. |
+| `/portal/login` | Member sign-in. |
+| `/portal` | Overview — membership card, perks, quick stats, next appointment, "Book a Detail" CTA. |
+| `/portal/book` | The shared `BookingFlow` with `member` prop (email locked, fleet pre-loaded). Bookings land `pending` like every other flow. |
+| `/portal/bookings` | Upcoming/Scheduled + History tabs (read-only — no self-cancel). |
+| `/portal/fleet` | Add/edit/remove own cars, set plate, mark default. |
+| `/portal/profile` | Edit name/nickname/phone (email locked) + change password. |
+
+- **Booking flow is shared**: `src/components/booking/BookingFlow.jsx` is used by
+  both `/booking` (admin) and `/portal/book` (member, via the `member` prop).
+- **Member AppContext API**: `memberSignUp`, `updateOwnPassword`,
+  `updateOwnMemberProfile` (whitelists name/nickname/phone only),
+  `getBookingsForMember(member)`. Fleet reuses the existing
+  `getCarsForMember` / `upsertCar` / `addCarToMember` / `updateMemberCarPlate` /
+  `removeCarFromMember` / `setMemberCarOrder` actions.
+- **RLS (Phase 4 in `migrations.sql` / `schema.sql`)**: helper
+  `current_member_id()` maps JWT email → approved member id. Members can
+  `update` their own `members` row (email/status locked by the
+  `members_self_update_guard` trigger) and manage `member_cars` rows in their own
+  fleet. `cars`/`bookings` writes need no change (already open enough; portal
+  filters bookings client-side).
 
 ---
 
@@ -423,6 +465,7 @@ Paste the relevant block from `supabase/migrations.sql` into Supabase Dashboard 
 |---|---|---|
 | `NEXT_PUBLIC_SUPABASE_URL` | Client + Server | Supabase project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Client + Server | Supabase anon key |
+| `SUPABASE_SERVICE_ROLE_KEY` | Server only | Service-role key — used by `app/api/admin/create-staff` to create staff login accounts from the Staff Access page. Bypasses RLS; never expose to the client. |
 | `RESEND_API_KEY` | Server only | Resend email API key |
 | `EMAIL_FROM` | Server only | Sender address (default: `onboarding@resend.dev`) |
 

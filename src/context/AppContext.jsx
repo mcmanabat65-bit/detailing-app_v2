@@ -1250,17 +1250,74 @@ export function AppProvider({ children }) {
     [refetchAdminUsers]
   );
 
+  // Creates a Supabase Auth login account (with a password) AND assigns its
+  // role, in one step, via the server-side admin route. Only a super_admin may
+  // call it (enforced in the route). Pass no/empty password to just assign a
+  // role to an account that already exists.
+  const createStaffAccount = useCallback(
+    async ({ email, password, role }) => {
+      try {
+        const res = await fetch('/api/admin/create-staff', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password, role }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) return { error: data?.error || 'Could not create the account.' };
+        await refetchAdminUsers();
+        return data;
+      } catch (e) {
+        return { error: e?.message || 'Network error.' };
+      }
+    },
+    [refetchAdminUsers]
+  );
+
+  // The approved member matching the signed-in email. Admins take precedence:
+  // an email present in admin_users is treated as an admin, never a member.
+  // Returns null while role data is still resolving (so callers can wait).
+  const currentMember = useMemo(() => {
+    if (!adminSession || !authEmail) return null;
+    if (!adminUsersHydrated) return null;
+    if (adminUsers.some((u) => u.email === authEmail)) return null; // admin wins
+    return (
+      members.find(
+        (m) =>
+          (m.email || '').trim().toLowerCase() === authEmail &&
+          (m.status ?? 'pending') === 'approved'
+      ) || null
+    );
+  }, [adminSession, authEmail, adminUsersHydrated, adminUsers, members]);
+
   // Current admin's role. Resolved by email match against admin_users.
   //  - Returns null while still resolving (so callers can wait, not flash).
-  //  - Empty table → first logged-in user is super_admin (bootstrap).
-  //  - Authenticated but not listed → 'admin' (least privilege).
+  //  - Listed in admin_users → that row's role.
+  //  - An approved member (and not listed as admin) → null (they're a member).
+  //  - Empty admin_users table → first non-member login is super_admin (bootstrap).
+  //  - Authenticated but neither admin nor member → null (no access). Public
+  //    member sign-up means an unknown authenticated user must NOT inherit
+  //    admin access — real admins are always seeded in admin_users.
   const adminRole = useMemo(() => {
     if (!adminSession) return null;
     if (!adminUsersHydrated) return null;
-    if (adminUsers.length === 0) return ROLES.SUPER_ADMIN;
     const match = adminUsers.find((u) => u.email === authEmail);
-    return match ? match.role : ROLES.ADMIN;
-  }, [adminSession, adminUsersHydrated, adminUsers, authEmail]);
+    if (match) return match.role;
+    if (currentMember) return null;
+    // Bootstrap: until a super_admin has been configured, any signed-in
+    // non-member (not otherwise listed) is treated as super_admin. This is
+    // based on "no super_admin exists" — NOT "table empty" — so the boss can
+    // never lock themselves out by adding a plain admin before adding self.
+    const hasSuperAdmin = adminUsers.some((u) => u.role === ROLES.SUPER_ADMIN);
+    if (!hasSuperAdmin) return ROLES.SUPER_ADMIN;
+    return null;
+  }, [adminSession, adminUsersHydrated, adminUsers, authEmail, currentMember]);
+
+  // 'admin' | 'member' | null (null = resolving, or authenticated-but-neither).
+  const accountType = useMemo(() => {
+    if (adminRole != null) return 'admin';
+    if (currentMember) return 'member';
+    return null;
+  }, [adminRole, currentMember]);
 
   const isSuperAdmin = adminRole === ROLES.SUPER_ADMIN;
 
@@ -1269,11 +1326,81 @@ export function AppProvider({ children }) {
     [adminRole]
   );
 
+  // Bookings tied to a given member — by memberId, or by email for bookings
+  // created before the member had a login.
+  const getBookingsForMember = useCallback(
+    (member) => {
+      if (!member) return [];
+      const email = (member.email || '').trim().toLowerCase();
+      return bookings.filter(
+        (b) =>
+          b.memberId === member.id ||
+          (email && (b.email || '').trim().toLowerCase() === email)
+      );
+    },
+    [bookings]
+  );
+
+  // ===== Member portal — self-service auth on top of Supabase Auth =====
+  // Anyone can create an auth account, but portal access is gated by
+  // currentMember (an approved member matching the email). See MemberRoute.
+  const memberSignUp = useCallback(async (email, password) => {
+    if (!supabase) return { error: 'Database not connected.' };
+    const clean = (email || '').trim().toLowerCase();
+    if (!clean) return { error: 'Email is required.' };
+    if (!password || password.length < 6) {
+      return { error: 'Password must be at least 6 characters.' };
+    }
+    const { data, error } = await supabase.auth.signUp({
+      email: clean,
+      password,
+    });
+    if (error) return { error: error.message };
+    // When email confirmation is enabled, no session is returned until the
+    // user confirms via the emailed link.
+    return { ok: true, needsConfirmation: !data.session };
+  }, []);
+
+  const updateOwnPassword = useCallback(async (password) => {
+    if (!supabase) return { error: 'Database not connected.' };
+    if (!password || password.length < 6) {
+      return { error: 'Password must be at least 6 characters.' };
+    }
+    const { error } = await supabase.auth.updateUser({ password });
+    if (error) return { error: error.message };
+    return { ok: true };
+  }, []);
+
+  // Members may edit only their own name / nickname / phone — never email or
+  // status (email is the auth identity; status is admin-controlled). The DB
+  // trigger members_self_update_guard enforces this server-side too.
+  const updateOwnMemberProfile = useCallback(
+    async (fields) => {
+      if (!currentMember) return { error: 'Not signed in as a member.' };
+      const name = (fields.name ?? currentMember.name ?? '').trim();
+      if (!name) return { error: 'Name is required.' };
+      const phone = (fields.phone ?? currentMember.phone ?? '').trim();
+      if (!phone) return { error: 'Phone is required.' };
+      return updateMember(currentMember.id, {
+        name,
+        nickname: (fields.nickname ?? currentMember.nickname ?? '').trim() || null,
+        phone,
+      });
+    },
+    [currentMember, updateMember]
+  );
+
   // ===== Admin session — backed by Supabase Auth =====
   const signOut = useCallback(async () => {
-    if (supabase) await supabase.auth.signOut();
+    // Clear local state first so the UI reacts immediately and ProtectedRoute
+    // redirects to login — independent of how the network call resolves.
     setAdminSessionState(false);
     setAuthEmail(null);
+    setAdminUsers([]);
+    setAdminUsersHydrated(true);
+    if (supabase) {
+      try { await supabase.auth.signOut(); } catch { /* already signed out */ }
+    }
   }, []);
 
   // Keep setAdminSession as a no-op shim so existing call-sites don't break
@@ -1447,6 +1574,12 @@ export function AppProvider({ children }) {
       settings,
       adminSession,
       adminRole,
+      accountType,
+      currentMember,
+      getBookingsForMember,
+      memberSignUp,
+      updateOwnPassword,
+      updateOwnMemberProfile,
       isSuperAdmin,
       can,
       authEmail,
@@ -1454,6 +1587,7 @@ export function AppProvider({ children }) {
       adminUsersHydrated,
       upsertAdminUser,
       deleteAdminUser,
+      createStaffAccount,
       hydrated,
       supabaseError,
       toasts,
@@ -1528,6 +1662,12 @@ export function AppProvider({ children }) {
       settings,
       adminSession,
       adminRole,
+      accountType,
+      currentMember,
+      getBookingsForMember,
+      memberSignUp,
+      updateOwnPassword,
+      updateOwnMemberProfile,
       isSuperAdmin,
       can,
       authEmail,
@@ -1535,6 +1675,7 @@ export function AppProvider({ children }) {
       adminUsersHydrated,
       upsertAdminUser,
       deleteAdminUser,
+      createStaffAccount,
       hydrated,
       supabaseError,
       toasts,
