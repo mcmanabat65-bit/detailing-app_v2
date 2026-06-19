@@ -998,3 +998,180 @@ create policy "member_cars_delete" on member_cars
 -- self-cancel of bookings is intentionally NOT enabled here.
 
 notify pgrst, 'reload schema';
+
+-- =====================================================================
+-- Phase 5 — Booking status changes by plain admins
+-- =====================================================================
+-- A plain `admin` (barista) may advance a booking's lifecycle status, but must
+-- NOT be able to edit other booking fields (the bookings UPDATE policy stays
+-- super_admin only). This SECURITY DEFINER RPC is the controlled path: it only
+-- touches `status` + `cancellation_reason`, writes the audit log, and authorizes
+-- any signed-in staff member. Other edits (add-ons, detailer reassignment,
+-- delete) remain super-admin only because they go through the table directly.
+-- Idempotent — safe to re-run.
+create or replace function public.update_booking_status(
+  p_id     text,
+  p_status text,
+  p_reason text default null
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_from text;
+  v_row  bookings;
+begin
+  -- Any authenticated staff (admin or super_admin) may change status.
+  if auth.uid() is null then
+    return jsonb_build_object('error', 'Not authenticated.');
+  end if;
+
+  if p_status not in ('pending','confirmed','on-going','completed','cancelled','no_show') then
+    return jsonb_build_object('error', 'Invalid status.');
+  end if;
+
+  select status into v_from from bookings where id = p_id;
+  if v_from is null then
+    return jsonb_build_object('error', 'Booking not found.');
+  end if;
+
+  update bookings
+     set status = p_status,
+         cancellation_reason = case
+           when p_status = 'cancelled' then p_reason
+           else cancellation_reason
+         end
+   where id = p_id
+   returning * into v_row;
+
+  insert into booking_status_logs (booking_id, from_status, to_status, notes)
+  values (p_id, v_from, p_status, p_reason);
+
+  return to_jsonb(v_row);
+end;
+$$;
+
+-- Staff only — execute granted to authenticated (the function itself rejects anon).
+grant execute on function public.update_booking_status(text, text, text) to authenticated;
+
+notify pgrst, 'reload schema';
+
+-- =====================================================================
+-- Phase 6 — Detailer assignment + add-ons by plain admins
+-- =====================================================================
+-- Let a plain `admin` (barista) assign detailers and edit add-ons. Both go
+-- through SECURITY DEFINER RPCs that only touch their one column, so the
+-- bookings table UPDATE policy can stay super-admin only (delete/other-field
+-- edits remain blocked for admins). Idempotent — safe to re-run.
+
+-- Re-create update_booking_detailers as SECURITY DEFINER + staff auth check.
+-- (Only writes detailers_assigned; keeps the capacity + conflict guards.)
+create or replace function update_booking_detailers(
+  p_id text,
+  p_detailer_ids uuid[],
+  p_min_detailers int
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_pool int;
+  v_used int;
+  v_min int := 2147483647;
+  v_count int;
+  v_slot text;
+  v_conflict_names text;
+  v_booking bookings;
+  v_row bookings;
+begin
+  if auth.uid() is null then
+    return jsonb_build_object('error', 'Not authenticated.');
+  end if;
+
+  v_count := coalesce(array_length(p_detailer_ids, 1), 0);
+  if v_count < 1 then
+    return jsonb_build_object('error', 'At least one detailer must be assigned.');
+  end if;
+
+  select * into v_booking from bookings where id = p_id;
+  if v_booking is null then
+    return jsonb_build_object('error', 'Booking not found.');
+  end if;
+
+  if v_count < p_min_detailers then
+    return jsonb_build_object('error', 'Service requires at least ' || p_min_detailers || ' detailer(s).');
+  end if;
+
+  perform pg_advisory_xact_lock(hashtext(v_booking.date::text));
+
+  select detailer_pool_size into v_pool from settings where id = 1;
+
+  foreach v_slot in array v_booking.occupies_slots loop
+    select coalesce(sum(array_length(detailers_assigned, 1)), 0) into v_used
+    from bookings
+    where date = v_booking.date
+      and id <> p_id
+      and status not in ('cancelled', 'no_show')
+      and v_slot = any (occupies_slots);
+    v_min := least(v_min, v_pool - v_used);
+  end loop;
+
+  if v_count > v_min then
+    return jsonb_build_object('error', 'Only ' || v_min || ' detailer(s) available across this booking''s hours.');
+  end if;
+
+  select string_agg(distinct dt.name, ', ') into v_conflict_names
+  from bookings b
+  cross join lateral unnest(b.detailers_assigned) as busy(id)
+  join detailers dt on dt.id = busy.id
+  where b.date = v_booking.date
+    and b.id <> p_id
+    and b.status not in ('cancelled', 'no_show')
+    and b.occupies_slots && v_booking.occupies_slots
+    and busy.id = any (p_detailer_ids);
+
+  if v_conflict_names is not null then
+    return jsonb_build_object('error', 'Already booked at this time: ' || v_conflict_names || '. Choose a different detailer.');
+  end if;
+
+  update bookings set detailers_assigned = p_detailer_ids where id = p_id
+    returning * into v_row;
+
+  return to_jsonb(v_row);
+end;
+$$;
+grant execute on function update_booking_detailers(text, uuid[], int) to authenticated;
+
+-- Add-ons: SECURITY DEFINER, only writes the add_ons column.
+create or replace function public.update_booking_addons(
+  p_id     text,
+  p_addons jsonb
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_row bookings;
+begin
+  if auth.uid() is null then
+    return jsonb_build_object('error', 'Not authenticated.');
+  end if;
+  if jsonb_typeof(p_addons) <> 'array' then
+    return jsonb_build_object('error', 'Add-ons must be an array.');
+  end if;
+
+  update bookings set add_ons = p_addons where id = p_id
+    returning * into v_row;
+  if v_row is null then
+    return jsonb_build_object('error', 'Booking not found.');
+  end if;
+
+  return to_jsonb(v_row);
+end;
+$$;
+grant execute on function public.update_booking_addons(text, jsonb) to authenticated;
+
+notify pgrst, 'reload schema';

@@ -31,8 +31,9 @@ function Dashboard() {
   const { bookings, members, updateMemberStatus, updateBookingStatus, showToast, can } = useApp();
   const today = toIsoDate(new Date());
 
-  // Plain admins can monitor bookings but not approve/decline or manage members.
-  const canEditBookings = can('bookings.edit');
+  // Plain admins can advance booking status (so they can confirm/decline
+  // pending requests) but not manage members.
+  const canEditBookings = can('bookings.status');
   const canManageMembers = can('members.manage');
 
   const stats = useMemo(() => {

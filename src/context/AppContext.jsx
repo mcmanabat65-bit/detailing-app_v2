@@ -483,27 +483,43 @@ export function AppProvider({ children }) {
   const updateBookingStatus = useCallback(
     async (id, status, cancellationReason = null) => {
       if (!supabase) return { error: 'Database not connected.' };
-      const payload = { status };
-      if (status === 'cancelled') {
-        payload.cancellation_reason = cancellationReason || null;
-      }
-      // Capture current status before update for the audit log
-      const current = bookings.find((b) => b.id === id);
-      const fromStatus = current?.status ?? null;
 
-      const { error } = await supabase
-        .from('bookings')
-        .update(payload)
-        .eq('id', id);
-      if (error) return { error: error.message };
-
-      // Write audit log entry
-      await supabase.from('booking_status_logs').insert({
-        booking_id: id,
-        from_status: fromStatus,
-        to_status: status,
-        notes: cancellationReason || null,
+      // Status changes go through a SECURITY DEFINER RPC so a plain admin
+      // (barista) can advance status without table-level UPDATE rights — while
+      // other booking edits stay super-admin only. The RPC also writes the
+      // audit log (which is otherwise super-admin-only to insert).
+      const { data, error } = await supabase.rpc('update_booking_status', {
+        p_id: id,
+        p_status: status,
+        p_reason: cancellationReason,
       });
+
+      if (error) {
+        // Fallback for databases that haven't applied the RPC migration yet:
+        // update the table directly (works for super admins / open RLS).
+        const missing =
+          error.code === 'PGRST202' ||
+          /update_booking_status|function .* does not exist|could not find the function/i.test(
+            error.message || ''
+          );
+        if (!missing) return { error: error.message };
+
+        const current = bookings.find((b) => b.id === id);
+        const fromStatus = current?.status ?? null;
+        const payload = { status };
+        if (status === 'cancelled') payload.cancellation_reason = cancellationReason || null;
+
+        const { error: upErr } = await supabase.from('bookings').update(payload).eq('id', id);
+        if (upErr) return { error: upErr.message };
+        await supabase.from('booking_status_logs').insert({
+          booking_id: id,
+          from_status: fromStatus,
+          to_status: status,
+          notes: cancellationReason || null,
+        });
+      } else if (data?.error) {
+        return { error: data.error };
+      }
 
       await refetchBookings();
       return { ok: true };
@@ -1143,15 +1159,32 @@ export function AppProvider({ children }) {
   );
 
   // ===== Booking Add-Ons =====
-  // add_ons is a JSONB array on the bookings row: [{ name, price, notes }]
+  // add_ons is a JSONB array on the bookings row: [{ name, price, notes }].
+  // Goes through a SECURITY DEFINER RPC so a plain admin can manage add-ons
+  // without table-level UPDATE rights (bookings UPDATE stays super-admin only).
   const updateBookingAddOns = useCallback(
     async (bookingId, addOns) => {
       if (!supabase) return { error: 'Database not connected.' };
-      const { error } = await supabase
-        .from('bookings')
-        .update({ add_ons: addOns })
-        .eq('id', bookingId);
-      if (error) return { error: error.message };
+      const { data, error } = await supabase.rpc('update_booking_addons', {
+        p_id: bookingId,
+        p_addons: addOns,
+      });
+      if (error) {
+        const missing =
+          error.code === 'PGRST202' ||
+          /update_booking_addons|function .* does not exist|could not find the function/i.test(
+            error.message || ''
+          );
+        if (!missing) return { error: error.message };
+        // Fallback for databases without the RPC migration applied yet.
+        const { error: upErr } = await supabase
+          .from('bookings')
+          .update({ add_ons: addOns })
+          .eq('id', bookingId);
+        if (upErr) return { error: upErr.message };
+      } else if (data?.error) {
+        return { error: data.error };
+      }
       await refetchBookings();
       return { ok: true };
     },

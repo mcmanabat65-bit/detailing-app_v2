@@ -262,7 +262,11 @@ function BookingDetailView() {
     fetchBookingLogs, deleteBooking, showToast, can,
   } = useApp();
 
-  // Plain admins can view bookings but not edit them.
+  // Admins can advance status, assign detailers, and manage add-ons.
+  // Delete stays super-admin only (canEdit).
+  const canStatus = can('bookings.status');
+  const canDetailers = can('bookings.detailers');
+  const canAddons = can('bookings.addons');
   const canEdit = can('bookings.edit');
 
   const booking = useMemo(() => bookings.find((b) => b.id === bookingId) ?? null, [bookings, bookingId]);
@@ -397,6 +401,13 @@ function BookingDetailView() {
   const addOnsTotal = (booking.addOns || []).reduce((s, a) => s + (Number(a.price) || 0), 0);
   const grandTotal = (booking.servicePrice || 0) + addOnsTotal;
   const isEditable = ['pending', 'confirmed', 'on-going'].includes(booking.status);
+
+  // Whether any status button applies for the current status (a 'completed' or
+  // 'cancelled' booking has none). Used to hide an otherwise-empty Actions card.
+  const hasStatusActions =
+    canStatus &&
+    ['pending', 'confirmed', 'on-going', 'no_show'].includes(booking.status);
+  const showActions = hasStatusActions || canEdit; // canEdit → Delete is shown
   const service = services.find((s) => s.id === booking.serviceId);
 
   return (
@@ -488,8 +499,8 @@ function BookingDetailView() {
               </DetailRow>
             </div>
 
-            {/* Add-Ons panel — editing is restricted to super admins */}
-            {canEdit && (
+            {/* Add-Ons panel */}
+            {canAddons && (
               <div className="border-t border-white/5 pt-5">
                 <div className="flex items-center gap-2 mb-4">
                   <ListPlus className="w-4 h-4 text-gold" />
@@ -546,7 +557,7 @@ function BookingDetailView() {
                   <Users className="w-4 h-4 text-gold" />
                   Detailers
                 </h2>
-                {isEditable && canEdit && detailersDirty && (
+                {isEditable && canDetailers && detailersDirty && (
                   <button
                     onClick={saveDetailers}
                     disabled={detailerSaving}
@@ -557,7 +568,7 @@ function BookingDetailView() {
                   </button>
                 )}
               </div>
-              {isEditable && canEdit ? (
+              {isEditable && canDetailers ? (
                 <div className="flex flex-wrap gap-2">
                   {activeDetailers.map((d) => {
                     const selected = selectedDetailerIds.includes(d.id);
@@ -685,11 +696,14 @@ function BookingDetailView() {
             )}
           </div>
 
-          {/* Actions — restricted to super admins */}
-          {canEdit && (
+          {/* Actions — status changes for any admin; delete is super only.
+              Hidden entirely when no action applies (e.g. completed booking). */}
+          {showActions && (
           <div className="glass-card rounded-md p-5 space-y-2">
             <h2 className="font-serif text-base text-cream mb-3">Actions</h2>
 
+            {canStatus && (
+            <>
             {booking.status === 'pending' && (
               <button
                 onClick={() => setStatus('confirmed')}
@@ -743,7 +757,10 @@ function BookingDetailView() {
                 Cancel Booking
               </button>
             )}
+            </>
+            )}
 
+            {canEdit && (
             <div className="pt-2 border-t border-white/5">
               <button
                 onClick={() => setDeleteOpen(true)}
@@ -753,6 +770,7 @@ function BookingDetailView() {
                 Delete Booking
               </button>
             </div>
+            )}
           </div>
           )}
         </aside>

@@ -54,7 +54,11 @@ function BookingsTable() {
     can,
   } = useApp();
 
-  // Plain admins can view and create bookings, but not edit existing ones.
+  // Admins can advance status, assign detailers, and manage add-ons.
+  // Delete stays super-admin only (canEdit).
+  const canStatus = can('bookings.status');
+  const canDetailers = can('bookings.detailers');
+  const canAddons = can('bookings.addons');
   const canEdit = can('bookings.edit');
 
   const activeDetailers = useMemo(
@@ -338,10 +342,10 @@ function BookingsTable() {
                       <div className="relative">
                         <button
                           type="button"
-                          disabled={!isEditable || activeDetailers.length === 0 || !canEdit}
+                          disabled={!isEditable || activeDetailers.length === 0 || !canDetailers}
                           onClick={() => setDetailerPickerBookingId(isPickerOpen ? null : b.id)}
                           className="inline-flex items-center gap-1.5 text-sm text-cream/80 hover:text-gold disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                          title={!canEdit ? 'View only' : activeDetailers.length === 0 ? 'No detailers in roster' : 'Assign detailers'}
+                          title={!canDetailers ? 'View only' : activeDetailers.length === 0 ? 'No detailers in roster' : 'Assign detailers'}
                         >
                           <Users className="w-3.5 h-3.5 text-gold shrink-0" />
                           {assigned.length === 0 ? (
@@ -407,7 +411,7 @@ function BookingsTable() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-1">
-                        {canEdit && (
+                        {canStatus && (
                         <>
                         {/* Confirm — pending only */}
                         {b.status === 'pending' && (
@@ -468,7 +472,10 @@ function BookingsTable() {
                             <XCircle className="w-4 h-4" />
                           </button>
                         )}
+                        </>
+                        )}
                         {/* Add-Ons */}
+                        {canAddons && (
                         <button
                           onClick={() => setAddOnsModal(b)}
                           aria-label="Manage add-ons"
@@ -482,7 +489,6 @@ function BookingsTable() {
                             </span>
                           )}
                         </button>
-                        </>
                         )}
                         <button
                           onClick={() => openLog(b)}

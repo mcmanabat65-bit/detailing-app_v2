@@ -339,12 +339,16 @@ $$;
 -- ---------------------------------------------------------------------
 -- RPC: update_booking_detailers
 -- ---------------------------------------------------------------------
+-- SECURITY DEFINER so any signed-in staff (admin or super_admin) can assign
+-- detailers without table-level UPDATE rights — it only writes detailers_assigned.
 create or replace function update_booking_detailers(
   p_id text,
   p_detailer_ids uuid[],
   p_min_detailers int
 ) returns jsonb
 language plpgsql
+security definer
+set search_path = public
 as $$
 declare
   v_pool int;
@@ -356,6 +360,10 @@ declare
   v_booking bookings;
   v_row bookings;
 begin
+  if auth.uid() is null then
+    return jsonb_build_object('error', 'Not authenticated.');
+  end if;
+
   v_count := coalesce(array_length(p_detailer_ids, 1), 0);
 
   if v_count < 1 then
@@ -420,6 +428,89 @@ begin
   return to_jsonb(v_row);
 end;
 $$;
+
+-- ---------------------------------------------------------------------
+-- RPC: update_booking_status
+-- Controlled path for advancing a booking's lifecycle status. SECURITY
+-- DEFINER so a plain `admin` (barista) can change status without table-level
+-- UPDATE rights on bookings (which stays super-admin only). Only touches
+-- status + cancellation_reason and writes the audit log. Other booking edits
+-- (add-ons, detailer reassignment, delete) remain super-admin only.
+-- ---------------------------------------------------------------------
+create or replace function public.update_booking_status(
+  p_id     text,
+  p_status text,
+  p_reason text default null
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_from text;
+  v_row  bookings;
+begin
+  if auth.uid() is null then
+    return jsonb_build_object('error', 'Not authenticated.');
+  end if;
+  if p_status not in ('pending','confirmed','on-going','completed','cancelled','no_show') then
+    return jsonb_build_object('error', 'Invalid status.');
+  end if;
+
+  select status into v_from from bookings where id = p_id;
+  if v_from is null then
+    return jsonb_build_object('error', 'Booking not found.');
+  end if;
+
+  update bookings
+     set status = p_status,
+         cancellation_reason = case when p_status = 'cancelled' then p_reason else cancellation_reason end
+   where id = p_id
+   returning * into v_row;
+
+  insert into booking_status_logs (booking_id, from_status, to_status, notes)
+  values (p_id, v_from, p_status, p_reason);
+
+  return to_jsonb(v_row);
+end;
+$$;
+grant execute on function public.update_booking_status(text, text, text) to authenticated;
+grant execute on function update_booking_detailers(text, uuid[], int) to authenticated;
+
+-- ---------------------------------------------------------------------
+-- RPC: update_booking_addons
+-- Controlled path for editing a booking's add-ons. SECURITY DEFINER so any
+-- signed-in staff can manage add-ons without table-level UPDATE rights — it
+-- only writes the add_ons column.
+-- ---------------------------------------------------------------------
+create or replace function public.update_booking_addons(
+  p_id     text,
+  p_addons jsonb
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_row bookings;
+begin
+  if auth.uid() is null then
+    return jsonb_build_object('error', 'Not authenticated.');
+  end if;
+  if jsonb_typeof(p_addons) <> 'array' then
+    return jsonb_build_object('error', 'Add-ons must be an array.');
+  end if;
+
+  update bookings set add_ons = p_addons where id = p_id
+    returning * into v_row;
+  if v_row is null then
+    return jsonb_build_object('error', 'Booking not found.');
+  end if;
+
+  return to_jsonb(v_row);
+end;
+$$;
+grant execute on function public.update_booking_addons(text, jsonb) to authenticated;
 
 -- ---------------------------------------------------------------------
 -- RPC: update_settings

@@ -278,11 +278,19 @@ showToast(message, type)
 Two access levels, resolved by login-email match against the `admin_users` table:
 
 - **`super_admin`** — the boss; unrestricted access to everything.
-- **`admin`** — limited staff (e.g. a barista covering the shop). Can create and
-  view bookings, the schedule, and the shop monitor. **Cannot** edit bookings
-  (status changes, detailer assignment, add-ons, delete) or open sensitive pages
-  (members, cars, coffees, services, categories, detailers, testimonials,
-  add-ons, settings, staff).
+- **`admin`** — staff (e.g. a barista covering the shop). Can create and view
+  bookings, the schedule, and the shop monitor, **advance booking status**
+  (confirm / on-going / completed / no-show / cancel), **assign detailers**, and
+  **manage add-ons**. **Cannot** delete bookings, block schedule slots, or open
+  sensitive pages (members, cars, coffees, services, categories, detailers,
+  testimonials, add-ons catalog, settings, staff).
+
+  Per-booking permission keys: `bookings.status`, `bookings.detailers`,
+  `bookings.addons` (granted to admin); `bookings.edit` (delete + slot blocking,
+  super only). Status/detailer/add-on writes go through `SECURITY DEFINER` RPCs
+  (`update_booking_status`, `update_booking_detailers`, `update_booking_addons`)
+  that each touch only their own column, so the `bookings` table UPDATE policy
+  stays super-admin only.
 
 How it works:
 
@@ -299,12 +307,15 @@ How it works:
 - **DB enforcement (RLS)**: role-based Row Level Security backs the UI. Reads
   stay open (no public-site / admin-UI regressions); sensitive **writes** require
   `is_super_admin()` — a `SECURITY DEFINER` SQL helper that matches the JWT email
-  against `admin_users` (empty table → bootstrap super_admin). So a plain `admin`
-  physically cannot edit/cancel/delete bookings, manage members/cars/coffees/
-  services/settings/staff, or block slots — even calling the API directly. Public
+  against `admin_users` (empty table → bootstrap super_admin). The `bookings`
+  table UPDATE/DELETE policies are super-admin only; a plain `admin` performs
+  status / detailer / add-on changes only through the `SECURITY DEFINER` RPCs
+  noted above (each column-scoped). So an `admin` physically cannot delete
+  bookings, edit other booking fields, manage members/cars/coffees/services/
+  settings/staff, or block slots — even calling the API directly. Public
   submission flows keep anon write carve-outs (membership inserts, testimonial
-  submissions, booking inserts). See the "Phase 3 — Role-based RLS" block in
-  `migrations.sql`.
+  submissions, booking inserts). See the "Phase 3 — Role-based RLS" block (plus
+  Phases 5–6 for the booking RPCs) in `migrations.sql`.
 - The boss manages who is which via **Staff Access** (`/admin/staff`, super-admin
   only). Accounts are still *created* in the Supabase Dashboard; their role is
   *assigned* by email on this page (or directly in the `admin_users` table).
@@ -476,7 +487,7 @@ Paste the relevant block from `supabase/migrations.sql` into Supabase Dashboard 
 - **Online booking is disabled** for the public — shows an unavailable page. Admin can still access the booking flow.
 - **Visit-first membership** — VIP applications require an in-person visit; the online form is a secondary step.
 - **No payment integration** — booking is a reservation only.
-- **Two-tier roles** — `super_admin` (full) and `admin` (booking create/view only). Resolved by email via the `admin_users` table; enforced both in the UI and at the DB via role-based RLS (see Admin Roles under Auth).
+- **Two-tier roles** — `super_admin` (full) and `admin` (bookings: create, view, status, detailers, add-ons; no delete; no sensitive pages). Resolved by email via the `admin_users` table; enforced both in the UI and at the DB via role-based RLS + column-scoped RPCs (see Admin Roles under Auth).
 - **Email sender unverified** — using Resend sandbox domain; verify `samahuzai.ph` in Resend to use custom from address.
 
 ---

@@ -26,6 +26,15 @@ export const PERMISSIONS = {
   DASHBOARD_VIEW: 'dashboard.view',
   BOOKINGS_VIEW: 'bookings.view',
   BOOKINGS_CREATE: 'bookings.create',
+  // Advancing a booking's lifecycle status (confirm, on-going, completed,
+  // no-show, cancel). Granted to plain admins.
+  BOOKINGS_STATUS: 'bookings.status',
+  // Assigning detailers to a booking. Granted to plain admins.
+  BOOKINGS_DETAILERS: 'bookings.detailers',
+  // Managing a booking's add-ons. Granted to plain admins.
+  BOOKINGS_ADDONS: 'bookings.addons',
+  // Remaining booking edits — delete, and slot blocking on the schedule.
+  // Super only.
   BOOKINGS_EDIT: 'bookings.edit',
   SCHEDULE_VIEW: 'schedule.view',
   MONITOR_VIEW: 'monitor.view',
@@ -46,6 +55,9 @@ const ADMIN_ALLOWED = new Set([
   PERMISSIONS.DASHBOARD_VIEW,
   PERMISSIONS.BOOKINGS_VIEW,
   PERMISSIONS.BOOKINGS_CREATE,
+  PERMISSIONS.BOOKINGS_STATUS,
+  PERMISSIONS.BOOKINGS_DETAILERS,
+  PERMISSIONS.BOOKINGS_ADDONS,
   PERMISSIONS.SCHEDULE_VIEW,
   PERMISSIONS.MONITOR_VIEW,
 ]);
