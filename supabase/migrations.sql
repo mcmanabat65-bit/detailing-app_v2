@@ -1174,4 +1174,61 @@ end;
 $$;
 grant execute on function public.update_booking_addons(text, jsonb) to authenticated;
 
+-- =====================================================================
+-- Phase 7 — Fix update_settings peak-demand check for uuid[] detailers
+-- ---------------------------------------------------------------------
+-- update_settings predates Phase 2.1 (detailers_assigned int -> uuid[]).
+-- It still summed the column directly (sum(detailers_assigned)), which now
+-- fails with "function sum(uuid[]) does not exist". Count the array length
+-- per booking instead, matching add_booking / update_booking_detailers.
+-- =====================================================================
+create or replace function update_settings(
+  p_pool_size int,
+  p_default_per_booking int
+) returns jsonb
+language plpgsql
+as $$
+declare
+  v_peak int;
+  v_row settings;
+begin
+  if p_pool_size < 1 then
+    return jsonb_build_object('error', 'Pool size must be at least 1.');
+  end if;
+  if p_default_per_booking < 1 then
+    return jsonb_build_object('error', 'Default detailers per booking must be at least 1.');
+  end if;
+  if p_default_per_booking > p_pool_size then
+    return jsonb_build_object('error', 'Default detailers per booking cannot exceed pool size.');
+  end if;
+
+  select coalesce(max(slot_total), 0) into v_peak
+  from (
+    select date, slot, sum(coalesce(array_length(detailers_assigned, 1), 0)) as slot_total
+    from (
+      select b.date, unnest(b.occupies_slots) as slot, b.detailers_assigned
+      from bookings b
+      where b.status not in ('cancelled', 'no_show')
+    ) t
+    group by date, slot
+  ) s;
+
+  if p_pool_size < v_peak then
+    return jsonb_build_object(
+      'error',
+      'Pool size cannot drop below ' || v_peak || ' — existing bookings already use that many detailers in one hour.'
+    );
+  end if;
+
+  update settings
+    set detailer_pool_size = p_pool_size,
+        default_detailers_per_booking = p_default_per_booking,
+        updated_at = now()
+    where id = 1
+    returning * into v_row;
+
+  return to_jsonb(v_row);
+end;
+$$;
+
 notify pgrst, 'reload schema';

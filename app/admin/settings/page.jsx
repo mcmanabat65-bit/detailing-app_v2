@@ -15,15 +15,21 @@ import { DEFAULT_SETTINGS, getSlotsConsumed } from '@/utils/bookingUtils';
 import { timeSlots } from '@/data/timeSlots';
 
 function SettingsForm() {
-  const { settings, updateSettings, bookings, hydrated, showToast } = useApp();
+  const { settings, updateSettings, bookings, detailers, hydrated, showToast } =
+    useApp();
 
-  const [poolSize, setPoolSize] = useState(settings.detailerPoolSize);
+  // The pool size is no longer typed by hand — it mirrors the live count of
+  // active detailers managed on the Detailers page.
+  const poolSize = useMemo(
+    () => detailers.filter((d) => d.isActive !== false).length,
+    [detailers]
+  );
+
   const [defaultDet, setDefaultDet] = useState(
     settings.defaultDetailersPerBooking
   );
 
   useEffect(() => {
-    setPoolSize(settings.detailerPoolSize);
     setDefaultDet(settings.defaultDetailersPerBooking);
   }, [settings]);
 
@@ -55,14 +61,28 @@ function SettingsForm() {
     return { peak, when };
   }, [bookings, hydrated]);
 
-  const dirty =
-    Number(poolSize) !== settings.detailerPoolSize ||
-    Number(defaultDet) !== settings.defaultDetailersPerBooking;
+  // Can't shrink the pool below what existing bookings already need.
+  const poolBlockedByPeak = poolSize > 0 && poolSize < peakUsage.peak;
+
+  // Keep the saved pool size in lock-step with the active detailer count.
+  // Skip when there are no active detailers (avoid zeroing capacity) or when
+  // doing so would leave existing bookings over capacity.
+  useEffect(() => {
+    if (!hydrated) return;
+    if (poolSize < 1) return;
+    if (poolSize === settings.detailerPoolSize) return;
+    if (poolBlockedByPeak) return;
+    updateSettings({ detailerPoolSize: poolSize });
+    // updateSettings intentionally omitted — its identity changes on each
+    // settings refetch; the equality guards above prevent a re-sync loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated, poolSize, settings.detailerPoolSize, poolBlockedByPeak]);
+
+  const dirty = Number(defaultDet) !== settings.defaultDetailersPerBooking;
 
   const handleSave = async (e) => {
     e.preventDefault();
     const result = await updateSettings({
-      detailerPoolSize: Number(poolSize),
       defaultDetailersPerBooking: Number(defaultDet),
     });
     if (result?.error) {
@@ -73,7 +93,6 @@ function SettingsForm() {
   };
 
   const handleReset = () => {
-    setPoolSize(DEFAULT_SETTINGS.detailerPoolSize);
     setDefaultDet(DEFAULT_SETTINGS.defaultDetailersPerBooking);
   };
 
@@ -94,17 +113,19 @@ function SettingsForm() {
 
           <Field
             label="Total detailers in the shop"
-            hint="The full headcount of detailers available on a typical day."
+            hint="Auto-counted from your active detailers on the Detailers page. Add, remove, or deactivate detailers there to change this."
           >
-            <input
-              type="number"
-              min={1}
-              max={50}
-              value={poolSize}
-              onChange={(e) => setPoolSize(e.target.value)}
-              className="input w-32"
-              required
-            />
+            <div className="flex items-center gap-3">
+              <div className="inline-flex items-center gap-2 w-32 px-4 py-2.5 rounded-sm bg-surface-2 border border-white/10">
+                <Users className="w-4 h-4 text-gold" />
+                <span className="font-serif text-2xl text-cream leading-none">
+                  {poolSize}
+                </span>
+              </div>
+              <span className="text-xs text-muted">
+                active {poolSize === 1 ? 'detailer' : 'detailers'}
+              </span>
+            </div>
           </Field>
 
           <Field
@@ -122,13 +143,14 @@ function SettingsForm() {
             />
           </Field>
 
-          {peakUsage.peak > Number(poolSize) && (
+          {poolBlockedByPeak && (
             <div className="rounded-md border border-danger/40 bg-danger/10 px-4 py-3 flex gap-3 text-sm text-cream/90">
               <AlertTriangle className="w-4 h-4 text-danger shrink-0 mt-0.5" />
               <div>
                 Existing bookings already need <b>{peakUsage.peak}</b> detailers
-                in one hour. Pool size cannot be saved below that without
-                cancelling or reassigning bookings first.
+                in one hour, but only <b>{poolSize}</b> are active. The saved
+                pool stays at <b>{settings.detailerPoolSize}</b> until you
+                reactivate detailers or reassign those bookings.
               </div>
             </div>
           )}
@@ -136,7 +158,7 @@ function SettingsForm() {
           <div className="flex items-center gap-3 pt-2">
             <button
               type="submit"
-              disabled={!dirty || Number(poolSize) < peakUsage.peak}
+              disabled={!dirty || Number(defaultDet) > Number(poolSize || 50)}
               className="inline-flex items-center gap-2 px-5 py-2.5 bg-gold text-obsidian font-semibold rounded-sm hover:bg-gold-light transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <Save className="w-4 h-4" />

@@ -537,7 +537,7 @@ begin
 
   select coalesce(max(slot_total), 0) into v_peak
   from (
-    select date, slot, sum(detailers_assigned) as slot_total
+    select date, slot, sum(coalesce(array_length(detailers_assigned, 1), 0)) as slot_total
     from (
       select b.date, unnest(b.occupies_slots) as slot, b.detailers_assigned
       from bookings b
