@@ -127,6 +127,19 @@ export const getMultiDayBlockedDates = (startDate, daysConsumed) => {
 };
 
 /**
+ * True if a booking's scheduled calendar span includes `isoDate` — i.e. the
+ * start date, or any continuation day of a multi-day service. Status-agnostic.
+ * Used by the Shop Monitor / Live page so a 2–3 day job keeps showing on every
+ * day it runs, not only the day it started.
+ */
+export const bookingCoversDate = (b, isoDate) => {
+  if (!b || !isoDate) return false;
+  if (b.date === isoDate) return true;
+  const days = getDaysConsumed(b.serviceDuration || '');
+  return days > 1 && getMultiDayBlockedDates(b.date, days).includes(isoDate);
+};
+
+/**
  * Map a time string (exact or arbitrary) to its grid index.
  * For non-grid times (e.g. "8:15 AM"), finds the nearest slot at or before.
  */

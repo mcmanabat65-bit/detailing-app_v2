@@ -11,7 +11,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
-import { getSlotsConsumed, toIsoDate } from '@/utils/bookingUtils';
+import { bookingCoversDate, getSlotsConsumed, toIsoDate } from '@/utils/bookingUtils';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -154,10 +154,14 @@ export default function LivePage() {
 
   const liveJobs = useMemo(() =>
     bookings
-      .filter((b) =>
-        b.date === today &&
-        (b.status === 'confirmed' || b.status === 'on-going')
-      )
+      .filter((b) => {
+        // An in-progress job stays live until it's done — multi-day details
+        // keep showing every day they run, even past their start date.
+        if (b.status === 'on-going') return true;
+        // Upcoming (confirmed) jobs show on any day their scheduled span
+        // covers — start date or a multi-day continuation day.
+        return b.status === 'confirmed' && bookingCoversDate(b, today);
+      })
       .sort((a, b) => {
         // on-going first, then chronologically
         if (a.status === 'on-going' && b.status !== 'on-going') return -1;

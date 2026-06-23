@@ -18,7 +18,7 @@ import { AdminLayout } from '@/components/AdminLayout';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { useApp } from '@/context/AppContext';
 import { supabase } from '@/lib/supabase';
-import { getSlotsConsumed, toIsoDate } from '@/utils/bookingUtils';
+import { bookingCoversDate, getSlotsConsumed, toIsoDate } from '@/utils/bookingUtils';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -288,7 +288,16 @@ function MonitorContent({ isFullscreen, onToggle }) {
 
   const todayJobs = useMemo(() =>
     bookings
-      .filter((b) => b.date === today && b.status !== 'cancelled' && b.status !== 'no_show' && b.status !== 'pending')
+      .filter((b) => {
+        if (b.status === 'cancelled' || b.status === 'no_show' || b.status === 'pending') return false;
+        // An in-progress job stays on the monitor until it's marked done —
+        // multi-day details (2–3+ days) keep showing every day they run, even
+        // past their start date.
+        if (b.status === 'on-going') return true;
+        // Confirmed (upcoming) and completed jobs show on any day their
+        // scheduled span covers — start date or a multi-day continuation day.
+        return bookingCoversDate(b, today);
+      })
       .sort((a, b) => toMinutes(a.time) - toMinutes(b.time)),
     [bookings, today]
   );
