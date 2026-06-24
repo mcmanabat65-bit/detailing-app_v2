@@ -10,15 +10,15 @@ const faqs = [
     items: [
       {
         q: 'Do I need an appointment?',
-        a: 'Yes — all services are by appointment only. This ensures our full attention is on your vehicle and that a detailer slot is reserved just for you. Walk-ins are not accepted.',
+        a: 'Yes — all detailing services are by appointment only. This ensures our full attention is on your vehicle and that a detailer slot is reserved just for you. Walk-ins, however, are still accepted for non-special services such as quick washes or basic maintenance.',
       },
       {
         q: 'How far in advance should I book?',
-        a: 'We recommend booking at least 2–3 days ahead, especially for premium packages like Ceramic Coating or The Obsidian Elite. Same-day bookings are rarely available.',
+        a: 'We recommend booking at least 2–3 days ahead, especially for premium packages like Ceramic Coating or Under Coating. Same-day bookings are rarely available.',
       },
       {
         q: 'Can I reschedule or cancel my appointment?',
-        a: 'Yes. Contact us as early as possible if you need to reschedule. Cancellations made less than 24 hours before your appointment may affect your priority status for future bookings.',
+        a: 'Yes. Contact us as early as possible if you need to reschedule. Cancellations made less than 24 hours before your appointment may aﬀect your priority status for future bookings.',
       },
       {
         q: 'Do you service motorcycles and big bikes?',
@@ -31,11 +31,18 @@ const faqs = [
     items: [
       {
         q: 'What is the difference between a car wash and auto detailing?',
-        a: 'A car wash is a quick exterior rinse. Auto detailing is a thorough, hand-crafted process — cleaning, polishing, and protecting every surface inside and out — using professional-grade products. The results last significantly longer.',
+        a: `A car wash is a quick, surface-level clean — usually focused on the
+            exterior, removing dirt and grime with automated or manual washing.
+            Auto detailing, on the other hand, is a meticulous, hand-crafted
+            process. It involves deep cleaning, polishing, and protecting every
+            surface inside and out — from carpets and upholstery to paintwork
+            and trim — using professional-grade products. The results not only
+            look better but also last significantly longer, helping preserve your
+            vehicle’s condition and value.`,
       },
       {
         q: 'How long does a detailing session take?',
-        a: 'It depends on the package. The Essential takes 2–3 hours, The Executive 4–5 hours, and full-day packages like The Obsidian Elite or Ceramic Coating can run 6–8 hours or span 1–2 days. Exact times are listed on each service.',
+        a: 'It depends on the package. The Essential takes 1–2 hours, The Elite 2–3 hours, and full-day packages like Ceramic Coating or Under Coating can run 6–8 hours or span 1–2 days. Estimated time of completion are listed on each service.',
       },
       {
         q: 'Is ceramic coating worth it?',
@@ -56,15 +63,11 @@ const faqs = [
     items: [
       {
         q: 'How much do your services cost?',
-        a: 'Our packages start at ₱1,500 for The Essential and go up to ₱12,000 for Ceramic Coating. Full pricing is visible after logging in or visiting our Services page. VIP members receive a 10% discount on every visit.',
+        a: 'Full pricing is visible after logging in or visiting our Services page.',
       },
       {
         q: 'What payment methods do you accept?',
         a: 'We accept cash and major digital payment methods on-site. Payment is collected upon completion of service. No deposit is required to hold your booking.',
-      },
-      {
-        q: 'Do you offer gift certificates?',
-        a: 'Yes. Gift certificates for any package are available — contact us directly at hello@samahuzai.ph or visit the shop to purchase one.',
       },
     ],
   },
@@ -73,7 +76,10 @@ const faqs = [
     items: [
       {
         q: 'What are the benefits of VIP membership?',
-        a: 'VIP members enjoy a 10% discount on all services, priority scheduling, free barista-made coffee during their visit, access to the private members-only lounge, and a birthday month special offer.',
+        a: `•Priority scheduling for all services
+            •Complimentary barista-made coffee (available 7:00 am – 11:00 am during your visit)
+            •Access to the private members-only lounge
+            •A special birthday-month offer`,
       },
       {
         q: 'How do I become a VIP member?',
@@ -98,7 +104,7 @@ const faqs = [
       },
       {
         q: 'What products do you use?',
-        a: 'We use premium-grade professional detailing products including clay bars, ceramic-grade coatings, pH-balanced shampoos, and high-grade leather conditioners. We never use abrasive or generic consumer-grade products.',
+        a: 'We use premium-grade professional detailing products including clay bars, ceramic-grade coatings, pH-balanced shampoos, and high-grade leather conditioners.',
       },
     ],
   },
