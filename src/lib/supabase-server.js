@@ -16,7 +16,7 @@ export async function fetchServices() {
   if (!url || !key) return staticServices;
   try {
     const client = createClient(url, key, {
-      global: { fetch: (input, init) => fetch(input, { ...init, cache: 'no-store' }) },
+      global: { fetch: (input, init) => fetch(input, { ...init, next: { revalidate: 60 } }) },
     });
     const { data, error } = await client
       .from('services')
@@ -38,10 +38,11 @@ const STATIC_TESTIMONIALS = [
 export async function fetchTestimonials() {
   if (!url || !key) return STATIC_TESTIMONIALS;
   try {
-    // { global: { fetch } } opts out of Next.js fetch cache so the landing
-    // page always gets live data instead of a cached response.
+    // ISR: revalidate the landing page's testimonials every 60s. This keeps
+    // data fresh without forcing dynamic rendering (cache: 'no-store' bails
+    // out of static prerendering with a "Dynamic server usage" error).
     const client = createClient(url, key, {
-      global: { fetch: (input, init) => fetch(input, { ...init, cache: 'no-store' }) },
+      global: { fetch: (input, init) => fetch(input, { ...init, next: { revalidate: 60 } }) },
     });
     const { data, error } = await client
       .from('testimonials')
