@@ -106,10 +106,10 @@ export function Navbar() {
       {/* Mobile menu */}
       <div
         className={`md:hidden overflow-hidden transition-[max-height,opacity] duration-300 bg-obsidian/95 backdrop-blur-lg ${
-          open ? 'max-h-96 opacity-100 border-b border-white/5' : 'max-h-0 opacity-0'
+          open ? 'max-h-[calc(100dvh-4rem)] opacity-100 border-b border-white/5' : 'max-h-0 opacity-0'
         }`}
       >
-        <nav className="px-5 py-6 flex flex-col gap-4">
+        <nav className="px-5 py-6 flex flex-col gap-4 max-h-[calc(100dvh-4rem)] overflow-y-auto">
           {links.map((l) => {
             const active = isActiveLink(pathname, l.href);
             return (

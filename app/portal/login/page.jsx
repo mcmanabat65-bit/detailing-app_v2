@@ -138,6 +138,12 @@ function LoginForm() {
             </div>
           </div>
 
+          <div className="text-right -mt-2">
+            <Link href="/portal/forgot-password" className="text-xs text-muted hover:text-gold transition-colors">
+              Forgot password?
+            </Link>
+          </div>
+
           {error && (
             <div className="text-danger text-sm bg-danger/10 border border-danger/30 rounded-sm px-3 py-2">
               {error}

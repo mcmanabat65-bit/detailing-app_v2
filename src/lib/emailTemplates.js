@@ -115,6 +115,42 @@ export const bookingConfirmationHtml = ({
     </p>`);
 };
 
+export const passwordResetHtml = ({ name, resetUrl }) => {
+  const firstName = e(name).split(' ')[0] || 'there';
+
+  return shell(`
+    <div style="text-align:center;margin-bottom:28px">
+      <div style="color:#00704A;font-size:10px;letter-spacing:0.3em;text-transform:uppercase;margin-bottom:8px">
+        Password Reset
+      </div>
+      <h1 style="color:#F5F0E8;font-size:26px;font-family:Georgia,serif;margin:0">
+        Reset your password.
+      </h1>
+    </div>
+
+    <div style="background:#1C1C1F;border-radius:6px;padding:20px;margin-bottom:20px">
+      <p style="color:#F5F0E8;font-size:14px;line-height:1.7;margin:0 0 8px">
+        Hi ${firstName}, we received a request to reset the password for your
+        Samahuzai member account. Tap the button below to choose a new one.
+      </p>
+    </div>
+
+    <div style="text-align:center;margin-bottom:20px">
+      <a href="${e(resetUrl)}"
+         style="display:inline-block;background:#00704A;color:#F5F0E8;font-size:14px;
+                font-weight:600;text-decoration:none;padding:13px 32px;border-radius:6px">
+        Reset Password
+      </a>
+    </div>
+
+    <div style="background:rgba(0,112,74,0.06);border:1px solid rgba(0,112,74,0.25);border-radius:6px;padding:14px 16px">
+      <p style="color:#6B6B72;font-size:12px;margin:0;line-height:1.6">
+        This link expires in 1 hour. If you didn&rsquo;t request this, you can
+        safely ignore this email &mdash; your password won&rsquo;t change.
+      </p>
+    </div>`);
+};
+
 export const membershipStatusHtml = (member, status) => {
   const isApproved = status === 'approved';
   const accentColor = isApproved ? '#4CAF7D' : '#E05252';
