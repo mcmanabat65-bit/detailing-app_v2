@@ -170,7 +170,7 @@ export const membershipStatusHtml = (member, status) => {
         </p>
         <ul style="color:#F5F0E8;font-size:13px;margin:0;padding-left:18px;line-height:2">
           <li>10% off every service, every visit</li>
-          <li>Free barista coffee while you wait</li>
+          <li>Free barista coffee while you wait (7:00 AM – 10:00 AM)</li>
           <li>Priority scheduling access</li>
           <li>Members-only lounge with Wi-Fi</li>
           <li>Birthday month special treatment</li>

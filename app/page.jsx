@@ -194,7 +194,7 @@ export default async function LandingPage() {
             </p>
             <ul className="space-y-3 mb-10">
               {[
-                { icon: Coffee, text: 'Free barista-made coffee while you wait' },
+                { icon: Coffee, text: 'Free barista-made coffee while you wait (7:00 AM – 10:00 AM)' },
                 { icon: Calendar, text: 'Priority scheduling — first pick of slots' },
                 { icon: Percent, text: '10% discount on every service, every visit' },
                 { icon: Wifi, text: 'Members-only lounge with silent WiFi' },

@@ -184,7 +184,7 @@ export default function FaqPage() {
             </a>{' '}
             or call{' '}
             <a href="tel:+639276914863" className="text-gold hover:underline">
-              +63 927 691 4863
+              +63 964 886 3698
             </a>
             .
           </p>

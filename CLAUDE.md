@@ -497,6 +497,6 @@ Paste the relevant block from `supabase/migrations.sql` into Supabase Dashboard 
 | | |
 |---|---|
 | Address | Brgy. San Francisco Halang Rd, Biñan, Philippines 4024 |
-| Phone | +63 927 691 4863 |
-| Email | hello@samahuzai.ph |
+| Phone | +63 964 886 3698 |
+| Email | admin@samahuzai.com |
 | Hours | Mon – Sun · 7:00 AM – 5:00 PM |
