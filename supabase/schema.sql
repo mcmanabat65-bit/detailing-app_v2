@@ -471,6 +471,16 @@ begin
   insert into booking_status_logs (booking_id, from_status, to_status, notes)
   values (p_id, v_from, p_status, p_reason);
 
+  -- On completion, deduct the coffee serve from inventory (idempotent).
+  -- consume_coffee_serve is defined later in this file; this reference resolves
+  -- at call time, so the create order between the two does not matter.
+  if p_status = 'completed' then
+    perform consume_coffee_serve(
+      p_id,
+      (select coffee_order from bookings where id = p_id)
+    );
+  end if;
+
   return to_jsonb(v_row);
 end;
 $$;
@@ -763,6 +773,186 @@ end $$;
 -- Seed the boss account here (or do it from the in-app Staff page after first login):
 --   insert into admin_users (email, role) values ('boss@samahuzai.com', 'super_admin')
 --   on conflict (email) do update set role = excluded.role;
+
+-- ---------------------------------------------------------------------
+-- Coffee ingredient inventory (see migrations.sql Phase 8 for notes)
+-- ---------------------------------------------------------------------
+create table if not exists inventory_items (
+  id            uuid primary key default gen_random_uuid(),
+  brand         text,
+  name          text not null,
+  description   text,
+  type          text,
+  uom           text not null default 'pc',
+  pack_volume   numeric(12,2),
+  unit_cost     numeric(12,4) not null default 0,
+  stock_qty     numeric(14,3) not null default 0,
+  low_stock_at  numeric(14,3) not null default 0,
+  is_active     boolean not null default true,
+  sort_order    integer not null default 0,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now()
+);
+create index if not exists inventory_items_sort_idx   on inventory_items (sort_order);
+create index if not exists inventory_items_active_idx  on inventory_items (is_active);
+
+create table if not exists coffee_recipes (
+  id            uuid primary key default gen_random_uuid(),
+  coffee_id     uuid not null references coffees(id) on delete cascade,
+  item_id       uuid not null references inventory_items(id) on delete cascade,
+  qty_per_serve numeric(14,3) not null default 0 check (qty_per_serve >= 0),
+  created_at    timestamptz not null default now(),
+  unique (coffee_id, item_id)
+);
+create index if not exists coffee_recipes_coffee_idx on coffee_recipes (coffee_id);
+create index if not exists coffee_recipes_item_idx   on coffee_recipes (item_id);
+
+create table if not exists inventory_transactions (
+  id           uuid primary key default gen_random_uuid(),
+  item_id      uuid not null references inventory_items(id) on delete cascade,
+  qty_change   numeric(14,3) not null,
+  reason       text not null default 'adjustment'
+               check (reason in ('restock', 'adjustment', 'consumption', 'initial')),
+  booking_id   text references bookings(id) on delete set null,
+  coffee_name  text,
+  note         text,
+  created_at   timestamptz not null default now()
+);
+create index if not exists inventory_tx_item_idx    on inventory_transactions (item_id, created_at desc);
+create index if not exists inventory_tx_booking_idx on inventory_transactions (booking_id);
+create index if not exists inventory_tx_reason_idx  on inventory_transactions (reason);
+
+alter table bookings add column if not exists coffee_served_at timestamptz;
+
+alter table inventory_items        enable row level security;
+alter table coffee_recipes         enable row level security;
+alter table inventory_transactions enable row level security;
+
+drop policy if exists "inventory_items_select" on inventory_items;
+drop policy if exists "inventory_items_insert" on inventory_items;
+drop policy if exists "inventory_items_update" on inventory_items;
+drop policy if exists "inventory_items_delete" on inventory_items;
+create policy "inventory_items_select" on inventory_items for select to authenticated using (true);
+create policy "inventory_items_insert" on inventory_items for insert to authenticated with check (is_super_admin());
+create policy "inventory_items_update" on inventory_items for update to authenticated using (is_super_admin()) with check (is_super_admin());
+create policy "inventory_items_delete" on inventory_items for delete to authenticated using (is_super_admin());
+
+drop policy if exists "coffee_recipes_select" on coffee_recipes;
+drop policy if exists "coffee_recipes_insert" on coffee_recipes;
+drop policy if exists "coffee_recipes_update" on coffee_recipes;
+drop policy if exists "coffee_recipes_delete" on coffee_recipes;
+create policy "coffee_recipes_select" on coffee_recipes for select to authenticated using (true);
+create policy "coffee_recipes_insert" on coffee_recipes for insert to authenticated with check (is_super_admin());
+create policy "coffee_recipes_update" on coffee_recipes for update to authenticated using (is_super_admin()) with check (is_super_admin());
+create policy "coffee_recipes_delete" on coffee_recipes for delete to authenticated using (is_super_admin());
+
+drop policy if exists "inventory_tx_select" on inventory_transactions;
+drop policy if exists "inventory_tx_insert" on inventory_transactions;
+drop policy if exists "inventory_tx_delete" on inventory_transactions;
+create policy "inventory_tx_select" on inventory_transactions for select to authenticated using (true);
+create policy "inventory_tx_insert" on inventory_transactions for insert to authenticated with check (is_super_admin());
+create policy "inventory_tx_delete" on inventory_transactions for delete to authenticated using (is_super_admin());
+
+create or replace function public.adjust_inventory_item(
+  p_item_id   uuid,
+  p_qty_change numeric,
+  p_reason    text default 'adjustment',
+  p_note      text default null
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_row inventory_items;
+begin
+  if not is_super_admin() then
+    return jsonb_build_object('error', 'Not authorized.');
+  end if;
+  if p_reason not in ('restock', 'adjustment', 'initial') then
+    return jsonb_build_object('error', 'Invalid reason.');
+  end if;
+
+  update inventory_items
+     set stock_qty = stock_qty + p_qty_change, updated_at = now()
+   where id = p_item_id
+   returning * into v_row;
+
+  if v_row is null then
+    return jsonb_build_object('error', 'Item not found.');
+  end if;
+
+  insert into inventory_transactions (item_id, qty_change, reason, note)
+  values (p_item_id, p_qty_change, p_reason, p_note);
+
+  return to_jsonb(v_row);
+end;
+$$;
+grant execute on function public.adjust_inventory_item(uuid, numeric, text, text) to authenticated;
+
+create or replace function public.consume_coffee_serve(
+  p_booking_id  text,
+  p_coffee_name text
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_coffee_id uuid;
+  v_already   timestamptz;
+  r           record;
+  v_deducted  jsonb := '[]'::jsonb;
+  v_warnings  jsonb := '[]'::jsonb;
+begin
+  if auth.uid() is null then
+    return jsonb_build_object('error', 'Not authenticated.');
+  end if;
+  if p_coffee_name is null or btrim(p_coffee_name) = '' then
+    return jsonb_build_object('ok', true, 'skipped', 'no coffee ordered');
+  end if;
+
+  select coffee_served_at into v_already from bookings where id = p_booking_id;
+  if v_already is not null then
+    return jsonb_build_object('ok', true, 'skipped', 'already served');
+  end if;
+
+  select id into v_coffee_id from coffees
+   where lower(name) = lower(btrim(p_coffee_name)) limit 1;
+
+  if v_coffee_id is null then
+    update bookings set coffee_served_at = now() where id = p_booking_id;
+    return jsonb_build_object('ok', true, 'warnings',
+      jsonb_build_array('No menu match for "' || p_coffee_name || '" — no recipe deducted.'));
+  end if;
+
+  for r in
+    select cr.item_id, cr.qty_per_serve, i.name, i.uom, i.stock_qty
+    from coffee_recipes cr
+    join inventory_items i on i.id = cr.item_id
+    where cr.coffee_id = v_coffee_id and cr.qty_per_serve > 0
+  loop
+    update inventory_items
+       set stock_qty = stock_qty - r.qty_per_serve, updated_at = now()
+     where id = r.item_id;
+
+    insert into inventory_transactions (item_id, qty_change, reason, booking_id, coffee_name)
+    values (r.item_id, -r.qty_per_serve, 'consumption', p_booking_id, p_coffee_name);
+
+    v_deducted := v_deducted || jsonb_build_object(
+      'name', r.name, 'qty', r.qty_per_serve, 'uom', r.uom);
+
+    if r.stock_qty - r.qty_per_serve < 0 then
+      v_warnings := v_warnings || to_jsonb('"' || r.name || '" is now oversold (negative stock).');
+    end if;
+  end loop;
+
+  update bookings set coffee_served_at = now() where id = p_booking_id;
+
+  return jsonb_build_object('ok', true, 'deducted', v_deducted, 'warnings', v_warnings);
+end;
+$$;
+grant execute on function public.consume_coffee_serve(text, text) to authenticated;
 
 -- =====================================================================
 -- ADMIN USER SETUP

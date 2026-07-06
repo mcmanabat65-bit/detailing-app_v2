@@ -41,6 +41,7 @@ export const PERMISSIONS = {
   MEMBERS_MANAGE: 'members.manage',
   CARS_MANAGE: 'cars.manage',
   COFFEES_MANAGE: 'coffees.manage',
+  INVENTORY_MANAGE: 'inventory.manage',
   SERVICES_MANAGE: 'services.manage',
   CATEGORIES_MANAGE: 'categories.manage',
   DETAILERS_MANAGE: 'detailers.manage',

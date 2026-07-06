@@ -21,6 +21,7 @@ import {
   Quote,
   ListPlus,
   ShieldCheck,
+  Package,
 } from 'lucide-react';
 import Image from 'next/image';
 import { useApp } from '@/context/AppContext';
@@ -38,6 +39,7 @@ const links = [
   { href: '/admin/addons', label: 'Add-Ons', icon: ListPlus, perm: PERMISSIONS.ADDONS_MANAGE },
   { href: '/admin/categories', label: 'Categories', icon: Tag, perm: PERMISSIONS.CATEGORIES_MANAGE },
   { href: '/admin/coffees', label: 'Coffee Menu', icon: Coffee, perm: PERMISSIONS.COFFEES_MANAGE },
+  { href: '/admin/inventory', label: 'Inventory', icon: Package, perm: PERMISSIONS.INVENTORY_MANAGE },
   { href: '/admin/testimonials', label: 'Testimonials', icon: Quote, perm: PERMISSIONS.TESTIMONIALS_MANAGE },
   { href: '/admin/staff', label: 'Staff Access', icon: ShieldCheck, perm: PERMISSIONS.STAFF_MANAGE },
   { href: '/admin/settings', label: 'Settings', icon: SettingsIcon, perm: PERMISSIONS.SETTINGS_VIEW },

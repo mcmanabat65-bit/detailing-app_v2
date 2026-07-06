@@ -55,6 +55,9 @@ export function AppProvider({ children }) {
   const [recurringSchedules, setRecurringSchedules] = useState([]);
   const [addonCatalog, setAddonCatalog] = useState([]);
   const [carConditionLogs, setCarConditionLogs] = useState([]);
+  const [inventoryItems, setInventoryItems] = useState([]);
+  const [coffeeRecipes, setCoffeeRecipes] = useState([]);
+  const [inventoryTransactions, setInventoryTransactions] = useState([]);
   const [settings, setSettings] = useState({ ...DEFAULT_SETTINGS });
   const [adminSession, setAdminSessionState] = useState(false);
   const [authEmail, setAuthEmail] = useState(null);
@@ -242,6 +245,39 @@ export function AppProvider({ children }) {
     setCarConditionLogs((data || []).map(fromRow));
   }, []);
 
+  const refetchInventoryItems = useCallback(async () => {
+    if (!supabase) return;
+    const { data, error } = await supabase
+      .from('inventory_items')
+      .select('*')
+      .order('sort_order', { ascending: true })
+      .order('name', { ascending: true })
+      .limit(1000);
+    if (error) { console.error('[inventory_items] fetch error', error); return; }
+    setInventoryItems((data || []).map(fromRow));
+  }, []);
+
+  const refetchCoffeeRecipes = useCallback(async () => {
+    if (!supabase) return;
+    const { data, error } = await supabase
+      .from('coffee_recipes')
+      .select('*')
+      .limit(5000);
+    if (error) { console.error('[coffee_recipes] fetch error', error); return; }
+    setCoffeeRecipes((data || []).map(fromRow));
+  }, []);
+
+  const refetchInventoryTransactions = useCallback(async () => {
+    if (!supabase) return;
+    const { data, error } = await supabase
+      .from('inventory_transactions')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(2000);
+    if (error) { console.error('[inventory_transactions] fetch error', error); return; }
+    setInventoryTransactions((data || []).map(fromRow));
+  }, []);
+
   const refetchSettings = useCallback(async () => {
     if (!supabase) return;
     const { data, error } = await supabase
@@ -321,6 +357,9 @@ export function AppProvider({ children }) {
       refetchRecurringSchedules(),
       refetchAddonCatalog(),
       refetchCarConditionLogs(),
+      refetchInventoryItems(),
+      refetchCoffeeRecipes(),
+      refetchInventoryTransactions(),
     ]).finally(() => {
       settled = true;
       clearTimeout(timer);
@@ -328,7 +367,7 @@ export function AppProvider({ children }) {
     });
 
     return () => subscription.unsubscribe();
-  }, [refetchServices, refetchBookings, refetchMembers, refetchBlockedSlots, refetchCars, refetchMemberCars, refetchCoffees, refetchServiceCategories, refetchDetailers, refetchSettings, refetchTestimonials, refetchRecurringSchedules, refetchAddonCatalog]);
+  }, [refetchServices, refetchBookings, refetchMembers, refetchBlockedSlots, refetchCars, refetchMemberCars, refetchCoffees, refetchServiceCategories, refetchDetailers, refetchSettings, refetchTestimonials, refetchRecurringSchedules, refetchAddonCatalog, refetchCarConditionLogs, refetchInventoryItems, refetchCoffeeRecipes, refetchInventoryTransactions]);
 
   // Resolve the current admin's role from admin_users whenever the session
   // changes. admin_users is authenticated-read-only, so we (re)fetch it on
@@ -337,11 +376,19 @@ export function AppProvider({ children }) {
     if (adminSession) {
       setAdminUsersHydrated(false);
       refetchAdminUsers();
+      // inventory tables are authenticated-read-only — (re)fetch once a session
+      // exists (the anon hydrate on mount returns nothing for them).
+      refetchInventoryItems();
+      refetchCoffeeRecipes();
+      refetchInventoryTransactions();
     } else {
       setAdminUsers([]);
       setAdminUsersHydrated(true);
+      setInventoryItems([]);
+      setCoffeeRecipes([]);
+      setInventoryTransactions([]);
     }
-  }, [adminSession, refetchAdminUsers]);
+  }, [adminSession, refetchAdminUsers, refetchInventoryItems, refetchCoffeeRecipes, refetchInventoryTransactions]);
 
   // Global Realtime subscription — one shared WebSocket channel for the entire
   // app. Any page that reads `bookings` from context (bookings, schedule,
@@ -1109,6 +1156,128 @@ export function AppProvider({ children }) {
     [carConditionLogs]
   );
 
+  // ===== Coffee Ingredient Inventory =====
+  // Ingredient catalog CRUD. stock_qty is NOT edited here — it moves only
+  // through restockInventoryItem / consume_coffee_serve so every change is
+  // logged in inventory_transactions. On create, an optional opening stock is
+  // recorded as an 'initial' transaction.
+  const upsertInventoryItem = useCallback(
+    async (item) => {
+      if (!supabase) return { error: 'Database not connected.' };
+      const name = (item.name || '').trim();
+      if (!name) return { error: 'Item name is required.' };
+      const unitCost = Number(item.unitCost) || 0;
+      if (unitCost < 0) return { error: 'Unit cost cannot be negative.' };
+      const lowStockAt = Number(item.lowStockAt) || 0;
+
+      const fields = {
+        brand: (item.brand || '').trim() || null,
+        name,
+        description: (item.description || '').trim() || null,
+        type: (item.type || '').trim() || null,
+        uom: (item.uom || 'pc').trim() || 'pc',
+        pack_volume: item.packVolume === '' || item.packVolume == null ? null : Number(item.packVolume),
+        unit_cost: unitCost,
+        low_stock_at: lowStockAt,
+        is_active: item.isActive !== false,
+        sort_order: Number(item.sortOrder) || 0,
+        updated_at: new Date().toISOString(),
+      };
+
+      if (item.id) {
+        const { data, error } = await supabase
+          .from('inventory_items').update(fields).eq('id', item.id).select().single();
+        if (error) return { error: error.message };
+        await refetchInventoryItems();
+        return fromRow(data);
+      }
+
+      // New item — set opening stock, then log it as an 'initial' movement.
+      const opening = Number(item.stockQty) || 0;
+      const { data, error } = await supabase
+        .from('inventory_items').insert({ ...fields, stock_qty: opening }).select().single();
+      if (error) return { error: error.message };
+      if (opening !== 0) {
+        await supabase.from('inventory_transactions').insert({
+          item_id: data.id, qty_change: opening, reason: 'initial', note: 'Opening stock',
+        });
+      }
+      await refetchInventoryItems();
+      await refetchInventoryTransactions();
+      return fromRow(data);
+    },
+    [refetchInventoryItems, refetchInventoryTransactions]
+  );
+
+  const deleteInventoryItem = useCallback(
+    async (id) => {
+      if (!supabase) return { error: 'Database not connected.' };
+      const { error } = await supabase.from('inventory_items').delete().eq('id', id);
+      if (error) return { error: error.message };
+      await refetchInventoryItems();
+      await refetchCoffeeRecipes();
+      await refetchInventoryTransactions();
+      return { ok: true };
+    },
+    [refetchInventoryItems, refetchCoffeeRecipes, refetchInventoryTransactions]
+  );
+
+  // Apply a signed stock delta (restock / manual adjustment). Goes through a
+  // SECURITY DEFINER RPC that updates stock_qty and logs the movement atomically.
+  const adjustInventoryItem = useCallback(
+    async (id, qtyChange, reason = 'adjustment', note = null) => {
+      if (!supabase) return { error: 'Database not connected.' };
+      const delta = Number(qtyChange);
+      if (!Number.isFinite(delta) || delta === 0) {
+        return { error: 'Enter a non-zero quantity.' };
+      }
+      const { data, error } = await supabase.rpc('adjust_inventory_item', {
+        p_item_id: id,
+        p_qty_change: delta,
+        p_reason: reason,
+        p_note: note,
+      });
+      if (error) return { error: error.message };
+      if (data?.error) return { error: data.error };
+      await refetchInventoryItems();
+      await refetchInventoryTransactions();
+      return { ok: true };
+    },
+    [refetchInventoryItems, refetchInventoryTransactions]
+  );
+
+  // Replace a coffee's full recipe (bill of materials) in one pass: delete the
+  // existing rows for that coffee, then insert the provided lines. Each line:
+  // { itemId, qtyPerServe }.
+  const setCoffeeRecipe = useCallback(
+    async (coffeeId, lines) => {
+      if (!supabase) return { error: 'Database not connected.' };
+      if (!coffeeId) return { error: 'Coffee is required.' };
+      const rows = (lines || [])
+        .filter((l) => l.itemId && Number(l.qtyPerServe) > 0)
+        .map((l) => ({
+          coffee_id: coffeeId,
+          item_id: l.itemId,
+          qty_per_serve: Number(l.qtyPerServe),
+        }));
+      const { error: delErr } = await supabase
+        .from('coffee_recipes').delete().eq('coffee_id', coffeeId);
+      if (delErr) return { error: delErr.message };
+      if (rows.length > 0) {
+        const { error: insErr } = await supabase.from('coffee_recipes').insert(rows);
+        if (insErr) return { error: insErr.message };
+      }
+      await refetchCoffeeRecipes();
+      return { ok: true };
+    },
+    [refetchCoffeeRecipes]
+  );
+
+  const getRecipeForCoffee = useCallback(
+    (coffeeId) => coffeeRecipes.filter((r) => r.coffeeId === coffeeId),
+    [coffeeRecipes]
+  );
+
   // ===== Add-on Catalog =====
   const upsertAddonCatalogItem = useCallback(
     async (item) => {
@@ -1648,6 +1817,14 @@ export function AppProvider({ children }) {
       addCarConditionLog,
       deleteCarConditionLog,
       getConditionLogsForCar,
+      inventoryItems,
+      coffeeRecipes,
+      inventoryTransactions,
+      upsertInventoryItem,
+      deleteInventoryItem,
+      adjustInventoryItem,
+      setCoffeeRecipe,
+      getRecipeForCoffee,
       updateSettings,
       setAdminSession,
       signOut,
@@ -1735,6 +1912,14 @@ export function AppProvider({ children }) {
       addCarConditionLog,
       deleteCarConditionLog,
       getConditionLogsForCar,
+      inventoryItems,
+      coffeeRecipes,
+      inventoryTransactions,
+      upsertInventoryItem,
+      deleteInventoryItem,
+      adjustInventoryItem,
+      setCoffeeRecipe,
+      getRecipeForCoffee,
       updateSettings,
       setAdminSession,
       signOut,

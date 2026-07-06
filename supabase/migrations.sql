@@ -1231,4 +1231,314 @@ begin
 end;
 $$;
 
+-- =====================================================================
+-- Phase 8 — Coffee ingredient inventory
+-- ---------------------------------------------------------------------
+-- Tracks the shop's coffee consumables (beans, milk, syrups, cups, …),
+-- a per-coffee recipe (bill of materials), and every stock movement.
+-- When a VIP booking with a coffee_order is marked 'completed', the
+-- update_booking_status RPC calls consume_coffee_serve() to deduct the
+-- recipe quantities and log the movement — once per booking.
+-- =====================================================================
+
+-- Ingredient catalog. Mirrors the reference sheet:
+--   brand · item name · description · type · uom · pack volume · unit cost.
+-- Plus live stock tracking: stock_qty (in `uom`) and a low-stock threshold.
+create table if not exists inventory_items (
+  id            uuid primary key default gen_random_uuid(),
+  brand         text,
+  name          text not null,
+  description   text,
+  type          text,
+  uom           text not null default 'pc',      -- unit of measure (Grams, Liter, Pc…)
+  pack_volume   numeric(12,2),                    -- VOLUME column: pack/size the unit cost refers to
+  unit_cost     numeric(12,4) not null default 0, -- A/V: cost per 1 `uom`
+  stock_qty     numeric(14,3) not null default 0, -- current on-hand quantity, in `uom`
+  low_stock_at  numeric(14,3) not null default 0, -- reorder threshold (0 = no alert)
+  is_active     boolean not null default true,
+  sort_order    integer not null default 0,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now()
+);
+create index if not exists inventory_items_sort_idx   on inventory_items (sort_order);
+create index if not exists inventory_items_active_idx  on inventory_items (is_active);
+
+-- Bill of materials: how much of each ingredient one serve of a coffee uses.
+-- coffee_id → coffees(id); qty_per_serve is expressed in the item's `uom`.
+create table if not exists coffee_recipes (
+  id            uuid primary key default gen_random_uuid(),
+  coffee_id     uuid not null references coffees(id) on delete cascade,
+  item_id       uuid not null references inventory_items(id) on delete cascade,
+  qty_per_serve numeric(14,3) not null default 0 check (qty_per_serve >= 0),
+  created_at    timestamptz not null default now(),
+  unique (coffee_id, item_id)
+);
+create index if not exists coffee_recipes_coffee_idx on coffee_recipes (coffee_id);
+create index if not exists coffee_recipes_item_idx   on coffee_recipes (item_id);
+
+-- Every stock movement. reason: 'restock' | 'adjustment' | 'consumption' | 'initial'.
+-- qty_change is signed (+in / -out). booking_id set for consumption tied to a serve.
+create table if not exists inventory_transactions (
+  id           uuid primary key default gen_random_uuid(),
+  item_id      uuid not null references inventory_items(id) on delete cascade,
+  qty_change   numeric(14,3) not null,
+  reason       text not null default 'adjustment'
+               check (reason in ('restock', 'adjustment', 'consumption', 'initial')),
+  booking_id   text references bookings(id) on delete set null,
+  coffee_name  text,
+  note         text,
+  created_at   timestamptz not null default now()
+);
+create index if not exists inventory_tx_item_idx    on inventory_transactions (item_id, created_at desc);
+create index if not exists inventory_tx_booking_idx on inventory_transactions (booking_id);
+create index if not exists inventory_tx_reason_idx  on inventory_transactions (reason);
+
+-- Marks a booking whose coffee serve has already been deducted, so re-marking
+-- 'completed' (or status flip-flops) never double-deducts.
+alter table bookings add column if not exists coffee_served_at timestamptz;
+
+alter table inventory_items        enable row level security;
+alter table coffee_recipes         enable row level security;
+alter table inventory_transactions enable row level security;
+
+-- Reads open to any signed-in staff (no anon — internal stock data).
+-- Writes: super_admin directly; a plain admin only via the consume RPC below.
+drop policy if exists "inventory_items_select"        on inventory_items;
+drop policy if exists "inventory_items_insert"        on inventory_items;
+drop policy if exists "inventory_items_update"        on inventory_items;
+drop policy if exists "inventory_items_delete"        on inventory_items;
+create policy "inventory_items_select" on inventory_items for select to authenticated using (true);
+create policy "inventory_items_insert" on inventory_items for insert to authenticated with check (is_super_admin());
+create policy "inventory_items_update" on inventory_items for update to authenticated using (is_super_admin()) with check (is_super_admin());
+create policy "inventory_items_delete" on inventory_items for delete to authenticated using (is_super_admin());
+
+drop policy if exists "coffee_recipes_select" on coffee_recipes;
+drop policy if exists "coffee_recipes_insert" on coffee_recipes;
+drop policy if exists "coffee_recipes_update" on coffee_recipes;
+drop policy if exists "coffee_recipes_delete" on coffee_recipes;
+create policy "coffee_recipes_select" on coffee_recipes for select to authenticated using (true);
+create policy "coffee_recipes_insert" on coffee_recipes for insert to authenticated with check (is_super_admin());
+create policy "coffee_recipes_update" on coffee_recipes for update to authenticated using (is_super_admin()) with check (is_super_admin());
+create policy "coffee_recipes_delete" on coffee_recipes for delete to authenticated using (is_super_admin());
+
+drop policy if exists "inventory_tx_select" on inventory_transactions;
+drop policy if exists "inventory_tx_insert" on inventory_transactions;
+drop policy if exists "inventory_tx_delete" on inventory_transactions;
+create policy "inventory_tx_select" on inventory_transactions for select to authenticated using (true);
+create policy "inventory_tx_insert" on inventory_transactions for insert to authenticated with check (is_super_admin());
+create policy "inventory_tx_delete" on inventory_transactions for delete to authenticated using (is_super_admin());
+
+-- ---------------------------------------------------------------------
+-- RPC: adjust_inventory_item — restock / manual adjustment (super_admin)
+-- Applies a signed delta to stock_qty and logs a transaction atomically.
+-- ---------------------------------------------------------------------
+create or replace function public.adjust_inventory_item(
+  p_item_id   uuid,
+  p_qty_change numeric,
+  p_reason    text default 'adjustment',
+  p_note      text default null
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_row inventory_items;
+begin
+  if not is_super_admin() then
+    return jsonb_build_object('error', 'Not authorized.');
+  end if;
+  if p_reason not in ('restock', 'adjustment', 'initial') then
+    return jsonb_build_object('error', 'Invalid reason.');
+  end if;
+
+  update inventory_items
+     set stock_qty = stock_qty + p_qty_change,
+         updated_at = now()
+   where id = p_item_id
+   returning * into v_row;
+
+  if v_row is null then
+    return jsonb_build_object('error', 'Item not found.');
+  end if;
+
+  insert into inventory_transactions (item_id, qty_change, reason, note)
+  values (p_item_id, p_qty_change, p_reason, p_note);
+
+  return to_jsonb(v_row);
+end;
+$$;
+grant execute on function public.adjust_inventory_item(uuid, numeric, text, text) to authenticated;
+
+-- ---------------------------------------------------------------------
+-- RPC: consume_coffee_serve — deduct a coffee's recipe from stock
+-- SECURITY DEFINER so a plain admin (barista) advancing a booking to
+-- 'completed' can deduct stock without table-level write rights on the
+-- inventory tables. Idempotent per booking via bookings.coffee_served_at.
+-- Returns { ok, deducted:[{name, qty, uom}], warnings:[...] }.
+-- Never blocks the serve — negative stock is allowed but flagged.
+-- ---------------------------------------------------------------------
+create or replace function public.consume_coffee_serve(
+  p_booking_id  text,
+  p_coffee_name text
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_coffee_id uuid;
+  v_already   timestamptz;
+  r           record;
+  v_deducted  jsonb := '[]'::jsonb;
+  v_warnings  jsonb := '[]'::jsonb;
+begin
+  if auth.uid() is null then
+    return jsonb_build_object('error', 'Not authenticated.');
+  end if;
+  if p_coffee_name is null or btrim(p_coffee_name) = '' then
+    return jsonb_build_object('ok', true, 'skipped', 'no coffee ordered');
+  end if;
+
+  -- Idempotency: only deduct once per booking.
+  select coffee_served_at into v_already from bookings where id = p_booking_id;
+  if v_already is not null then
+    return jsonb_build_object('ok', true, 'skipped', 'already served');
+  end if;
+
+  select id into v_coffee_id from coffees
+   where lower(name) = lower(btrim(p_coffee_name)) limit 1;
+
+  if v_coffee_id is null then
+    -- Unknown drink (e.g. renamed/removed) — mark served, nothing to deduct.
+    update bookings set coffee_served_at = now() where id = p_booking_id;
+    return jsonb_build_object('ok', true, 'warnings',
+      jsonb_build_array('No menu match for "' || p_coffee_name || '" — no recipe deducted.'));
+  end if;
+
+  for r in
+    select cr.item_id, cr.qty_per_serve, i.name, i.uom, i.stock_qty
+    from coffee_recipes cr
+    join inventory_items i on i.id = cr.item_id
+    where cr.coffee_id = v_coffee_id and cr.qty_per_serve > 0
+  loop
+    update inventory_items
+       set stock_qty = stock_qty - r.qty_per_serve, updated_at = now()
+     where id = r.item_id;
+
+    insert into inventory_transactions (item_id, qty_change, reason, booking_id, coffee_name)
+    values (r.item_id, -r.qty_per_serve, 'consumption', p_booking_id, p_coffee_name);
+
+    v_deducted := v_deducted || jsonb_build_object(
+      'name', r.name, 'qty', r.qty_per_serve, 'uom', r.uom);
+
+    if r.stock_qty - r.qty_per_serve < 0 then
+      v_warnings := v_warnings || to_jsonb('"' || r.name || '" is now oversold (negative stock).');
+    end if;
+  end loop;
+
+  update bookings set coffee_served_at = now() where id = p_booking_id;
+
+  return jsonb_build_object('ok', true, 'deducted', v_deducted, 'warnings', v_warnings);
+end;
+$$;
+grant execute on function public.consume_coffee_serve(text, text) to authenticated;
+
+-- ---------------------------------------------------------------------
+-- update_booking_status — now also deducts the coffee serve on 'completed'.
+-- Re-created to call consume_coffee_serve for coffee orders. The deduct is
+-- best-effort: it never aborts the status change.
+-- ---------------------------------------------------------------------
+create or replace function public.update_booking_status(
+  p_id     text,
+  p_status text,
+  p_reason text default null
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_from   text;
+  v_coffee text;
+  v_row    bookings;
+begin
+  if auth.uid() is null then
+    return jsonb_build_object('error', 'Not authenticated.');
+  end if;
+  if p_status not in ('pending','confirmed','on-going','completed','cancelled','no_show') then
+    return jsonb_build_object('error', 'Invalid status.');
+  end if;
+
+  select status, coffee_order into v_from, v_coffee from bookings where id = p_id;
+  if v_from is null then
+    return jsonb_build_object('error', 'Booking not found.');
+  end if;
+
+  update bookings
+     set status = p_status,
+         cancellation_reason = case when p_status = 'cancelled' then p_reason else cancellation_reason end
+   where id = p_id
+   returning * into v_row;
+
+  insert into booking_status_logs (booking_id, from_status, to_status, notes)
+  values (p_id, v_from, p_status, p_reason);
+
+  -- On completion, deduct the coffee serve from inventory (idempotent).
+  if p_status = 'completed' and coalesce(btrim(v_coffee), '') <> '' then
+    perform consume_coffee_serve(p_id, v_coffee);
+  end if;
+
+  return to_jsonb(v_row);
+end;
+$$;
+grant execute on function public.update_booking_status(text, text, text) to authenticated;
+
+-- ---------------------------------------------------------------------
+-- Seed — reference-sheet coffee ingredients (optional starter data).
+-- Mapping from the sheet: VOLUME -> pack_volume, A/V (cost per uom) -> unit_cost.
+-- Opening stock is seeded at one pack_volume and logged as an 'initial' movement;
+-- low-stock alert defaults to 10% of a pack. Idempotent: guarded by (brand, name)
+-- so re-running won't duplicate. Delete this block if you'd rather start empty.
+-- ---------------------------------------------------------------------
+do $$
+declare
+  v_id  uuid;
+  v_qty numeric;
+  rec   record;
+begin
+  for rec in
+    select * from (values
+      ('Artisanal',            'Coffee Beans',  'Coffee Beans',  'Beans',     'Grams', 1000::numeric, 0.95::numeric, 1),
+      ('Jolly Cow',            'Barista Milk',  'Fresh Milk',    'Milk',      'Liter', 1000,          0.08,          2),
+      ('Jolly Cow',            'Condense Milk', 'Condense Milk', 'Milk',      'Liter', 1000,          0.14,          3),
+      ('Easy Brand Signature', 'Hazelnut',      'Hazelnut',      'Syrup',     'Liter', 1000,          0.24,          4),
+      ('Easy Brand Signature', 'Caramel',       'Caramel',       'Sauce',     'Liter', 1000,          0.47,          5),
+      ('Generic',              'Creamer',       'Powder',        'Creamer',   'Pc',    100,           0.25,          6),
+      ('Generic',              'Sugar',         'Powder',        'Sugar',     'Pc',    100,           0.25,          7),
+      ('Generic',              'Paper Cup',     'Paper Cup',     'Paper Cup', 'Pc',    100,           5.15,          8),
+      ('Generic',              'Stirrer',       'Stirrer',       'Stirrer',   'Pc',    100,           0.00,          9)
+    ) as t(brand, name, description, type, uom, pack_volume, unit_cost, sort_order)
+  loop
+    -- Skip if an item with the same (brand, name) already exists.
+    if exists (
+      select 1 from inventory_items
+      where lower(coalesce(brand,'')) = lower(coalesce(rec.brand,''))
+        and lower(name) = lower(rec.name)
+    ) then
+      continue;
+    end if;
+
+    v_qty := rec.pack_volume;  -- opening stock = one full pack
+
+    insert into inventory_items (brand, name, description, type, uom, pack_volume, unit_cost, stock_qty, low_stock_at, sort_order)
+    values (rec.brand, rec.name, rec.description, rec.type, rec.uom, rec.pack_volume, rec.unit_cost, v_qty,
+            round(rec.pack_volume * 0.10, 3), rec.sort_order)
+    returning id into v_id;
+
+    insert into inventory_transactions (item_id, qty_change, reason, note)
+    values (v_id, v_qty, 'initial', 'Opening stock (seed)');
+  end loop;
+end $$;
+
 notify pgrst, 'reload schema';

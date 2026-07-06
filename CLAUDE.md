@@ -57,6 +57,7 @@
 │   ├── services/page.jsx     # Service package CRUD + drag reorder
 │   ├── categories/page.jsx   # Service category CRUD (slug, color)
 │   ├── coffees/page.jsx      # Coffee menu CRUD + availability toggle
+│   ├── inventory/page.jsx    # Coffee ingredient inventory — items CRUD, restock/adjust, per-coffee recipes, movement log (super-admin only)
 │   ├── detailers/page.jsx    # Detailer roster CRUD + drag reorder
 │   └── settings/page.jsx     # Detailer pool size + default per booking
 └── api/
@@ -139,6 +140,9 @@
 | `detailers` | Shop detailer roster |
 | `blocked_slots` | Admin-blocked time slots |
 | `settings` | Singleton row: pool size, default detailers per booking |
+| `inventory_items` | Coffee ingredient catalog + live stock (brand, uom, unit cost, stock_qty, low_stock_at) |
+| `coffee_recipes` | Bill of materials: coffee ↔ ingredient + qty_per_serve |
+| `inventory_transactions` | Signed stock movement log (restock / adjustment / consumption / initial) |
 
 ### Stored Procedures (RPCs)
 
@@ -147,8 +151,12 @@
 | `add_booking(p, p_occupies_slots)` | Atomic capacity-aware booking insert |
 | `update_booking_detailers(p_id, p_detailer_ids, p_min_detailers)` | Safely reassign detailers on a booking |
 | `update_settings(p_pool_size, p_default_per_booking)` | Validates and updates settings singleton |
+| `adjust_inventory_item(p_item_id, p_qty_change, p_reason, p_note)` | Signed stock delta (restock/adjustment) + logs a transaction (super-admin) |
+| `consume_coffee_serve(p_booking_id, p_coffee_name)` | Deducts a coffee's recipe from stock + logs it, once per booking (idempotent via `bookings.coffee_served_at`) |
 
 > `add_booking` uses `pg_advisory_xact_lock` to prevent race conditions when two customers book the same slot simultaneously.
+
+> **Inventory deduction hook**: `update_booking_status` calls `consume_coffee_serve` whenever a booking with a `coffee_order` is set to `completed`. It's idempotent (guarded by `bookings.coffee_served_at`) and best-effort — it never blocks the status change, and allows negative stock (flagged, not blocked). Migration lives in the "Phase 8 — Coffee ingredient inventory" block of `migrations.sql`.
 
 ### Booking Object Shape (camelCase in JS)
 
