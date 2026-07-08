@@ -1484,10 +1484,9 @@ begin
   insert into booking_status_logs (booking_id, from_status, to_status, notes)
   values (p_id, v_from, p_status, p_reason);
 
-  -- On completion, deduct the coffee serve from inventory (idempotent).
-  if p_status = 'completed' and coalesce(btrim(v_coffee), '') <> '' then
-    perform consume_coffee_serve(p_id, v_coffee);
-  end if;
+  -- NOTE: Coffee inventory is NOT deducted on completion. Serving a VIP's
+  -- coffee (and the stock deduction) now happens in the barista POS via
+  -- tender_pos_order (see Phase 9 below). v_coffee is intentionally unused.
 
   return to_jsonb(v_row);
 end;
@@ -1540,5 +1539,141 @@ begin
     values (v_id, v_qty, 'initial', 'Opening stock (seed)');
   end loop;
 end $$;
+
+-- =====================================================================
+-- Phase 9 — Barista POS (coffee serving moved out of booking completion)
+-- ---------------------------------------------------------------------
+-- A standalone register for the barista to serve VIP members' coffee.
+-- Tendering an order deducts each coffee's recipe from inventory and logs
+-- a 'consumption' movement per ingredient. This REPLACES the old behavior
+-- where marking a booking 'completed' auto-deducted the coffee (the hook
+-- has been removed from update_booking_status above).
+-- =====================================================================
+create table if not exists pos_orders (
+  id            uuid primary key default gen_random_uuid(),
+  member_id     text references members(id) on delete set null,
+  member_name   text,
+  note          text,
+  item_count    integer not null default 0,
+  total_cost    numeric(14,4) not null default 0,
+  served_by     text,
+  created_at    timestamptz not null default now()
+);
+create index if not exists pos_orders_created_idx on pos_orders (created_at desc);
+create index if not exists pos_orders_member_idx  on pos_orders (member_id);
+
+create table if not exists pos_order_items (
+  id           uuid primary key default gen_random_uuid(),
+  order_id     uuid not null references pos_orders(id) on delete cascade,
+  coffee_id    uuid references coffees(id) on delete set null,
+  coffee_name  text not null,
+  qty          integer not null default 1 check (qty > 0),
+  created_at   timestamptz not null default now()
+);
+create index if not exists pos_order_items_order_idx on pos_order_items (order_id);
+
+alter table pos_orders      enable row level security;
+alter table pos_order_items enable row level security;
+
+drop policy if exists "pos_orders_select" on pos_orders;
+create policy "pos_orders_select" on pos_orders for select to authenticated using (true);
+drop policy if exists "pos_orders_delete" on pos_orders;
+create policy "pos_orders_delete" on pos_orders for delete to authenticated using (is_super_admin());
+
+drop policy if exists "pos_order_items_select" on pos_order_items;
+create policy "pos_order_items_select" on pos_order_items for select to authenticated using (true);
+
+-- RPC: tender_pos_order — record a coffee order + deduct ingredients.
+-- SECURITY DEFINER so a plain admin (barista) can deduct stock without
+-- table-level write rights. Negative stock is allowed but flagged.
+create or replace function public.tender_pos_order(
+  p_member_id   text,
+  p_member_name text,
+  p_note        text,
+  p_lines       jsonb
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_order_id  uuid;
+  v_email     text := lower(coalesce(auth.jwt() ->> 'email', ''));
+  v_line      jsonb;
+  v_coffee_id uuid;
+  v_qty       integer;
+  v_name      text;
+  v_count     integer := 0;
+  r           record;
+  v_deducted  jsonb := '[]'::jsonb;
+  v_warnings  jsonb := '[]'::jsonb;
+  v_total     numeric(14,4) := 0;
+begin
+  if auth.uid() is null then
+    return jsonb_build_object('error', 'Not authenticated.');
+  end if;
+  if p_lines is null or jsonb_typeof(p_lines) <> 'array' or jsonb_array_length(p_lines) = 0 then
+    return jsonb_build_object('error', 'Add at least one coffee to the order.');
+  end if;
+
+  insert into pos_orders (member_id, member_name, note, served_by)
+  values (p_member_id, nullif(btrim(p_member_name), ''), nullif(btrim(p_note), ''), nullif(v_email, ''))
+  returning id into v_order_id;
+
+  for v_line in select * from jsonb_array_elements(p_lines)
+  loop
+    v_qty  := greatest(1, coalesce((v_line ->> 'qty')::int, 1));
+    v_name := btrim(coalesce(v_line ->> 'coffee_name', ''));
+    if v_name = '' then continue; end if;
+
+    begin
+      v_coffee_id := nullif(v_line ->> 'coffee_id', '')::uuid;
+    exception when others then
+      v_coffee_id := null;
+    end;
+    if v_coffee_id is null then
+      select id into v_coffee_id from coffees where lower(name) = lower(v_name) limit 1;
+    end if;
+
+    insert into pos_order_items (order_id, coffee_id, coffee_name, qty)
+    values (v_order_id, v_coffee_id, v_name, v_qty);
+    v_count := v_count + v_qty;
+
+    if v_coffee_id is null then
+      v_warnings := v_warnings || to_jsonb('No menu match for "' || v_name || '" — no recipe deducted.');
+      continue;
+    end if;
+
+    for r in
+      select cr.item_id, cr.qty_per_serve, i.name, i.uom, i.unit_cost, i.stock_qty
+      from coffee_recipes cr
+      join inventory_items i on i.id = cr.item_id
+      where cr.coffee_id = v_coffee_id and cr.qty_per_serve > 0
+    loop
+      update inventory_items
+         set stock_qty = stock_qty - (r.qty_per_serve * v_qty), updated_at = now()
+       where id = r.item_id;
+
+      insert into inventory_transactions (item_id, qty_change, reason, coffee_name, note)
+      values (r.item_id, -(r.qty_per_serve * v_qty), 'consumption', v_name, 'POS ' || v_order_id::text);
+
+      v_deducted := v_deducted || jsonb_build_object(
+        'name', r.name, 'qty', r.qty_per_serve * v_qty, 'uom', r.uom);
+      v_total := v_total + (coalesce(r.unit_cost, 0) * r.qty_per_serve * v_qty);
+
+      if r.stock_qty - (r.qty_per_serve * v_qty) < 0 then
+        v_warnings := v_warnings || to_jsonb('"' || r.name || '" is now oversold (negative stock).');
+      end if;
+    end loop;
+  end loop;
+
+  update pos_orders set item_count = v_count, total_cost = v_total where id = v_order_id;
+
+  return jsonb_build_object(
+    'ok', true, 'order_id', v_order_id,
+    'deducted', v_deducted, 'warnings', v_warnings);
+end;
+$$;
+grant execute on function public.tender_pos_order(text, text, text, jsonb) to authenticated;
 
 notify pgrst, 'reload schema';

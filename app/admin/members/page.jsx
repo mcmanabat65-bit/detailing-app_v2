@@ -62,7 +62,10 @@ function MembersAdmin() {
     upsertCar,
     addCarToMember,
     showToast,
+    can,
   } = useApp();
+
+  const canManage = can('members.manage');
 
   const [tab, setTab]               = useState('all');
   const [q, setQ]                   = useState('');
@@ -147,13 +150,15 @@ function MembersAdmin() {
                 placeholder="Search name or email…"
                 className="w-full bg-surface/70 border border-white/10 rounded-sm py-2.5 pl-10 pr-3 text-sm text-cream focus:outline-none focus:border-gold/50 transition-colors" />
             </div>
-            <button
-              onClick={() => setAddOpen(true)}
-              className="inline-flex items-center gap-2 px-4 py-2.5 bg-gold text-obsidian font-semibold text-sm rounded-sm hover:bg-gold-light transition-colors whitespace-nowrap shrink-0"
-            >
-              <Plus className="w-4 h-4" />
-              Add Member
-            </button>
+            {canManage && (
+              <button
+                onClick={() => setAddOpen(true)}
+                className="inline-flex items-center gap-2 px-4 py-2.5 bg-gold text-obsidian font-semibold text-sm rounded-sm hover:bg-gold-light transition-colors whitespace-nowrap shrink-0"
+              >
+                <Plus className="w-4 h-4" />
+                Add Member
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -212,29 +217,41 @@ function MembersAdmin() {
                       </button>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex items-center justify-end gap-1">
-                        {status !== 'approved' && (
-                          <button onClick={() => decide(m.id, 'approved', m)} aria-label="Approve" title="Approve"
-                            className="p-2 text-success hover:bg-success/10 rounded-sm transition-colors">
-                            <UserCheck className="w-4 h-4" />
+                      {canManage ? (
+                        <div className="flex items-center justify-end gap-1">
+                          {status !== 'approved' && (
+                            <button onClick={() => decide(m.id, 'approved', m)} aria-label="Approve" title="Approve"
+                              className="p-2 text-success hover:bg-success/10 rounded-sm transition-colors">
+                              <UserCheck className="w-4 h-4" />
+                            </button>
+                          )}
+                          {status !== 'rejected' && (
+                            <button onClick={() => decide(m.id, 'rejected', m)} aria-label="Reject"
+                              title={status === 'approved' ? 'Revoke approval' : 'Reject'}
+                              className="p-2 text-cream/70 hover:text-danger hover:bg-danger/10 rounded-sm transition-colors">
+                              <UserX className="w-4 h-4" />
+                            </button>
+                          )}
+                          <button onClick={() => setEditMember(m)} aria-label="Edit member" title="Edit"
+                            className="p-2 text-cream/70 hover:text-gold hover:bg-gold/10 rounded-sm transition-colors">
+                            <Pencil className="w-4 h-4" />
                           </button>
-                        )}
-                        {status !== 'rejected' && (
-                          <button onClick={() => decide(m.id, 'rejected', m)} aria-label="Reject"
-                            title={status === 'approved' ? 'Revoke approval' : 'Reject'}
+                          <button onClick={() => setConfirmDelete(m)} aria-label="Delete member" title="Delete"
                             className="p-2 text-cream/70 hover:text-danger hover:bg-danger/10 rounded-sm transition-colors">
-                            <UserX className="w-4 h-4" />
+                            <Trash2 className="w-4 h-4" />
                           </button>
-                        )}
-                        <button onClick={() => setEditMember(m)} aria-label="Edit member" title="Edit"
-                          className="p-2 text-cream/70 hover:text-gold hover:bg-gold/10 rounded-sm transition-colors">
-                          <Pencil className="w-4 h-4" />
-                        </button>
-                        <button onClick={() => setConfirmDelete(m)} aria-label="Delete member" title="Delete"
-                          className="p-2 text-cream/70 hover:text-danger hover:bg-danger/10 rounded-sm transition-colors">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-end">
+                          <button
+                            onClick={() => router.push(`/admin/members/${m.id}`)}
+                            className="p-2 text-cream/70 hover:text-gold hover:bg-gold/10 rounded-sm transition-colors"
+                            aria-label="View member profile" title="View profile"
+                          >
+                            <ChevronRight className="w-4 h-4" />
+                          </button>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 );
@@ -650,7 +667,7 @@ function Pagination({ page, totalPages, onPageChange }) {
 
 export default function AdminMembersPage() {
   return (
-    <ProtectedRoute permission="members.manage">
+    <ProtectedRoute permission="members.view">
       <MembersAdmin />
     </ProtectedRoute>
   );

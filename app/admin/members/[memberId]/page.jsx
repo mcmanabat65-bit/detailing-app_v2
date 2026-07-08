@@ -150,7 +150,7 @@ function EditMemberModal({ member, saving, onSave, onClose }) {
 // ---------------------------------------------------------------------------
 // Car Fleet Panel
 // ---------------------------------------------------------------------------
-function CarFleetPanel({ member, cars, ownedCars, upsertCar, addCarToMember, updateMemberCarPlate, removeCarFromMember, onViewCar, showToast }) {
+function CarFleetPanel({ member, cars, ownedCars, upsertCar, addCarToMember, updateMemberCarPlate, removeCarFromMember, onViewCar, showToast, readOnly = false }) {
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState({ make: '', model: '', year: new Date().getFullYear(), size: 'medium', plateNumber: '' });
@@ -204,10 +204,12 @@ function CarFleetPanel({ member, cars, ownedCars, upsertCar, addCarToMember, upd
           <span className="text-cream font-medium">Car Fleet</span>
           <span className="text-xs text-muted">({ownedCars.length})</span>
         </div>
-        <button onClick={() => setAdding((v) => !v)} className="text-xs text-gold hover:text-gold-light transition-colors flex items-center gap-1">
-          <Plus className="w-3.5 h-3.5" />
-          {adding ? 'Cancel' : 'Add car'}
-        </button>
+        {!readOnly && (
+          <button onClick={() => setAdding((v) => !v)} className="text-xs text-gold hover:text-gold-light transition-colors flex items-center gap-1">
+            <Plus className="w-3.5 h-3.5" />
+            {adding ? 'Cancel' : 'Add car'}
+          </button>
+        )}
       </div>
 
       {ownedCars.length === 0 ? (
@@ -223,19 +225,27 @@ function CarFleetPanel({ member, cars, ownedCars, upsertCar, addCarToMember, upd
                   {idx === 0 && <span className="text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded-sm bg-gold/15 text-gold shrink-0">Default</span>}
                   <span className="text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded-sm bg-white/5 text-cream/70 shrink-0">{c.size}</span>
                 </div>
-                <div className="flex items-center gap-0.5 shrink-0">
-                  <button onClick={() => onViewCar(c.id)} aria-label="View car details" title="View car details"
-                    className="text-cream/50 hover:text-gold p-1 transition-colors">
-                    <ExternalLink className="w-3.5 h-3.5" />
-                  </button>
-                  <button onClick={() => unlink(c.linkId, `${c.year} ${c.make} ${c.model}`)} disabled={busy}
-                    aria-label="Remove" className="text-cream/50 hover:text-danger p-1 disabled:opacity-30 transition-colors">
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </div>
+                {!readOnly && (
+                  <div className="flex items-center gap-0.5 shrink-0">
+                    <button onClick={() => onViewCar(c.id)} aria-label="View car details" title="View car details"
+                      className="text-cream/50 hover:text-gold p-1 transition-colors">
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </button>
+                    <button onClick={() => unlink(c.linkId, `${c.year} ${c.make} ${c.model}`)} disabled={busy}
+                      aria-label="Remove" className="text-cream/50 hover:text-danger p-1 disabled:opacity-30 transition-colors">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
               </div>
-              {/* Inline plate editing */}
-              {editingPlate?.linkId === c.linkId ? (
+              {/* Plate — read-only display, or inline editing */}
+              {readOnly ? (
+                c.plateNumber ? (
+                  <span className="inline-block font-mono text-[11px] px-1.5 py-0.5 rounded-sm bg-white/5 text-cream/70">{c.plateNumber}</span>
+                ) : (
+                  <span className="text-[11px] text-muted/60 italic">No plate number</span>
+                )
+              ) : editingPlate?.linkId === c.linkId ? (
                 <form onSubmit={(e) => { e.preventDefault(); savePlate(c.linkId); }} className="flex items-center gap-2">
                   <input autoFocus type="text" value={editingPlate.value} maxLength={10}
                     onChange={(e) => setEditingPlate({ ...editingPlate, value: e.target.value.toUpperCase() })}
@@ -258,7 +268,7 @@ function CarFleetPanel({ member, cars, ownedCars, upsertCar, addCarToMember, upd
         </ul>
       )}
 
-      {adding && (
+      {!readOnly && adding && (
         <div className="bg-surface/60 border border-white/5 rounded-sm p-3 space-y-3">
           {unlinkedCatalog.length > 0 && (
             <div>
@@ -318,8 +328,10 @@ function MemberDetailContent() {
     upsertCar, addCarToMember, updateMemberCarPlate, removeCarFromMember, getCarsForMember,
     getRecurringSchedulesForMember, addRecurringSchedule,
     updateRecurringSchedule, deleteRecurringSchedule, generateRecurringBookings,
-    showToast,
+    showToast, can,
   } = useApp();
+
+  const canManage = can('members.manage');
 
   const [editOpen, setEditOpen]             = useState(false);
   const [editSaving, setEditSaving]         = useState(false);
@@ -437,28 +449,30 @@ function MemberDetailContent() {
           </div>
 
           {/* Actions */}
-          <div className="flex items-center gap-2 shrink-0 flex-wrap">
-            {status !== 'approved' && (
-              <button onClick={() => decide('approved')} title="Approve"
-                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs border border-success/40 text-success rounded-sm hover:bg-success/10 transition-colors">
-                <UserCheck className="w-3.5 h-3.5" />Approve
+          {canManage && (
+            <div className="flex items-center gap-2 shrink-0 flex-wrap">
+              {status !== 'approved' && (
+                <button onClick={() => decide('approved')} title="Approve"
+                  className="inline-flex items-center gap-1.5 px-3 py-2 text-xs border border-success/40 text-success rounded-sm hover:bg-success/10 transition-colors">
+                  <UserCheck className="w-3.5 h-3.5" />Approve
+                </button>
+              )}
+              {status !== 'rejected' && (
+                <button onClick={() => decide('rejected')} title={status === 'approved' ? 'Revoke' : 'Reject'}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 text-xs border border-white/10 text-cream/70 rounded-sm hover:border-danger/40 hover:text-danger transition-colors">
+                  <UserX className="w-3.5 h-3.5" />{status === 'approved' ? 'Revoke' : 'Reject'}
+                </button>
+              )}
+              <button onClick={() => setEditOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs border border-white/10 text-cream/70 rounded-sm hover:border-gold/50 hover:text-gold transition-colors">
+                <Pencil className="w-3.5 h-3.5" />Edit
               </button>
-            )}
-            {status !== 'rejected' && (
-              <button onClick={() => decide('rejected')} title={status === 'approved' ? 'Revoke' : 'Reject'}
+              <button onClick={() => setConfirmDelete(true)}
                 className="inline-flex items-center gap-1.5 px-3 py-2 text-xs border border-white/10 text-cream/70 rounded-sm hover:border-danger/40 hover:text-danger transition-colors">
-                <UserX className="w-3.5 h-3.5" />{status === 'approved' ? 'Revoke' : 'Reject'}
+                <Trash2 className="w-3.5 h-3.5" />Delete
               </button>
-            )}
-            <button onClick={() => setEditOpen(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs border border-white/10 text-cream/70 rounded-sm hover:border-gold/50 hover:text-gold transition-colors">
-              <Pencil className="w-3.5 h-3.5" />Edit
-            </button>
-            <button onClick={() => setConfirmDelete(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs border border-white/10 text-cream/70 rounded-sm hover:border-danger/40 hover:text-danger transition-colors">
-              <Trash2 className="w-3.5 h-3.5" />Delete
-            </button>
-          </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -512,6 +526,7 @@ function MemberDetailContent() {
           removeCarFromMember={removeCarFromMember}
           onViewCar={(carId) => router.push(`/admin/members/${member.id}/cars/${carId}`)}
           showToast={showToast}
+          readOnly={!canManage}
         />
       </div>
 
@@ -521,6 +536,7 @@ function MemberDetailContent() {
         schedules={memberSchedules}
         ownedCars={ownedCars}
         services={services}
+        readOnly={!canManage}
         onAdd={() => setScheduleModal({ mode: 'add' })}
         onEdit={(s) => setScheduleModal({ mode: 'edit', schedule: s })}
         onDelete={async (id) => {
@@ -729,7 +745,7 @@ const WEEKS_OPTIONS = [
 // ---------------------------------------------------------------------------
 // RecurringSchedulesSection
 // ---------------------------------------------------------------------------
-function RecurringSchedulesSection({ member, schedules, ownedCars, services, onAdd, onEdit, onDelete, onToggle, generating, onGenerate }) {
+function RecurringSchedulesSection({ member, schedules, ownedCars, services, onAdd, onEdit, onDelete, onToggle, generating, onGenerate, readOnly = false }) {
   const [weeksAhead, setWeeksAhead] = useState(4);
 
   const activeCount = schedules.filter((s) => s.isActive).length;
@@ -744,18 +760,20 @@ function RecurringSchedulesSection({ member, schedules, ownedCars, services, onA
             <span className="text-xs text-muted">({activeCount} active of {schedules.length})</span>
           )}
         </div>
-        <button
-          onClick={onAdd}
-          className="inline-flex items-center gap-1.5 text-xs text-gold hover:text-gold-light transition-colors"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          Add schedule
-        </button>
+        {!readOnly && (
+          <button
+            onClick={onAdd}
+            className="inline-flex items-center gap-1.5 text-xs text-gold hover:text-gold-light transition-colors"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            Add schedule
+          </button>
+        )}
       </div>
 
       {schedules.length === 0 ? (
         <div className="px-5 py-10 text-center text-muted text-sm">
-          No recurring schedules yet. Add one to pre-book detailing slots for this member.
+          No recurring schedules yet.{!readOnly && ' Add one to pre-book detailing slots for this member.'}
         </div>
       ) : (
         <div className="divide-y divide-white/5">
@@ -782,23 +800,25 @@ function RecurringSchedulesSection({ member, schedules, ownedCars, services, onA
                     {s.notes && <span className="italic text-muted/70">"{s.notes}"</span>}
                   </div>
                 </div>
-                <div className="flex items-center gap-1 shrink-0">
-                  <button onClick={() => onToggle(s)} aria-label={s.isActive ? 'Pause' : 'Activate'}
-                    title={s.isActive ? 'Pause' : 'Activate'}
-                    className="p-1.5 text-cream/50 hover:text-gold transition-colors">
-                    {s.isActive
-                      ? <ToggleRight className="w-5 h-5 text-gold" />
-                      : <ToggleLeft className="w-5 h-5" />}
-                  </button>
-                  <button onClick={() => onEdit(s)} aria-label="Edit" title="Edit"
-                    className="p-1.5 text-cream/50 hover:text-gold transition-colors">
-                    <Pencil className="w-3.5 h-3.5" />
-                  </button>
-                  <button onClick={() => onDelete(s.id)} aria-label="Delete" title="Delete"
-                    className="p-1.5 text-cream/50 hover:text-danger transition-colors">
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
+                {!readOnly && (
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button onClick={() => onToggle(s)} aria-label={s.isActive ? 'Pause' : 'Activate'}
+                      title={s.isActive ? 'Pause' : 'Activate'}
+                      className="p-1.5 text-cream/50 hover:text-gold transition-colors">
+                      {s.isActive
+                        ? <ToggleRight className="w-5 h-5 text-gold" />
+                        : <ToggleLeft className="w-5 h-5" />}
+                    </button>
+                    <button onClick={() => onEdit(s)} aria-label="Edit" title="Edit"
+                      className="p-1.5 text-cream/50 hover:text-gold transition-colors">
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                    <button onClick={() => onDelete(s.id)} aria-label="Delete" title="Delete"
+                      className="p-1.5 text-cream/50 hover:text-danger transition-colors">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
               </div>
             );
           })}
@@ -806,7 +826,7 @@ function RecurringSchedulesSection({ member, schedules, ownedCars, services, onA
       )}
 
       {/* Generate bookings footer */}
-      {activeCount > 0 && (
+      {!readOnly && activeCount > 0 && (
         <div className="px-5 py-4 border-t border-white/5 flex flex-wrap items-center gap-3">
           <RefreshCw className={`w-4 h-4 text-gold shrink-0 ${generating ? 'animate-spin' : ''}`} />
           <span className="text-sm text-cream/80">Generate bookings:</span>
@@ -1047,7 +1067,7 @@ function GenerateResultModal({ result, onClose }) {
 
 export default function MemberDetailPage() {
   return (
-    <ProtectedRoute permission="members.manage">
+    <ProtectedRoute permission="members.view">
       <MemberDetailContent />
     </ProtectedRoute>
   );

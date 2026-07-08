@@ -38,10 +38,15 @@ export const PERMISSIONS = {
   BOOKINGS_EDIT: 'bookings.edit',
   SCHEDULE_VIEW: 'schedule.view',
   MONITOR_VIEW: 'monitor.view',
+  // Read-only access to the VIP members list + profile pages. Granted to admin
+  // (e.g. the barista looking up a member's VIP status). No write actions.
+  MEMBERS_VIEW: 'members.view',
   MEMBERS_MANAGE: 'members.manage',
   CARS_MANAGE: 'cars.manage',
   COFFEES_MANAGE: 'coffees.manage',
   INVENTORY_MANAGE: 'inventory.manage',
+  // Barista POS — serving VIP coffee + deducting ingredients. Granted to admin.
+  POS_SERVE: 'pos.serve',
   SERVICES_MANAGE: 'services.manage',
   CATEGORIES_MANAGE: 'categories.manage',
   DETAILERS_MANAGE: 'detailers.manage',
@@ -61,6 +66,8 @@ const ADMIN_ALLOWED = new Set([
   PERMISSIONS.BOOKINGS_ADDONS,
   PERMISSIONS.SCHEDULE_VIEW,
   PERMISSIONS.MONITOR_VIEW,
+  PERMISSIONS.MEMBERS_VIEW,
+  PERMISSIONS.POS_SERVE,
 ]);
 
 /**

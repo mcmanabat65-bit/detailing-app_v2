@@ -57,6 +57,7 @@
 │   ├── services/page.jsx     # Service package CRUD + drag reorder
 │   ├── categories/page.jsx   # Service category CRUD (slug, color)
 │   ├── coffees/page.jsx      # Coffee menu CRUD + availability toggle
+│   ├── pos/page.jsx          # Barista Coffee POS — free-form coffee cart; tendering an order deducts ingredient stock (admin + super-admin)
 │   ├── inventory/page.jsx    # Coffee ingredient inventory — items CRUD, restock/adjust, per-coffee recipes, movement log (super-admin only)
 │   ├── detailers/page.jsx    # Detailer roster CRUD + drag reorder
 │   └── settings/page.jsx     # Detailer pool size + default per booking
@@ -143,6 +144,8 @@
 | `inventory_items` | Coffee ingredient catalog + live stock (brand, uom, unit cost, stock_qty, low_stock_at) |
 | `coffee_recipes` | Bill of materials: coffee ↔ ingredient + qty_per_serve |
 | `inventory_transactions` | Signed stock movement log (restock / adjustment / consumption / initial) |
+| `pos_orders` | Barista POS coffee orders (member snapshot, item_count, est. total_cost, served_by) |
+| `pos_order_items` | Line items on a POS order: coffee_id + coffee_name + qty |
 
 ### Stored Procedures (RPCs)
 
@@ -152,11 +155,12 @@
 | `update_booking_detailers(p_id, p_detailer_ids, p_min_detailers)` | Safely reassign detailers on a booking |
 | `update_settings(p_pool_size, p_default_per_booking)` | Validates and updates settings singleton |
 | `adjust_inventory_item(p_item_id, p_qty_change, p_reason, p_note)` | Signed stock delta (restock/adjustment) + logs a transaction (super-admin) |
-| `consume_coffee_serve(p_booking_id, p_coffee_name)` | Deducts a coffee's recipe from stock + logs it, once per booking (idempotent via `bookings.coffee_served_at`) |
+| `consume_coffee_serve(p_booking_id, p_coffee_name)` | Legacy per-booking coffee deduction (idempotent via `bookings.coffee_served_at`). **No longer auto-called** — kept for reference; serving now happens in the POS. |
+| `tender_pos_order(p_member_id, p_member_name, p_note, p_lines)` | Records a POS coffee order + deducts each coffee's recipe × qty from stock, logging a `consumption` movement per ingredient (super_admin + admin/barista via SECURITY DEFINER). Allows negative stock (flagged, not blocked). |
 
 > `add_booking` uses `pg_advisory_xact_lock` to prevent race conditions when two customers book the same slot simultaneously.
 
-> **Inventory deduction hook**: `update_booking_status` calls `consume_coffee_serve` whenever a booking with a `coffee_order` is set to `completed`. It's idempotent (guarded by `bookings.coffee_served_at`) and best-effort — it never blocks the status change, and allows negative stock (flagged, not blocked). Migration lives in the "Phase 8 — Coffee ingredient inventory" block of `migrations.sql`.
+> **Inventory deduction happens in the POS** (Phase 9): coffee stock is consumed when the barista tenders a `pos_order` via `tender_pos_order`, which deducts each drink's recipe × qty and logs a `consumption` movement per ingredient. Negative stock is allowed but flagged, never blocked. The old hook where `update_booking_status` called `consume_coffee_serve` on `completed` has been **removed** — marking a booking completed no longer touches inventory. Migrations: Phase 8 (inventory tables) + Phase 9 (POS) in `migrations.sql`.
 
 ### Booking Object Shape (camelCase in JS)
 
@@ -288,10 +292,11 @@ Two access levels, resolved by login-email match against the `admin_users` table
 - **`super_admin`** — the boss; unrestricted access to everything.
 - **`admin`** — staff (e.g. a barista covering the shop). Can create and view
   bookings, the schedule, and the shop monitor, **advance booking status**
-  (confirm / on-going / completed / no-show / cancel), **assign detailers**, and
-  **manage add-ons**. **Cannot** delete bookings, block schedule slots, or open
-  sensitive pages (members, cars, coffees, services, categories, detailers,
-  testimonials, add-ons catalog, settings, staff).
+  (confirm / on-going / completed / no-show / cancel), **assign detailers**,
+  **manage add-ons**, and **use the Coffee POS** (serve VIP coffee, which deducts
+  ingredient stock via the `tender_pos_order` RPC). **Cannot** delete bookings,
+  block schedule slots, or open sensitive pages (members, cars, coffees, services,
+  categories, detailers, testimonials, add-ons catalog, inventory, settings, staff).
 
   Per-booking permission keys: `bookings.status`, `bookings.detailers`,
   `bookings.addons` (granted to admin); `bookings.edit` (delete + slot blocking,

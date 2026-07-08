@@ -58,6 +58,7 @@ export function AppProvider({ children }) {
   const [inventoryItems, setInventoryItems] = useState([]);
   const [coffeeRecipes, setCoffeeRecipes] = useState([]);
   const [inventoryTransactions, setInventoryTransactions] = useState([]);
+  const [posOrders, setPosOrders] = useState([]);
   const [settings, setSettings] = useState({ ...DEFAULT_SETTINGS });
   const [adminSession, setAdminSessionState] = useState(false);
   const [authEmail, setAuthEmail] = useState(null);
@@ -278,6 +279,20 @@ export function AppProvider({ children }) {
     setInventoryTransactions((data || []).map(fromRow));
   }, []);
 
+  // POS orders (with their line items) — authenticated-read like inventory.
+  const refetchPosOrders = useCallback(async () => {
+    if (!supabase) return;
+    const { data, error } = await supabase
+      .from('pos_orders')
+      .select('*, items:pos_order_items(*)')
+      .order('created_at', { ascending: false })
+      .limit(500);
+    if (error) { console.error('[pos_orders] fetch error', error); return; }
+    setPosOrders(
+      (data || []).map((o) => ({ ...fromRow(o), items: (o.items || []).map(fromRow) }))
+    );
+  }, []);
+
   const refetchSettings = useCallback(async () => {
     if (!supabase) return;
     const { data, error } = await supabase
@@ -381,14 +396,16 @@ export function AppProvider({ children }) {
       refetchInventoryItems();
       refetchCoffeeRecipes();
       refetchInventoryTransactions();
+      refetchPosOrders();
     } else {
       setAdminUsers([]);
       setAdminUsersHydrated(true);
       setInventoryItems([]);
       setCoffeeRecipes([]);
       setInventoryTransactions([]);
+      setPosOrders([]);
     }
-  }, [adminSession, refetchAdminUsers, refetchInventoryItems, refetchCoffeeRecipes, refetchInventoryTransactions]);
+  }, [adminSession, refetchAdminUsers, refetchInventoryItems, refetchCoffeeRecipes, refetchInventoryTransactions, refetchPosOrders]);
 
   // Global Realtime subscription — one shared WebSocket channel for the entire
   // app. Any page that reads `bookings` from context (bookings, schedule,
@@ -1278,6 +1295,46 @@ export function AppProvider({ children }) {
     [coffeeRecipes]
   );
 
+  // ===== Barista POS =====
+  // Tender a coffee order: records the order + deducts each coffee's recipe
+  // from inventory via a SECURITY DEFINER RPC (so a plain admin/barista can
+  // deduct stock without table-level inventory write rights). Coffee serving
+  // lives here now — booking completion no longer touches inventory.
+  // `lines`: [{ coffeeId?, coffeeName, qty }]. Returns { ok, deducted, warnings }.
+  const createPosOrder = useCallback(
+    async ({ memberId = null, memberName = null, note = null, lines = [] } = {}) => {
+      if (!supabase) return { error: 'Database not connected.' };
+      const payload = (lines || [])
+        .filter((l) => (l.coffeeName || '').trim() && Number(l.qty) > 0)
+        .map((l) => ({
+          coffee_id: l.coffeeId || null,
+          coffee_name: (l.coffeeName || '').trim(),
+          qty: Math.max(1, Math.trunc(Number(l.qty) || 1)),
+        }));
+      if (payload.length === 0) return { error: 'Add at least one coffee to the order.' };
+
+      const { data, error } = await supabase.rpc('tender_pos_order', {
+        p_member_id: memberId,
+        p_member_name: memberName,
+        p_note: note,
+        p_lines: payload,
+      });
+      if (error) return { error: error.message };
+      if (data?.error) return { error: data.error };
+
+      await refetchPosOrders();
+      await refetchInventoryItems();
+      await refetchInventoryTransactions();
+      return {
+        ok: true,
+        orderId: data?.order_id ?? null,
+        deducted: data?.deducted ?? [],
+        warnings: data?.warnings ?? [],
+      };
+    },
+    [refetchPosOrders, refetchInventoryItems, refetchInventoryTransactions]
+  );
+
   // ===== Add-on Catalog =====
   const upsertAddonCatalogItem = useCallback(
     async (item) => {
@@ -1825,6 +1882,8 @@ export function AppProvider({ children }) {
       adjustInventoryItem,
       setCoffeeRecipe,
       getRecipeForCoffee,
+      posOrders,
+      createPosOrder,
       updateSettings,
       setAdminSession,
       signOut,
@@ -1920,6 +1979,8 @@ export function AppProvider({ children }) {
       adjustInventoryItem,
       setCoffeeRecipe,
       getRecipeForCoffee,
+      posOrders,
+      createPosOrder,
       updateSettings,
       setAdminSession,
       signOut,

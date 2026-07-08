@@ -22,6 +22,7 @@ import {
   ListPlus,
   ShieldCheck,
   Package,
+  Receipt,
 } from 'lucide-react';
 import Image from 'next/image';
 import { useApp } from '@/context/AppContext';
@@ -31,7 +32,7 @@ const links = [
   { href: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard, perm: PERMISSIONS.DASHBOARD_VIEW },
   { href: '/admin/bookings', label: 'Bookings', icon: ClipboardList, perm: PERMISSIONS.BOOKINGS_VIEW },
   { href: '/admin/schedule', label: 'Schedule', icon: CalendarDays, perm: PERMISSIONS.SCHEDULE_VIEW },
-  { href: '/admin/members', label: 'VIP Members', icon: Users, perm: PERMISSIONS.MEMBERS_MANAGE },
+  { href: '/admin/members', label: 'VIP Members', icon: Users, perm: PERMISSIONS.MEMBERS_VIEW },
   { href: '/admin/detailers', label: 'Detailers', icon: UserCog, perm: PERMISSIONS.DETAILERS_MANAGE },
   { href: '/admin/monitor', label: 'Shop Monitor', icon: Monitor, perm: PERMISSIONS.MONITOR_VIEW },
   { href: '/admin/cars', label: 'Cars', icon: Car, perm: PERMISSIONS.CARS_MANAGE },
@@ -39,6 +40,7 @@ const links = [
   { href: '/admin/addons', label: 'Add-Ons', icon: ListPlus, perm: PERMISSIONS.ADDONS_MANAGE },
   { href: '/admin/categories', label: 'Categories', icon: Tag, perm: PERMISSIONS.CATEGORIES_MANAGE },
   { href: '/admin/coffees', label: 'Coffee Menu', icon: Coffee, perm: PERMISSIONS.COFFEES_MANAGE },
+  { href: '/admin/pos', label: 'Coffee POS', icon: Receipt, perm: PERMISSIONS.POS_SERVE },
   { href: '/admin/inventory', label: 'Inventory', icon: Package, perm: PERMISSIONS.INVENTORY_MANAGE },
   { href: '/admin/testimonials', label: 'Testimonials', icon: Quote, perm: PERMISSIONS.TESTIMONIALS_MANAGE },
   { href: '/admin/staff', label: 'Staff Access', icon: ShieldCheck, perm: PERMISSIONS.STAFF_MANAGE },
