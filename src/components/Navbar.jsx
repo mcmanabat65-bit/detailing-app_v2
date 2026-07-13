@@ -12,6 +12,7 @@ const links = [
   // { href: '/about', label: 'About' },
   { href: '/services', label: 'Services' },
   // { href: '/booking', label: 'Book' },
+  { href: '/baristarkada', label: 'Baristarkada' },
   { href: '/membership', label: 'Membership' },
   { href: '/faq', label: 'FAQ' },
   { href: '/schedule', label: 'Schedule' },
