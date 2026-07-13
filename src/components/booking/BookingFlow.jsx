@@ -364,7 +364,13 @@ export function BookingFlow({ member = null, onComplete = null }) {
     getCarsForMember,
     upsertCar,
     addCarToMember,
+    currentAdmin,
   } = useApp();
+
+  // A super_admin can restrict which packages a plain admin (e.g. a barista)
+  // may pick, via Staff Access. `allowedServiceIds`: null/undefined = no limit;
+  // an array limits the picker to those service ids. Members are never limited.
+  const allowedServiceIds = member ? null : currentAdmin?.allowedServiceIds;
 
   // Available coffees: only show enabled ones, sorted. Fall back to static list if DB not loaded yet.
   const coffeeOptions = coffees.filter((c) => c.available !== false).map((c) => c.name);
@@ -486,12 +492,19 @@ export function BookingFlow({ member = null, onComplete = null }) {
   // In the member flow, only show services whose name suffix matches the car's
   // size. Services with no size suffix are size-agnostic and always shown.
   const visibleServices = useMemo(() => {
-    if (!isMemberFlow || !selectedCarSize) return services;
-    return services.filter((s) => {
+    // Per-admin allowlist (set by a super_admin on the Staff Access page).
+    // An array restricts the picker; null/undefined leaves it unrestricted.
+    let list = services;
+    if (Array.isArray(allowedServiceIds)) {
+      const allow = new Set(allowedServiceIds);
+      list = list.filter((s) => allow.has(s.id));
+    }
+    if (!isMemberFlow || !selectedCarSize) return list;
+    return list.filter((s) => {
       const sz = serviceSizeFromName(s.name);
       return sz === null || sz === selectedCarSize;
     });
-  }, [services, isMemberFlow, selectedCarSize]);
+  }, [services, isMemberFlow, selectedCarSize, allowedServiceIds]);
 
   // If the car changes such that the chosen service no longer fits, drop it.
   useEffect(() => {

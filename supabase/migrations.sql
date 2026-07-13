@@ -1676,4 +1676,21 @@ end;
 $$;
 grant execute on function public.tender_pos_order(text, text, text, jsonb) to authenticated;
 
+-- =====================================================================
+-- Phase 10 — Per-admin booking-service allowlist
+-- =====================================================================
+-- Lets a super_admin restrict which service packages a plain `admin` (e.g. a
+-- barista) may select in the booking flow. Column semantics:
+--   allowed_service_ids = NULL  → no restriction (may pick any service)
+--   allowed_service_ids = '{}'  → an explicit empty allowlist (may pick none)
+--   allowed_service_ids = {1,4} → may only pick services with those ids
+--
+-- Only affects the booking-flow service picker; it is a UI convenience scoped by
+-- role (super_admin is never restricted). Re-runnable.
+
+alter table admin_users
+  add column if not exists allowed_service_ids integer[];
+
+notify pgrst, 'reload schema';
+
 notify pgrst, 'reload schema';

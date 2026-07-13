@@ -581,6 +581,10 @@ create table if not exists admin_users (
   id         uuid primary key default gen_random_uuid(),
   email      text not null unique,
   role       text not null default 'admin' check (role in ('super_admin', 'admin')),
+  -- Booking-flow service allowlist for plain admins. NULL = no restriction
+  -- (may pick any service); an array limits the picker to those service ids.
+  -- Ignored for super_admin. See Phase 10 in migrations.sql.
+  allowed_service_ids integer[],
   created_at timestamptz not null default now()
 );
 

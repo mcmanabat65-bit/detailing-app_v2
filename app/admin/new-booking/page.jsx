@@ -506,6 +506,7 @@ function AdminNewBookingForm() {
     services, serviceCategories, bookings, blockedSlots, settings,
     cars, coffees, detailers, members, getCarsForMember, addonCatalog,
     addBooking, upsertCar, addCarToMember, updateBookingAddOns, showToast,
+    currentAdmin,
   } = useApp();
 
   const catMap = useMemo(() => {
@@ -513,6 +514,18 @@ function AdminNewBookingForm() {
     serviceCategories.forEach((c) => { m[c.slug] = c; });
     return m;
   }, [serviceCategories]);
+
+  // A super_admin can restrict which packages a plain admin (e.g. a barista)
+  // may pick, via Staff Access. `allowedServiceIds`: null/undefined = no limit;
+  // an array limits the picker to those service ids. The full `services` list is
+  // still used for price/validation lookups so an already-chosen service always
+  // resolves — only the picker (ServiceDropdown) sees the filtered list.
+  const visibleServices = useMemo(() => {
+    const allowed = currentAdmin?.allowedServiceIds;
+    if (!Array.isArray(allowed)) return services;
+    const allow = new Set(allowed);
+    return services.filter((s) => allow.has(s.id));
+  }, [services, currentAdmin]);
 
   const activeDetailers = useMemo(() => detailers.filter((d) => d.isActive !== false), [detailers]);
 
@@ -553,7 +566,7 @@ function AdminNewBookingForm() {
   // Booking items — each is one car + one service
   // fleetCarId: UUID of selected fleet car, or null = manual entry
   // ---------------------------------------------------------------------------
-  const newItem = () => ({ id: Date.now(), vehicle: '', vehicleYear: '', vehicleType: 1, vehicleTypeFromCatalog: false, serviceId: services[0]?.id || null, coffeeOrder: '', isVip: false, fleetCarId: null, addOns: [] });
+  const newItem = () => ({ id: Date.now(), vehicle: '', vehicleYear: '', vehicleType: 1, vehicleTypeFromCatalog: false, serviceId: visibleServices[0]?.id || null, coffeeOrder: '', isVip: false, fleetCarId: null, addOns: [] });
   const [items, setItems] = useState(() => [newItem()]);
 
   const addItem = () => setItems((prev) => [...prev, newItem()]);
@@ -943,7 +956,7 @@ function AdminNewBookingForm() {
                 key={it.id}
                 item={it}
                 index={i}
-                services={services}
+                services={visibleServices}
                 catMap={catMap}
                 cars={cars}
                 coffees={coffees}

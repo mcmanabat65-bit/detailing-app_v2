@@ -332,8 +332,16 @@ How it works:
 - The boss manages who is which via **Staff Access** (`/admin/staff`, super-admin
   only). Accounts are still *created* in the Supabase Dashboard; their role is
   *assigned* by email on this page (or directly in the `admin_users` table).
-- DB: `admin_users (email unique, role)` — see `schema.sql` / `migrations.sql`.
-  Its own RLS is authenticated-read / super-admin-write.
+- **Per-admin booking-service allowlist**: on the Staff Access page, each `admin`
+  row has a **Booking services** dialog to restrict which service packages that
+  admin (e.g. a barista) can select in the booking flow. Stored in
+  `admin_users.allowed_service_ids` (`integer[]`): `NULL` = no restriction (any
+  service), an array = allowlist. Super admins are never restricted. Filtering is
+  applied in `BookingFlow` via the exposed `currentAdmin.allowedServiceIds`; it is
+  a UI convenience (booking inserts still go through the same RPC). Migration:
+  Phase 10 in `migrations.sql`.
+- DB: `admin_users (email unique, role, allowed_service_ids)` — see `schema.sql` /
+  `migrations.sql`. Its own RLS is authenticated-read / super-admin-write.
 
 ---
 

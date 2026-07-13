@@ -1475,12 +1475,19 @@ export function AppProvider({ children }) {
 
   // ===== Admin users / roles =====
   const upsertAdminUser = useCallback(
-    async ({ id, email, role }) => {
+    async ({ id, email, role, allowedServiceIds }) => {
       if (!supabase) return { error: 'Database not connected.' };
       const cleanEmail = (email || '').trim().toLowerCase();
       if (!cleanEmail) return { error: 'Email is required.' };
       if (!isValidRole(role)) return { error: 'Invalid role.' };
       const row = { email: cleanEmail, role };
+      // Only touch the allowlist when the caller explicitly passes it. `null`
+      // clears the restriction (any service); an array limits the picker.
+      // Super admins are never restricted, so their allowlist is always null.
+      if (allowedServiceIds !== undefined) {
+        row.allowed_service_ids =
+          role === ROLES.SUPER_ADMIN ? null : allowedServiceIds;
+      }
       let query;
       if (id) {
         query = supabase.from('admin_users').update(row).eq('id', id).select().single();
@@ -1570,6 +1577,14 @@ export function AppProvider({ children }) {
     if (!hasSuperAdmin) return ROLES.SUPER_ADMIN;
     return null;
   }, [adminSession, adminUsersHydrated, adminUsers, authEmail, currentMember]);
+
+  // The signed-in user's admin_users row (or null). Used to read per-admin
+  // settings such as the booking-service allowlist. Null for the bootstrap
+  // super_admin (not yet listed) and for members / unauthenticated users.
+  const currentAdmin = useMemo(() => {
+    if (!adminSession || !authEmail) return null;
+    return adminUsers.find((u) => u.email === authEmail) || null;
+  }, [adminSession, authEmail, adminUsers]);
 
   // 'admin' | 'member' | null (null = resolving, or authenticated-but-neither).
   const accountType = useMemo(() => {
@@ -1835,6 +1850,7 @@ export function AppProvider({ children }) {
       adminRole,
       accountType,
       currentMember,
+      currentAdmin,
       getBookingsForMember,
       memberSignUp,
       updateOwnPassword,
@@ -1933,6 +1949,7 @@ export function AppProvider({ children }) {
       adminRole,
       accountType,
       currentMember,
+      currentAdmin,
       getBookingsForMember,
       memberSignUp,
       updateOwnPassword,
