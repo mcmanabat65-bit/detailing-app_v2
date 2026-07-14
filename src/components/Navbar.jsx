@@ -51,13 +51,13 @@ export function Navbar() {
           : 'bg-transparent'
       }`}
     >
-      <div className="max-w-7xl mx-auto px-5 md:px-8 h-16 md:h-20 flex items-center justify-between">
-        <Link href="/" className="flex items-center gap-2 group">
-          <div className="w-9 h-9 rounded-md overflow-hidden shadow-lg shadow-gold/20">
+      <div className="max-w-7xl mx-auto px-5 md:px-6 lg:px-8 h-16 md:h-20 flex items-center justify-between gap-4">
+        <Link href="/" className="flex items-center gap-2 group shrink-0">
+          <div className="w-9 h-9 rounded-md overflow-hidden shadow-lg shadow-gold/20 shrink-0">
             <Image src="/samahuzai-logo.png" alt="Samahuzai logo" width={36} height={36} className="w-full h-full object-cover" />
           </div>
           <div className="leading-none">
-            <div className="font-serif text-lg md:text-xl text-cream tracking-wide">
+            <div className="font-serif text-base lg:text-xl text-cream tracking-wide whitespace-nowrap">
               Samahuzai Carwash &
             </div>
             <div className="text-[10px] tracking-[0.25em] text-gold/80 uppercase">
@@ -67,14 +67,14 @@ export function Navbar() {
         </Link>
 
         {/* Desktop nav */}
-        <nav className="hidden md:flex items-center gap-8">
+        <nav className="hidden xl:flex items-center gap-4 lg:gap-8">
           {links.map((l) => {
             const active = isActiveLink(pathname, l.href);
             return (
               <Link
                 key={l.href}
                 href={l.href}
-                className={`text-sm tracking-wide transition-colors hover:text-gold flex items-center gap-1.5 ${
+                className={`text-xs lg:text-sm tracking-wide transition-colors hover:text-gold flex items-center gap-1.5 whitespace-nowrap ${
                   active ? 'text-gold' : 'text-cream/80'
                 }`}
               >
@@ -87,26 +87,26 @@ export function Navbar() {
           })}
           <Link
             href={memberLink.href}
-            className="inline-flex items-center gap-1.5 px-4 py-2 border border-gold/40 text-gold text-sm font-semibold rounded-sm hover:bg-gold hover:text-obsidian transition-colors"
+            className="inline-flex items-center gap-1.5 px-3 lg:px-4 py-2 border border-gold/40 text-gold text-xs lg:text-sm font-semibold rounded-sm hover:bg-gold hover:text-obsidian transition-colors whitespace-nowrap shrink-0"
           >
             <Crown className="w-3.5 h-3.5" />
             {memberLink.label}
           </Link>
         </nav>
 
-        {/* Mobile toggle */}
+        {/* Mobile/tablet toggle */}
         <button
           aria-label={open ? 'Close menu' : 'Open menu'}
-          className="md:hidden text-cream p-2"
+          className="xl:hidden text-cream p-2"
           onClick={() => setOpen((v) => !v)}
         >
           {open ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
         </button>
       </div>
 
-      {/* Mobile menu */}
+      {/* Mobile/tablet menu */}
       <div
-        className={`md:hidden overflow-hidden transition-[max-height,opacity] duration-300 bg-obsidian/95 backdrop-blur-lg ${
+        className={`xl:hidden overflow-hidden transition-[max-height,opacity] duration-300 bg-obsidian/95 backdrop-blur-lg ${
           open ? 'max-h-[calc(100dvh-4rem)] opacity-100 border-b border-white/5' : 'max-h-0 opacity-0'
         }`}
       >
