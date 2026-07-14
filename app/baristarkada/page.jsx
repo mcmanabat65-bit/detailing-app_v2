@@ -196,52 +196,152 @@ export default function BaristarkadaPage() {
   return (
     <div className="page-enter min-h-screen">
       {/* ================= HERO ================= */}
-      <section className="relative overflow-hidden pt-32 md:pt-44 pb-20 md:pb-28">
-        <div className="hero-orb hero-orb--a" />
-        <div className="hero-orb hero-orb--b" />
-        <div className="hero-orb hero-orb--c" />
-        <div className="hero-sheen" />
+      <style>{`
+        /* Warm espresso orbs — page-scoped, override global hero-orb colors */
+        .bk-orb {
+          position: absolute;
+          border-radius: 9999px;
+          filter: blur(90px);
+          pointer-events: none;
+          will-change: transform, opacity;
+          mix-blend-mode: screen;
+        }
+        .bk-orb--amber {
+          width: 60vmin; height: 60vmin;
+          top: -10%; left: 55%;
+          background: radial-gradient(circle, rgba(180,110,30,0.55) 0%, transparent 70%);
+          animation: bk-drift-a 30s ease-in-out infinite;
+        }
+        .bk-orb--brown {
+          width: 50vmin; height: 50vmin;
+          top: 50%; left: -5%;
+          background: radial-gradient(circle, rgba(120,60,20,0.45) 0%, transparent 70%);
+          animation: bk-drift-b 38s ease-in-out infinite;
+        }
+        .bk-orb--cream {
+          width: 35vmin; height: 35vmin;
+          top: 30%; left: 30%;
+          background: radial-gradient(circle, rgba(232,201,106,0.2) 0%, transparent 70%);
+          animation: bk-drift-c 24s ease-in-out infinite;
+        }
+        /* Rising steam wisps */
+        .bk-steam {
+          position: absolute;
+          bottom: 0; left: 50%;
+          transform: translateX(-50%);
+          width: 100%; height: 55%;
+          background: linear-gradient(to top, rgba(180,110,30,0.07) 0%, transparent 100%);
+          pointer-events: none;
+          animation: bk-steam-rise 8s ease-in-out infinite alternate;
+        }
+        /* Subtle vignette to deepen edges */
+        .bk-vignette {
+          position: absolute; inset: 0;
+          background: radial-gradient(ellipse at center, transparent 40%, rgba(5,3,2,0.65) 100%);
+          pointer-events: none;
+        }
+        /* Thin gold rule divider */
+        .bk-divider {
+          width: 60px; height: 1px;
+          background: linear-gradient(90deg, transparent, rgba(201,168,76,0.6), transparent);
+          margin: 0 auto;
+        }
+        @keyframes bk-drift-a {
+          0%,100% { transform: translate(0,0) scale(1); opacity: 0.65; }
+          50%      { transform: translate(-14vmin, 8vmin) scale(1.15); opacity: 0.85; }
+        }
+        @keyframes bk-drift-b {
+          0%,100% { transform: translate(0,0) scale(1); opacity: 0.5; }
+          50%      { transform: translate(12vmin,-10vmin) scale(0.88); opacity: 0.7; }
+        }
+        @keyframes bk-drift-c {
+          0%,100% { transform: translate(0,0) scale(1); opacity: 0.35; }
+          50%      { transform: translate(6vmin, 6vmin) scale(1.25); opacity: 0.6; }
+        }
+        @keyframes bk-steam-rise {
+          from { opacity: 0.6; transform: translateX(-50%) translateY(0); }
+          to   { opacity: 1;   transform: translateX(-50%) translateY(-12px); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .bk-orb, .bk-steam { animation: none; }
+        }
+      `}</style>
 
-        <div className="relative max-w-5xl mx-auto px-5 md:px-8 text-center">
-          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-gold/30 bg-gold/5 text-gold text-xs tracking-[0.2em] uppercase mb-6 animate-fade-in">
+      <section className="relative overflow-hidden pt-36 md:pt-52 pb-24 md:pb-36"
+        style={{ background: 'linear-gradient(160deg, #0e0905 0%, #080604 45%, #0a0b09 100%)' }}>
+
+        {/* Warm ambient orbs */}
+        <div className="bk-orb bk-orb--amber" />
+        <div className="bk-orb bk-orb--brown" />
+        <div className="bk-orb bk-orb--cream" />
+
+        {/* Steam rise from bottom */}
+        <div className="bk-steam" />
+
+        {/* Edge vignette */}
+        <div className="bk-vignette" />
+
+        {/* Scanline texture for depth */}
+        <div className="absolute inset-0 hero-scanlines opacity-30 pointer-events-none" />
+
+        <div className="relative max-w-4xl mx-auto px-5 md:px-8 text-center">
+
+          {/* Eyebrow badge */}
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-gold/60 bg-gold/15 text-gold-light text-[11px] tracking-[0.25em] uppercase mb-8 animate-fade-in">
             <Coffee className="w-3.5 h-3.5" />
-            The Coffee Shop
+            The Coffee Shop · Biñan
           </div>
-          <h1 className="font-serif text-6xl md:text-8xl leading-[0.95] mb-5">
+
+          {/* Main heading */}
+          <h1 className="font-serif leading-[0.92] mb-6 animate-fade-in" style={{ fontSize: 'clamp(3.5rem, 10vw, 7.5rem)' }}>
             <span className="gold-shimmer">Baristarkada</span>
           </h1>
-          <p className="text-cream/80 text-lg md:text-xl max-w-2xl mx-auto leading-relaxed">
-            Where your <span className="text-gold">barista</span> is also your{' '}
-            <span className="text-gold">barkada</span>. Grab a cup, kick back, and
-            hang out — while your ride gets the detail it deserves.
+
+          {/* Gold rule */}
+          <div className="bk-divider mb-6" />
+
+          {/* Sub-tagline */}
+          <p className="text-[13px] md:text-sm tracking-[0.25em] uppercase text-gold/60 mb-5 animate-fade-in">
+            Where every cup tells a story
           </p>
 
-          <div className="flex flex-wrap items-center justify-center gap-3 mt-8">
+          {/* Body copy */}
+          <p className="text-cream/75 text-lg md:text-xl max-w-2xl mx-auto leading-relaxed animate-fade-in">
+            Where your <span className="text-gold font-medium">barista</span> is also your{' '}
+            <span className="text-gold font-medium">barkada</span>. Grab a handcrafted brew,
+            claim the comfy sofa, and let the good vibes flow — while your ride gets the detail it deserves.
+          </p>
+
+          {/* CTAs */}
+          <div className="flex flex-wrap items-center justify-center gap-3 mt-10">
             <a
               href="#gallery"
-              className="inline-flex items-center gap-2 px-6 py-3 bg-gold text-obsidian font-semibold rounded-full hover:bg-gold-light transition-colors"
+              className="inline-flex items-center gap-2 px-7 py-3.5 bg-gold text-obsidian font-semibold rounded-full hover:bg-gold-light transition-all hover:shadow-[0_0_24px_rgba(201,168,76,0.4)] active:scale-95"
             >
               <Camera className="w-4 h-4" />
               Peek Inside
             </a>
             <Link
               href="/membership"
-              className="inline-flex items-center gap-2 px-6 py-3 border border-gold/40 text-gold rounded-full hover:bg-gold hover:text-obsidian transition-colors"
+              className="inline-flex items-center gap-2 px-7 py-3.5 border border-gold/40 text-gold/90 rounded-full hover:bg-gold hover:text-obsidian transition-all active:scale-95"
             >
               <Heart className="w-4 h-4" />
               Join the VIP Club
             </Link>
           </div>
 
-          {/* playful floating chips */}
-          <div className="flex flex-wrap items-center justify-center gap-2 mt-10 text-xs">
+          {/* Floating hashtag chips */}
+          <div className="flex flex-wrap items-center justify-center gap-2 mt-10 text-[11px]">
             {['#kwentuhan', '#kapehan', '#chill', '#barkadagoals', '#hangout'].map((t) => (
-              <span key={t} className="px-3 py-1.5 rounded-full bg-white/[0.04] border border-white/10 text-cream/70">
+              <span key={t} className="px-3 py-1.5 rounded-full bg-white/[0.03] border border-white/[0.08] text-cream/50 tracking-wide hover:border-gold/30 hover:text-gold/70 transition-colors cursor-default">
                 {t}
               </span>
             ))}
           </div>
         </div>
+
+        {/* Bottom fade into page */}
+        <div className="absolute bottom-0 left-0 right-0 h-24 bg-gradient-to-t from-[#0a0a0b] to-transparent pointer-events-none" />
       </section>
 
       {/* ================= VIBE / STORY ================= */}
