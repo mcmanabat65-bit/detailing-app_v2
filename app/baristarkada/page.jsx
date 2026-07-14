@@ -70,7 +70,7 @@ function PhotoTile({ photo, onOpen, index }) {
       type="button"
       onClick={onOpen}
       style={{ animationDelay: `${index * 0.05}s` }}
-      className={`group relative overflow-hidden rounded-xl border border-white/10 animate-fade-in aspect-square ${photo.span || ''}`}
+      className={`group relative overflow-hidden rounded-xl border border-white/10 animate-fade-in ${photo.span || ''}`}
     >
       {photo.src ? (
         <Image
@@ -229,7 +229,7 @@ export default function BaristarkadaPage() {
               className="inline-flex items-center gap-2 px-6 py-3 border border-gold/40 text-gold rounded-full hover:bg-gold hover:text-obsidian transition-colors"
             >
               <Heart className="w-4 h-4" />
-              Free coffee for VIPs
+              Join the VIP Club
             </Link>
           </div>
 
@@ -314,7 +314,7 @@ export default function BaristarkadaPage() {
         </div>
 
         {/* Masonry-ish grid */}
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-4 auto-rows-[minmax(0,1fr)] [grid-auto-flow:dense]">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-4 auto-rows-[200px] md:auto-rows-[260px] [grid-auto-flow:dense]">
           {filtered.map((photo, i) => (
             <PhotoTile key={photo.id} photo={photo} index={i} onOpen={() => openAt(i)} />
           ))}
@@ -357,12 +357,12 @@ export default function BaristarkadaPage() {
             <div className="mt-8 flex items-center gap-3 text-sm text-cream/70">
               <Users className="w-4 h-4 text-gold shrink-0" />
               <span>
-                VIP members enjoy a <span className="text-gold">free coffee</span> on
-                every visit.{' '}
+                Every cup is crafted with <span className="text-gold">premium beans and ingredients</span> —
+                priced to match.{' '}
                 <Link href="/membership" className="text-gold hover:underline">
-                  Become a member
+                  Become a VIP member
                 </Link>
-                .
+                {' '}for priority service and exclusive perks.
               </span>
             </div>
           </div>
