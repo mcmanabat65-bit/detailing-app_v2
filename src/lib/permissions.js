@@ -54,6 +54,7 @@ export const PERMISSIONS = {
   ADDONS_MANAGE: 'addons.manage',
   SETTINGS_VIEW: 'settings.view',
   STAFF_MANAGE: 'staff.manage',
+  REPORTS_VIEW: 'reports.view',
 };
 
 // Permissions granted to a plain 'admin'. A 'super_admin' implicitly has all.

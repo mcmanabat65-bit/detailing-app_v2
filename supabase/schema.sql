@@ -83,6 +83,9 @@ create table if not exists bookings (
   add_ons jsonb not null default '[]',
   nickname text,
   vehicle_type smallint not null default 1 check (vehicle_type in (1, 2)),
+  coffee_served_at timestamptz,
+  started_at   timestamptz,
+  completed_at timestamptz,
   created_at timestamptz not null default now()
 );
 

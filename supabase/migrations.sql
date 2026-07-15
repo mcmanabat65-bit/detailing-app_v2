@@ -1694,3 +1694,75 @@ alter table admin_users
 notify pgrst, 'reload schema';
 
 notify pgrst, 'reload schema';
+
+-- =====================================================================
+-- Phase 11 — Task timing: started_at / completed_at on bookings
+-- ---------------------------------------------------------------------
+-- Records the exact wall-clock timestamp when a booking transitions to
+-- 'on-going' (work starts) and to 'completed' (work ends). Enables
+-- reporting on actual service duration vs. the estimated service duration.
+-- Re-runnable. Run after Phase 10 has been applied.
+-- =====================================================================
+
+-- Two nullable timestamptz columns — null until the status event fires.
+alter table bookings add column if not exists started_at   timestamptz;
+alter table bookings add column if not exists completed_at timestamptz;
+
+-- Re-create update_booking_status to stamp started_at / completed_at.
+-- Only writes the column once — transitioning back to on-going after
+-- completion is edge-case; the first on-going stamp is preserved unless
+-- the field is null (so re-opening a booking re-stamps correctly).
+create or replace function public.update_booking_status(
+  p_id     text,
+  p_status text,
+  p_reason text default null
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_from   text;
+  v_row    bookings;
+begin
+  if auth.uid() is null then
+    return jsonb_build_object('error', 'Not authenticated.');
+  end if;
+  if p_status not in ('pending','confirmed','on-going','completed','cancelled','no_show') then
+    return jsonb_build_object('error', 'Invalid status.');
+  end if;
+
+  select status into v_from from bookings where id = p_id;
+  if v_from is null then
+    return jsonb_build_object('error', 'Booking not found.');
+  end if;
+
+  update bookings
+     set status              = p_status,
+         cancellation_reason = case
+           when p_status = 'cancelled' then p_reason
+           else cancellation_reason
+         end,
+         -- Stamp started_at the first time the job goes on-going.
+         started_at          = case
+           when p_status = 'on-going' and started_at is null then now()
+           else started_at
+         end,
+         -- Stamp completed_at when marked completed; clear it if re-opened.
+         completed_at        = case
+           when p_status = 'completed' then now()
+           when p_status in ('on-going','confirmed','pending') then null
+           else completed_at
+         end
+   where id = p_id
+   returning * into v_row;
+
+  insert into booking_status_logs (booking_id, from_status, to_status, notes)
+  values (p_id, v_from, p_status, p_reason);
+
+  return to_jsonb(v_row);
+end;
+$$;
+grant execute on function public.update_booking_status(text, text, text) to authenticated;
+
+notify pgrst, 'reload schema';

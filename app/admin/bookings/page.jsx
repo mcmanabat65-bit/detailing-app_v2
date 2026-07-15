@@ -21,6 +21,7 @@ import {
   Play,
   History,
   ListPlus,
+  Timer,
 } from 'lucide-react';
 import { sendEmail } from '@/lib/sendEmail';
 import { bookingConfirmationHtml } from '@/lib/emailTemplates';
@@ -29,6 +30,18 @@ import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { useApp } from '@/context/AppContext';
 import { formatCurrency } from '@/data/services';
 import { formatDateShort, getBusyDetailerIds } from '@/utils/bookingUtils';
+
+/** Format the elapsed minutes between two ISO timestamps as "Xh Ym" or "Ym". */
+function fmtElapsed(startIso, endIso) {
+  if (!startIso) return null;
+  const start = new Date(startIso);
+  const end   = endIso ? new Date(endIso) : new Date();
+  const mins  = Math.round((end - start) / 60_000);
+  if (mins < 0) return null;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
 
 const CANCEL_REASONS = [
   'Customer request',
@@ -117,13 +130,15 @@ function BookingsTable() {
 
   const exportCsv = () => {
     if (filtered.length === 0) { showToast('Nothing to export.', 'info'); return; }
-    const headers = ['Booking ID','Customer','Email','Phone','Service','Price','Date','Time','Detailers','Vehicle','VIP','Coffee','Status','Cancellation Reason'];
+    const headers = ['Booking ID','Customer','Email','Phone','Service','Price','Date','Time','Detailers','Vehicle','VIP','Coffee','Status','Cancellation Reason','Started At','Completed At','Actual Duration'];
     const rows = filtered.map((b) => [
       b.id, b.customerName, b.email, b.phone, b.serviceName, b.servicePrice,
       b.date, b.time, Array.isArray(b.detailersAssigned) ? b.detailersAssigned.length : 0,
       `${b.vehicleYear || ''} ${b.vehicle || ''}`.trim(),
       b.isVip ? 'Yes' : 'No', b.coffeeOrder || '', b.status,
       b.cancellationReason || '',
+      b.startedAt || '', b.completedAt || '',
+      (b.startedAt && b.completedAt) ? fmtElapsed(b.startedAt, b.completedAt) : '',
     ]);
     const csv = [headers, ...rows]
       .map((r) => r.map((c) => `"${String(c ?? '').replace(/"/g, '""')}"`).join(','))
@@ -405,6 +420,18 @@ function BookingsTable() {
                         {b.status === 'cancelled' && b.cancellationReason && (
                           <div className="text-[10px] text-muted mt-1 max-w-[120px] truncate" title={b.cancellationReason}>
                             {b.cancellationReason}
+                          </div>
+                        )}
+                        {b.status === 'on-going' && b.startedAt && (
+                          <div className="flex items-center gap-1 mt-1 text-[10px] text-amber-400/80">
+                            <Timer className="w-3 h-3 shrink-0" />
+                            {fmtElapsed(b.startedAt)} elapsed
+                          </div>
+                        )}
+                        {b.status === 'completed' && b.startedAt && b.completedAt && (
+                          <div className="flex items-center gap-1 mt-1 text-[10px] text-success/80">
+                            <Timer className="w-3 h-3 shrink-0" />
+                            {fmtElapsed(b.startedAt, b.completedAt)}
                           </div>
                         )}
                       </div>

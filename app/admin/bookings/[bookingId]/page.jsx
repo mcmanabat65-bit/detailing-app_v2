@@ -18,6 +18,7 @@ import {
   Loader2,
   Play,
   Plus,
+  Timer,
   Trash2,
   UserX,
   Users,
@@ -31,6 +32,35 @@ import { formatCurrency } from '@/data/services';
 import { formatDateLong, getBusyDetailerIds } from '@/utils/bookingUtils';
 import { sendEmail } from '@/lib/sendEmail';
 import { bookingConfirmationHtml } from '@/lib/emailTemplates';
+
+function fmtElapsed(startIso, endIso) {
+  if (!startIso) return null;
+  const start = new Date(startIso);
+  const end   = endIso ? new Date(endIso) : new Date();
+  const mins  = Math.round((end - start) / 60_000);
+  if (mins < 0) return null;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+function fmtTimestamp(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleString('en-PH', {
+    month: 'short', day: 'numeric', year: 'numeric',
+    hour: 'numeric', minute: '2-digit', hour12: true,
+  });
+}
+
+function LiveElapsed({ startedAt }) {
+  const [label, setLabel] = useState(() => fmtElapsed(startedAt));
+  useEffect(() => {
+    setLabel(fmtElapsed(startedAt));
+    const id = setInterval(() => setLabel(fmtElapsed(startedAt)), 30_000);
+    return () => clearInterval(id);
+  }, [startedAt]);
+  return label;
+}
 
 const CANCEL_REASONS = [
   'Customer request',
@@ -695,6 +725,61 @@ function BookingDetailView() {
               </div>
             )}
           </div>
+
+          {/* Task Timing — visible once work has started */}
+          {booking.startedAt && (
+            <div className="glass-card rounded-md p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <Timer className="w-4 h-4 text-gold" />
+                <h2 className="font-serif text-base text-cream">Task Timing</h2>
+              </div>
+              <div className="space-y-3">
+                {/* Started at */}
+                <div>
+                  <div className="text-[10px] uppercase tracking-widest text-muted mb-0.5">Started</div>
+                  <div className="text-sm text-cream">{fmtTimestamp(booking.startedAt)}</div>
+                </div>
+
+                {/* Completed at — only when done */}
+                {booking.completedAt && (
+                  <div>
+                    <div className="text-[10px] uppercase tracking-widest text-muted mb-0.5">Completed</div>
+                    <div className="text-sm text-cream">{fmtTimestamp(booking.completedAt)}</div>
+                  </div>
+                )}
+
+                {/* Divider */}
+                <div className="border-t border-white/5" />
+
+                {/* Total / elapsed */}
+                {booking.completedAt ? (
+                  <div className="flex items-center justify-between">
+                    <div className="text-[10px] uppercase tracking-widest text-muted">Total time</div>
+                    <div className="text-success font-semibold text-sm tabular-nums flex items-center gap-1.5">
+                      <Timer className="w-3.5 h-3.5 shrink-0" />
+                      {fmtElapsed(booking.startedAt, booking.completedAt)}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between">
+                    <div className="text-[10px] uppercase tracking-widest text-muted">Elapsed</div>
+                    <div className="text-amber-400 font-semibold text-sm tabular-nums flex items-center gap-1.5">
+                      <Timer className="w-3.5 h-3.5 shrink-0 animate-pulse" />
+                      <LiveElapsed startedAt={booking.startedAt} />
+                    </div>
+                  </div>
+                )}
+
+                {/* ETC comparison — prefer live service record over the snapshot on the booking */}
+                {(service?.duration || booking.serviceDuration) && (
+                  <div className="flex items-center justify-between text-xs text-muted">
+                    <span>Estimated</span>
+                    <span>{service?.duration || booking.serviceDuration}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Actions — status changes for any admin; delete is super only.
               Hidden entirely when no action applies (e.g. completed booking). */}

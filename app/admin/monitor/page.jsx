@@ -52,6 +52,38 @@ function toMinutes(timeStr = '') {
   return h * 60 + min;
 }
 
+/** Format elapsed minutes between two ISO strings as "Xh Ym". */
+function fmtElapsed(startIso, endIso) {
+  if (!startIso) return null;
+  const start = new Date(startIso);
+  const end   = endIso ? new Date(endIso) : new Date();
+  const mins  = Math.round((end - start) / 60_000);
+  if (mins < 0) return null;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+/** Ticking elapsed timer for on-going bookings. Updates every 30s. */
+function LiveElapsed({ startedAt }) {
+  const [elapsed, setElapsed] = useState(() => fmtElapsed(startedAt));
+  useEffect(() => {
+    setElapsed(fmtElapsed(startedAt));
+    const id = setInterval(() => setElapsed(fmtElapsed(startedAt)), 30_000);
+    return () => clearInterval(id);
+  }, [startedAt]);
+  if (!elapsed) return null;
+  return (
+    <div className="flex items-center gap-2 bg-amber-400/10 border border-amber-400/20 rounded-sm px-3 py-2">
+      <Timer className="w-3.5 h-3.5 text-amber-400 shrink-0 animate-pulse" />
+      <div className="leading-none">
+        <div className="text-[10px] uppercase tracking-widest text-amber-400/70 mb-0.5">Elapsed</div>
+        <div className="text-amber-400 font-semibold text-sm tabular-nums">{elapsed}</div>
+      </div>
+    </div>
+  );
+}
+
 // Status is driven by the explicit booking status set by the admin,
 // not by clock time — so the monitor reflects the real shop floor state.
 function getJobStatus(booking) {
@@ -221,8 +253,26 @@ const JobCard = memo(function JobCard({ booking, catMap, status, detailerMap }) 
       {/* Duration */}
       <div className="flex items-center gap-2 text-cream/60">
         <Timer className="w-3.5 h-3.5 text-gold/60 shrink-0" />
-        <span className="text-sm"><span className="text-muted">ETC</span> {booking.serviceDuration}</span>
+        <span className="text-sm">
+          <span className="text-muted">ETC</span> {booking.serviceDuration}
+        </span>
       </div>
+
+      {/* Actual task time */}
+      {status === 'active' && booking.startedAt && (
+        <LiveElapsed startedAt={booking.startedAt} />
+      )}
+      {status === 'done' && booking.startedAt && booking.completedAt && (
+        <div className="flex items-center gap-2 bg-success/10 border border-success/20 rounded-sm px-3 py-2">
+          <Timer className="w-3.5 h-3.5 text-success shrink-0" />
+          <div className="leading-none">
+            <div className="text-[10px] uppercase tracking-widest text-success/70 mb-0.5">Actual time</div>
+            <div className="text-success font-semibold text-sm tabular-nums">
+              {fmtElapsed(booking.startedAt, booking.completedAt)}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Detailers */}
       <div className="flex items-start gap-2.5 text-cream/80">

@@ -23,6 +23,7 @@ import {
   ShieldCheck,
   Package,
   Receipt,
+  BarChart2,
 } from 'lucide-react';
 import Image from 'next/image';
 import { useApp } from '@/context/AppContext';
@@ -30,6 +31,7 @@ import { PERMISSIONS, ROLE_LABELS } from '@/lib/permissions';
 
 const links = [
   { href: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard, perm: PERMISSIONS.DASHBOARD_VIEW },
+  { href: '/admin/reports', label: 'Reports', icon: BarChart2, perm: PERMISSIONS.REPORTS_VIEW },
   { href: '/admin/bookings', label: 'Bookings', icon: ClipboardList, perm: PERMISSIONS.BOOKINGS_VIEW },
   { href: '/admin/schedule', label: 'Schedule', icon: CalendarDays, perm: PERMISSIONS.SCHEDULE_VIEW },
   { href: '/admin/members', label: 'VIP Members', icon: Users, perm: PERMISSIONS.MEMBERS_VIEW },
