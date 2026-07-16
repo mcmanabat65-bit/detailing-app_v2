@@ -110,6 +110,97 @@ const _fmtDate = (d) => {
   return `${y}-${m}-${day}`;
 };
 
+/** Hours of labor represented by one "day" of a day-based service (fixed 8h). */
+export const HOURS_PER_SERVICE_DAY = 8;
+
+/**
+ * Total slot budget a service consumes, as a unified hours→slots measure.
+ * Hour-based services use their (upper-bound) hours; day-based services use
+ * N × HOURS_PER_SERVICE_DAY. This is the single source of truth for "how much
+ * work" a booking is, independent of when it starts.
+ */
+export const getTotalSlotBudget = (duration = '') => {
+  const days = getDaysConsumed(duration);
+  if (days > 0) {
+    return Math.max(1, Math.round(days * HOURS_PER_SERVICE_DAY * (60 / SLOT_MINUTES)));
+  }
+  return getSlotsConsumed(duration);
+};
+
+/** Add N calendar days to an ISO date string, returning a new ISO date. */
+const addDaysIso = (isoDate, n) => {
+  const [y, m, d] = isoDate.split('-').map(Number);
+  const next = new Date(y, m - 1, d + n);
+  return _fmtDate(next);
+};
+
+/**
+ * Sequential day-fill planner. A booking is a total slot budget that fills
+ * working days one after another:
+ *   - Day 1 starts at `startTime` and runs until the configured closing.
+ *   - Any remaining budget rolls to the next calendar day, starting at opening.
+ *   - Repeat until the budget is exhausted. The final day may be partial —
+ *     only the slots actually needed are blocked; the rest stays open.
+ *
+ * Returns { days: [{ date, slots: [labels] }], lastDate, spansDays }.
+ * `slots` are grid-slot labels on that date (partial days included).
+ * Returns { days: [] } for an invalid start.
+ */
+export const planBookingDays = (startDate, startTime, serviceDuration, closingMinutes = CLOSING_MINUTES) => {
+  if (!startDate || !startTime) return { days: [], lastDate: startDate, spansDays: false };
+  const budget = getTotalSlotBudget(serviceDuration);
+  if (budget <= 0) return { days: [], lastDate: startDate, spansDays: false };
+
+  // Slots bookable on a full working day: grid slots whose start is before the
+  // closing cutoff (the lunch gap is already excluded from `timeSlots`).
+  const fullDaySlots = timeSlots.filter((t) => parseTimeToMinutes(t) < closingMinutes);
+
+  const days = [];
+  let remaining = budget;
+  let cursorDate = startDate;
+  let isFirstDay = true;
+
+  // Guard against pathological loops (e.g. a start after closing with tiny
+  // full-day capacity): cap at a generous number of calendar days.
+  let safety = 60;
+  while (remaining > 0 && safety-- > 0) {
+    let daySlots;
+    if (isFirstDay) {
+      // Day 1 begins at the chosen start time (or the nearest slot before it)
+      // and runs to closing.
+      const startIdx = slotIndex(startTime);
+      if (startIdx === -1) return { days: [], lastDate: startDate, spansDays: false };
+      const fromStart = fullDaySlots.filter((t) => parseTimeToMinutes(t) >= parseTimeToMinutes(timeSlots[startIdx]));
+      daySlots = fromStart.slice(0, remaining);
+    } else {
+      // Subsequent days begin at opening.
+      daySlots = fullDaySlots.slice(0, remaining);
+    }
+
+    if (daySlots.length === 0) {
+      // No capacity on this day (e.g. start time already at/after closing on
+      // day 1) — advance to the next day so the job still gets scheduled.
+      if (isFirstDay) {
+        isFirstDay = false;
+        cursorDate = addDaysIso(cursorDate, 1);
+        continue;
+      }
+      break;
+    }
+
+    days.push({ date: cursorDate, slots: daySlots });
+    remaining -= daySlots.length;
+    isFirstDay = false;
+    if (remaining > 0) cursorDate = addDaysIso(cursorDate, 1);
+  }
+
+  return {
+    days,
+    lastDate: days.length ? days[days.length - 1].date : startDate,
+    spansDays: days.length > 1,
+  };
+};
+
 /**
  * Returns ISO date strings for days 2, 3, … of a multi-day booking.
  * Day 1 (the start date) is not included — only the additional blocked dates.
@@ -197,11 +288,23 @@ const detailersFor = (b) => {
  * Sum the detailers consumed at (date, time) across all active bookings.
  * Pure: callers pass the current `bookings` array (now sourced from Supabase
  * via AppContext, no localStorage fallback).
+ *
+ * Prefers a booking's cross-date `dayScheduleSlots` map (date→slots[]) when
+ * present — the authoritative record for long/multi-day sequential-fill jobs.
+ * Falls back to the legacy single-date + whole-subsequent-day computation for
+ * bookings without it (e.g. before the day-slots backfill has loaded).
  */
 export const computeDetailersUsedAt = (date, time, bookings = []) => {
   let used = 0;
   for (const b of bookings) {
     if (!isActiveBooking(b)) continue;
+
+    if (b.dayScheduleSlots) {
+      const slots = b.dayScheduleSlots[date];
+      if (slots && slots.includes(time)) used += detailersFor(b);
+      continue;
+    }
+
     if (b.date === date) {
       // Same day: check which slots this booking occupies.
       const consumed = getSlotsConsumed(b.serviceDuration || '1 hr');
@@ -229,21 +332,36 @@ export const computeDetailersUsedAt = (date, time, bookings = []) => {
  * overlapping bookings.
  */
 export const getBusyDetailerIds = (date, time, serviceDuration, opts = {}) => {
-  const { bookings = [], excludeBookingId = null } = opts;
+  const { bookings = [], excludeBookingId = null, closingMinutes = CLOSING_MINUTES } = opts;
   const busy = new Set();
   if (!date || !time) return busy;
-  const range = occupiedRange(time, getSlotsConsumed(serviceDuration || '1 hr'));
-  if (range.length === 0) return busy;
+
+  // The candidate booking's full cross-date occupancy (date → Set(slots)).
+  const candidate = planBookingDays(date, time, serviceDuration || '1 hr', closingMinutes);
+  if (!candidate.days.length) return busy;
+  const candByDate = new Map(candidate.days.map((d) => [d.date, new Set(d.slots)]));
+
+  const overlapsCandidate = (bDate, bSlots) => {
+    const set = candByDate.get(bDate);
+    if (!set) return false;
+    return bSlots.some((s) => set.has(s));
+  };
+
   for (const b of bookings) {
     if (!isActiveBooking(b) || b.id === excludeBookingId) continue;
     if (!Array.isArray(b.detailersAssigned) || b.detailersAssigned.length === 0) continue;
+
     let overlaps = false;
-    if (b.date === date) {
+    if (b.dayScheduleSlots) {
+      for (const [bDate, bSlots] of Object.entries(b.dayScheduleSlots)) {
+        if (overlapsCandidate(bDate, bSlots)) { overlaps = true; break; }
+      }
+    } else if (b.date && candByDate.has(b.date)) {
       const bRange = occupiedRange(b.time, getSlotsConsumed(b.serviceDuration || '1 hr'));
-      overlaps = bRange.some((t) => range.includes(t));
+      overlaps = overlapsCandidate(b.date, bRange);
     } else {
       const days = getDaysConsumed(b.serviceDuration || '');
-      overlaps = days > 1 && getMultiDayBlockedDates(b.date, days).includes(date);
+      overlaps = days > 1 && getMultiDayBlockedDates(b.date, days).some((d) => candByDate.has(d));
     }
     if (overlaps) for (const id of b.detailersAssigned) busy.add(id);
   }
@@ -347,77 +465,41 @@ export const getSlotStatuses = (date, serviceDuration, opts = {}) => {
     settings = DEFAULT_SETTINGS,
   } = opts;
   const slotsConsumed = getSlotsConsumed(serviceDuration);
-  const isDayService = slotsConsumed >= timeSlots.length;
-  const pool = settings.detailerPoolSize ?? DEFAULT_SETTINGS.detailerPoolSize;
-  const closing = settings.closingMinutes ?? DEFAULT_SETTINGS.closingMinutes;
-  const list = bookings;
-  const blocked = blockedSlots.filter((b) => b.date === date);
 
-  // Subsequent days of an existing multi-day booking are fully committed —
-  // no new bookings can start on those dates.
-  const isSubsequentDay = list.some((b) => {
-    if (!isActiveBooking(b)) return false;
-    const days = getDaysConsumed(b.serviceDuration || '');
-    return days > 1 && getMultiDayBlockedDates(b.date, days).includes(date);
-  });
-
+  // Each grid slot is a candidate start time. A service that runs past closing
+  // now rolls into the next working day rather than being rejected, so this
+  // delegates to getTimeAvailability (the single source of truth for the
+  // sequential day-fill plan + cross-date capacity).
   return timeSlots.map((t) => {
-    const range = occupiedRange(t, slotsConsumed);
-    // Day-based services never overflow: any start time consumes "rest of day".
-    // Hour-based services overflow when they can't finish by closing (default
-    // 5:00 PM) or there aren't enough slots remaining in the grid.
-    const overflow = isDayService
-      ? range.length === 0
-      : range.length < slotsConsumed || endsPastClosing(t, slotsConsumed, closing);
-    if (overflow || isSubsequentDay) {
-      const used = computeDetailersUsedAt(date, t, list);
-      return {
-        time: t,
-        available: false,
-        reason: isSubsequentDay ? 'multiday' : 'overflow',
-        remaining: Math.max(0, pool - used),
-        slotsConsumed,
-      };
-    }
-    if (range.some((rt) => blocked.some((blk) => blk.time === rt))) {
-      const used = computeDetailersUsedAt(date, t, list);
-      return {
-        time: t,
-        available: false,
-        reason: 'blocked',
-        remaining: Math.max(0, pool - used),
-        slotsConsumed,
-      };
-    }
-
-    let minRemaining = pool;
-    for (const rt of range) {
-      const used = computeDetailersUsedAt(date, rt, list);
-      minRemaining = Math.min(minRemaining, pool - used);
-    }
-    if (minRemaining < minDetailers) {
-      return {
-        time: t,
-        available: false,
-        reason: 'capacity',
-        remaining: Math.max(0, minRemaining),
-        slotsConsumed,
-      };
-    }
+    const a = getTimeAvailability(date, t, serviceDuration, {
+      minDetailers,
+      bookings,
+      blockedSlots,
+      settings,
+    });
     return {
       time: t,
-      available: true,
-      reason: null,
-      remaining: minRemaining,
+      available: a.available,
+      reason: a.reason,
+      remaining: a.remaining,
       slotsConsumed,
+      spansDays: a.spansDays,
+      plan: a.plan,
     };
   });
 };
 
 /**
  * Check availability for an arbitrary start time (not just grid slots).
- * Returns { available, reason, remaining } — same shape as a single slot status.
- * Used by the free-time-input UI to give real-time feedback.
+ * Returns { available, reason, remaining, plan, spansDays } — the plan is the
+ * sequential day-fill (see planBookingDays) so the UI can show what days a
+ * long/multi-day service will occupy.
+ *
+ * A service that runs past closing is NOT rejected — it rolls into the next
+ * working day automatically. Availability fails only when some day in the plan
+ * is blocked, sits on another job's committed day, or lacks detailer capacity.
+ * `reason` is one of 'blocked' | 'multiday' | 'capacity' | 'overflow' | null.
+ * ('overflow' now only means the start itself can't host any slot at all.)
  */
 export const getTimeAvailability = (date, time, serviceDuration, opts = {}) => {
   const {
@@ -425,58 +507,46 @@ export const getTimeAvailability = (date, time, serviceDuration, opts = {}) => {
     bookings = [],
     blockedSlots = [],
     settings = DEFAULT_SETTINGS,
-    allowOverflow = false, // user explicitly chose to extend past closing
+    excludeBookingId = null,
   } = opts;
 
   if (!date || !time) return { available: false, reason: null, remaining: 0 };
-
-  const timeMins = parseTimeToMinutes(time);
-  if (timeMins < 0) return { available: false, reason: null, remaining: 0 };
+  if (parseTimeToMinutes(time) < 0) return { available: false, reason: null, remaining: 0 };
 
   const pool = settings.detailerPoolSize ?? DEFAULT_SETTINGS.detailerPoolSize;
   const closing = settings.closingMinutes ?? DEFAULT_SETTINGS.closingMinutes;
-  const slotsConsumed = getSlotsConsumed(serviceDuration);
-  const range = occupiedRange(time, slotsConsumed);
 
-  if (!allowOverflow) {
-    if (range.length === 0) return { available: false, reason: 'overflow', remaining: 0 };
-    if (slotsConsumed < timeSlots.length && range.length < slotsConsumed) {
-      return { available: false, reason: 'overflow', remaining: 0 };
-    }
-    // Default cutoff: a service that would finish after closing is overflow
-    // until staff explicitly opt in to extend into the evening.
-    if (endsPastClosing(time, slotsConsumed, closing)) {
-      return { available: false, reason: 'overflow', remaining: 0 };
-    }
-  }
-  // When allowOverflow, use whatever slots remain in the day; otherwise full range.
-  const effectiveRange = (allowOverflow && range.length === 0)
-    ? timeSlots.slice(slotIndex(time))
-    : range;
+  const plan = planBookingDays(date, time, serviceDuration, closing);
+  if (!plan.days.length) return { available: false, reason: 'overflow', remaining: 0 };
 
-  if (effectiveRange.length === 0) return { available: false, reason: 'overflow', remaining: 0 };
-
-  const isSubsequentDay = bookings.some((b) => {
-    if (!isActiveBooking(b)) return false;
-    const days = getDaysConsumed(b.serviceDuration || '');
-    return days > 1 && getMultiDayBlockedDates(b.date, days).includes(date);
-  });
-  if (isSubsequentDay) return { available: false, reason: 'multiday', remaining: 0 };
-
-  const blocked = blockedSlots.filter((b) => b.date === date);
-  if (effectiveRange.some((rt) => blocked.some((blk) => blk.time === rt))) {
-    return { available: false, reason: 'blocked', remaining: 0 };
-  }
+  const list = bookings.filter((b) => b.id !== excludeBookingId);
 
   let minRemaining = pool;
-  for (const rt of effectiveRange) {
-    const used = computeDetailersUsedAt(date, rt, bookings);
-    minRemaining = Math.min(minRemaining, pool - used);
+  for (const day of plan.days) {
+    // A plan day that lands on another job's committed subsequent day is out.
+    const isSubsequentDay = list.some((b) => {
+      if (!isActiveBooking(b)) return false;
+      if (b.dayScheduleSlots) return false; // captured by capacity below
+      const days = getDaysConsumed(b.serviceDuration || '');
+      return days > 1 && getMultiDayBlockedDates(b.date, days).includes(day.date);
+    });
+    if (isSubsequentDay) return { available: false, reason: 'multiday', remaining: 0, plan, spansDays: plan.spansDays };
+
+    const blocked = blockedSlots.filter((b) => b.date === day.date);
+    if (day.slots.some((rt) => blocked.some((blk) => blk.time === rt))) {
+      return { available: false, reason: 'blocked', remaining: 0, plan, spansDays: plan.spansDays };
+    }
+
+    for (const rt of day.slots) {
+      const used = computeDetailersUsedAt(day.date, rt, list);
+      minRemaining = Math.min(minRemaining, pool - used);
+    }
   }
+
   if (minRemaining < minDetailers) {
-    return { available: false, reason: 'capacity', remaining: Math.max(0, minRemaining) };
+    return { available: false, reason: 'capacity', remaining: Math.max(0, minRemaining), plan, spansDays: plan.spansDays };
   }
-  return { available: true, reason: null, remaining: minRemaining };
+  return { available: true, reason: null, remaining: minRemaining, plan, spansDays: plan.spansDays };
 };
 
 /**

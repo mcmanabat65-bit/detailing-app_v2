@@ -1841,3 +1841,164 @@ begin
   return to_jsonb(v_row);
 end;
 $$;
+
+-- =====================================================================
+-- Phase 13 — Cross-date booking occupancy (long/multi-day sequential fill)
+-- ---------------------------------------------------------------------
+-- A service is now a total-hours budget that fills working days one after
+-- another: day 1 from the chosen start to closing, the remainder rolling to
+-- the next day's opening, and so on (final day may be partial). To enforce
+-- capacity + detailer conflicts across every day a job touches, occupancy is
+-- recorded per (booking, date, slot) in booking_day_slots. bookings.date /
+-- bookings.occupies_slots stay as the day-1 values for the schedule/monitor.
+-- Re-runnable. Run after Phase 12.
+-- =====================================================================
+
+create table if not exists booking_day_slots (
+  booking_id text not null references bookings (id) on delete cascade,
+  date date not null,
+  slot text not null,
+  primary key (booking_id, date, slot)
+);
+create index if not exists booking_day_slots_date_idx on booking_day_slots (date);
+
+-- Backfill existing bookings as single-day occupancy (their current shape).
+insert into booking_day_slots (booking_id, date, slot)
+select b.id, b.date, s.slot
+from bookings b
+cross join lateral unnest(b.occupies_slots) as s(slot)
+on conflict do nothing;
+
+-- RLS for the child table (mirrors bookings).
+alter table booking_day_slots enable row level security;
+drop policy if exists "booking_day_slots_select" on booking_day_slots;
+drop policy if exists "booking_day_slots_insert" on booking_day_slots;
+drop policy if exists "booking_day_slots_update" on booking_day_slots;
+drop policy if exists "booking_day_slots_delete" on booking_day_slots;
+create policy "booking_day_slots_select" on booking_day_slots for select to anon, authenticated using (true);
+create policy "booking_day_slots_insert" on booking_day_slots for insert to anon, authenticated with check (true);
+create policy "booking_day_slots_update" on booking_day_slots for update to authenticated using (is_super_admin()) with check (is_super_admin());
+create policy "booking_day_slots_delete" on booking_day_slots for delete to authenticated using (is_super_admin());
+
+-- Rewrite add_booking to accept the cross-date plan (p_day_slots) and enforce
+-- capacity/conflict across all (date, slot) pairs. Backward compatible: when
+-- p_day_slots is null it synthesizes a single day from p_occupies_slots.
+create or replace function add_booking(
+  p jsonb,
+  p_occupies_slots text[],
+  p_day_slots jsonb default null
+) returns jsonb
+language plpgsql
+as $$
+declare
+  v_pool int;
+  v_used int;
+  v_min int := 2147483647;
+  v_min_detailers int;
+  v_detailer_ids uuid[];
+  v_requested int;
+  v_clamped_ids uuid[];
+  v_conflict_names text;
+  v_id text;
+  v_date date;
+  v_row bookings;
+  v_plan jsonb;
+  v_cell record;
+  v_d date;
+begin
+  v_date := (p->>'date')::date;
+
+  if p_day_slots is not null and jsonb_array_length(p_day_slots) > 0 then
+    v_plan := p_day_slots;
+  else
+    v_plan := jsonb_build_array(
+      jsonb_build_object('date', to_char(v_date, 'YYYY-MM-DD'), 'slots', to_jsonb(p_occupies_slots))
+    );
+  end if;
+
+  for v_d in
+    select distinct (elem->>'date')::date as d
+    from jsonb_array_elements(v_plan) elem
+    order by d
+  loop
+    perform pg_advisory_xact_lock(hashtext(v_d::text));
+  end loop;
+
+  select detailer_pool_size into v_pool from settings where id = 1;
+  v_min_detailers := coalesce((p->>'min_detailers')::int, 1);
+
+  v_detailer_ids := coalesce(
+    (select array_agg(v::uuid) from jsonb_array_elements_text(p->'detailers_assigned') v),
+    '{}'::uuid[]
+  );
+  v_requested := coalesce(array_length(v_detailer_ids, 1), 0);
+  if v_requested < 1 then v_requested := 1; end if;
+
+  for v_cell in
+    select (elem->>'date')::date as d, s.slot
+    from jsonb_array_elements(v_plan) elem
+    cross join lateral jsonb_array_elements_text(elem->'slots') s(slot)
+  loop
+    select coalesce(sum(array_length(b.detailers_assigned, 1)), 0) into v_used
+    from booking_day_slots bds
+    join bookings b on b.id = bds.booking_id
+    where bds.date = v_cell.d
+      and bds.slot = v_cell.slot
+      and b.status not in ('cancelled', 'no_show');
+    v_min := least(v_min, v_pool - v_used);
+  end loop;
+
+  if v_min < v_min_detailers then
+    return jsonb_build_object('error', 'This time slot just filled up. Please choose another.');
+  end if;
+
+  select string_agg(distinct dt.name, ', ') into v_conflict_names
+  from jsonb_array_elements(v_plan) elem
+  cross join lateral jsonb_array_elements_text(elem->'slots') s(slot)
+  join booking_day_slots bds
+    on bds.date = (elem->>'date')::date and bds.slot = s.slot
+  join bookings b on b.id = bds.booking_id and b.status not in ('cancelled', 'no_show')
+  cross join lateral unnest(b.detailers_assigned) as busy(id)
+  join detailers dt on dt.id = busy.id
+  where busy.id = any (v_detailer_ids);
+
+  if v_conflict_names is not null then
+    return jsonb_build_object(
+      'error',
+      'Already booked at this time: ' || v_conflict_names || '. Choose a different detailer or time slot.'
+    );
+  end if;
+
+  v_clamped_ids := v_detailer_ids[1:least(v_requested, v_min)];
+
+  v_id := coalesce(
+    nullif(p->>'id', ''),
+    'OBS-' || to_char(v_date, 'YYYYMMDD') || '-' || lpad((1000 + floor(random() * 9000))::int::text, 4, '0')
+  );
+
+  insert into bookings (
+    id, service_id, service_name, service_price, service_duration, service_category,
+    date, time, customer_name, nickname, email, phone, vehicle, vehicle_year, notes,
+    is_vip, member_id, car_id, coffee_order, status, detailers_assigned, occupies_slots,
+    vehicle_type
+  ) values (
+    v_id, (p->>'service_id')::int, p->>'service_name', (p->>'service_price')::int,
+    p->>'service_duration', p->>'service_category', v_date, p->>'time',
+    p->>'customer_name', nullif(p->>'nickname', ''), p->>'email', p->>'phone',
+    p->>'vehicle', p->>'vehicle_year', p->>'notes',
+    coalesce((p->>'is_vip')::boolean, false), nullif(p->>'member_id', ''),
+    nullif(p->>'car_id', '')::uuid, p->>'coffee_order',
+    coalesce(nullif(p->>'status', ''), 'pending'), v_clamped_ids, p_occupies_slots,
+    coalesce((nullif(p->>'vehicle_type', ''))::smallint, 1)
+  )
+  returning * into v_row;
+
+  insert into booking_day_slots (booking_id, date, slot)
+  select v_id, (elem->>'date')::date, s.slot
+  from jsonb_array_elements(v_plan) elem
+  cross join lateral jsonb_array_elements_text(elem->'slots') s(slot)
+  on conflict do nothing;
+
+  return to_jsonb(v_row);
+end;
+$$;

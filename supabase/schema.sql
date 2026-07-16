@@ -96,6 +96,20 @@ create index if not exists bookings_date_idx   on bookings (date);
 create index if not exists bookings_status_idx on bookings (status);
 create index if not exists bookings_email_idx  on bookings (lower(email));
 
+-- Cross-date occupancy: one row per (booking, date, slot) the job touches.
+-- A short booking has rows only on its start date; a long/multi-day booking
+-- has rows spanning several dates (with partial first/last days). This is the
+-- authoritative record for capacity + detailer-conflict checks across days.
+-- `bookings.date` / `bookings.occupies_slots` stay as the day-1 values for the
+-- schedule/monitor views that key off a single date.
+create table if not exists booking_day_slots (
+  booking_id text not null references bookings (id) on delete cascade,
+  date date not null,
+  slot text not null,
+  primary key (booking_id, date, slot)
+);
+create index if not exists booking_day_slots_date_idx on booking_day_slots (date);
+
 create table if not exists blocked_slots (
   id text primary key,
   date date not null,
@@ -230,9 +244,16 @@ create index  if not exists addon_catalog_sort_idx             on addon_catalog 
 -- ---------------------------------------------------------------------
 -- RPC: add_booking — atomic capacity-aware insert
 -- ---------------------------------------------------------------------
+-- `p_day_slots` is the cross-date plan: a jsonb array of { "date", "slots":[] }.
+-- Capacity and per-detailer conflict are checked across EVERY (date, slot) pair
+-- the job touches, not just the start date. `p_occupies_slots` is retained as
+-- the day-1 slot list for the legacy `bookings.occupies_slots` column. When
+-- `p_day_slots` is null/empty it falls back to a single day built from
+-- `p_occupies_slots` on the start date (backward compatible).
 create or replace function add_booking(
   p jsonb,
-  p_occupies_slots text[]
+  p_occupies_slots text[],
+  p_day_slots jsonb default null
 ) returns jsonb
 language plpgsql
 as $$
@@ -240,7 +261,6 @@ declare
   v_pool int;
   v_used int;
   v_min int := 2147483647;
-  v_slot text;
   v_min_detailers int;
   v_detailer_ids uuid[];
   v_requested int;
@@ -249,14 +269,34 @@ declare
   v_id text;
   v_date date;
   v_row bookings;
+  v_plan jsonb;
+  v_cell record;
+  v_d date;
 begin
   v_date := (p->>'date')::date;
-  perform pg_advisory_xact_lock(hashtext(v_date::text));
+
+  -- Normalize the plan: use p_day_slots when given, else synthesize one day
+  -- from p_occupies_slots on the start date.
+  if p_day_slots is not null and jsonb_array_length(p_day_slots) > 0 then
+    v_plan := p_day_slots;
+  else
+    v_plan := jsonb_build_array(
+      jsonb_build_object('date', to_char(v_date, 'YYYY-MM-DD'), 'slots', to_jsonb(p_occupies_slots))
+    );
+  end if;
+
+  -- Lock every distinct date the job touches (sorted, to avoid deadlocks).
+  for v_d in
+    select distinct (elem->>'date')::date as d
+    from jsonb_array_elements(v_plan) elem
+    order by d
+  loop
+    perform pg_advisory_xact_lock(hashtext(v_d::text));
+  end loop;
 
   select detailer_pool_size into v_pool from settings where id = 1;
   v_min_detailers := coalesce((p->>'min_detailers')::int, 1);
 
-  -- Parse the detailer IDs array from the payload
   v_detailer_ids := coalesce(
     (select array_agg(v::uuid) from jsonb_array_elements_text(p->'detailers_assigned') v),
     '{}'::uuid[]
@@ -264,12 +304,18 @@ begin
   v_requested := coalesce(array_length(v_detailer_ids, 1), 0);
   if v_requested < 1 then v_requested := 1; end if;
 
-  foreach v_slot in array p_occupies_slots loop
-    select coalesce(sum(array_length(detailers_assigned, 1)), 0) into v_used
-    from bookings
-    where date = v_date
-      and status not in ('cancelled', 'no_show')
-      and v_slot = any (occupies_slots);
+  -- Capacity: for every (date, slot) in the plan, how many detailers are free?
+  for v_cell in
+    select (elem->>'date')::date as d, s.slot
+    from jsonb_array_elements(v_plan) elem
+    cross join lateral jsonb_array_elements_text(elem->'slots') s(slot)
+  loop
+    select coalesce(sum(array_length(b.detailers_assigned, 1)), 0) into v_used
+    from booking_day_slots bds
+    join bookings b on b.id = bds.booking_id
+    where bds.date = v_cell.d
+      and bds.slot = v_cell.slot
+      and b.status not in ('cancelled', 'no_show');
     v_min := least(v_min, v_pool - v_used);
   end loop;
 
@@ -280,16 +326,17 @@ begin
     );
   end if;
 
-  -- Per-detailer conflict guard: a specific detailer cannot be assigned to
-  -- two bookings whose slots overlap on the same date.
+  -- Per-detailer conflict: a requested detailer must not already occupy any
+  -- (date, slot) this job touches.
   select string_agg(distinct dt.name, ', ') into v_conflict_names
-  from bookings b
+  from jsonb_array_elements(v_plan) elem
+  cross join lateral jsonb_array_elements_text(elem->'slots') s(slot)
+  join booking_day_slots bds
+    on bds.date = (elem->>'date')::date and bds.slot = s.slot
+  join bookings b on b.id = bds.booking_id and b.status not in ('cancelled', 'no_show')
   cross join lateral unnest(b.detailers_assigned) as busy(id)
   join detailers dt on dt.id = busy.id
-  where b.date = v_date
-    and b.status not in ('cancelled', 'no_show')
-    and b.occupies_slots && p_occupies_slots
-    and busy.id = any (v_detailer_ids);
+  where busy.id = any (v_detailer_ids);
 
   if v_conflict_names is not null then
     return jsonb_build_object(
@@ -298,7 +345,6 @@ begin
     );
   end if;
 
-  -- Clamp to available capacity
   v_clamped_ids := v_detailer_ids[1:least(v_requested, v_min)];
 
   v_id := coalesce(
@@ -337,6 +383,13 @@ begin
     coalesce((nullif(p->>'vehicle_type', ''))::smallint, 1)
   )
   returning * into v_row;
+
+  -- Record the full cross-date occupancy.
+  insert into booking_day_slots (booking_id, date, slot)
+  select v_id, (elem->>'date')::date, s.slot
+  from jsonb_array_elements(v_plan) elem
+  cross join lateral jsonb_array_elements_text(elem->'slots') s(slot)
+  on conflict do nothing;
 
   return to_jsonb(v_row);
 end;
@@ -735,6 +788,19 @@ create policy "bookings_select" on bookings for select to anon, authenticated us
 create policy "bookings_insert" on bookings for insert to anon, authenticated with check (true);
 create policy "bookings_update" on bookings for update to authenticated using (is_super_admin()) with check (is_super_admin());
 create policy "bookings_delete" on bookings for delete to authenticated using (is_super_admin());
+
+-- booking_day_slots: mirrors bookings — open read, open insert (public booking
+-- flow writes these via add_booking), super-admin-only update/delete. Rows also
+-- cascade-delete with their parent booking.
+alter table booking_day_slots enable row level security;
+drop policy if exists "booking_day_slots_select" on booking_day_slots;
+drop policy if exists "booking_day_slots_insert" on booking_day_slots;
+drop policy if exists "booking_day_slots_update" on booking_day_slots;
+drop policy if exists "booking_day_slots_delete" on booking_day_slots;
+create policy "booking_day_slots_select" on booking_day_slots for select to anon, authenticated using (true);
+create policy "booking_day_slots_insert" on booking_day_slots for insert to anon, authenticated with check (true);
+create policy "booking_day_slots_update" on booking_day_slots for update to authenticated using (is_super_admin()) with check (is_super_admin());
+create policy "booking_day_slots_delete" on booking_day_slots for delete to authenticated using (is_super_admin());
 
 -- members: anyone reads; anon applies; only super_admin manages
 create policy "members_select"      on members for select to anon, authenticated using (true);

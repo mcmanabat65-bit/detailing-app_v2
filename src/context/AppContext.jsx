@@ -11,35 +11,13 @@ import {
 import {
   DEFAULT_SETTINGS,
   generateBookingId,
-  getSlotsConsumed,
-  parseTimeToMinutes,
+  planBookingDays,
 } from '@/utils/bookingUtils';
 import { services as staticServices } from '@/data/services';
-import { timeSlots } from '@/data/timeSlots';
 import { supabase, isSupabaseConfigured, fromRow, toRow } from '@/lib/supabase';
 import { ROLES, can as canForRole, isValidRole } from '@/lib/permissions';
 
 const AppContext = createContext(null);
-
-/** Compute the slot-string range a booking will occupy at insert time.
- *  Handles arbitrary start times (e.g. "8:15 AM") by mapping to the
- *  nearest grid slot at or before the chosen time.
- */
-const computeOccupiesSlots = (startTime, serviceDuration) => {
-  // Try exact match first, then fall back to nearest slot at or before
-  let startIdx = timeSlots.indexOf(startTime);
-  if (startIdx < 0) {
-    const mins = parseTimeToMinutes(startTime);
-    if (mins < 0) return [];
-    for (let i = 0; i < timeSlots.length; i++) {
-      if (parseTimeToMinutes(timeSlots[i]) <= mins) startIdx = i;
-      else break;
-    }
-  }
-  if (startIdx < 0) return [];
-  const consumed = getSlotsConsumed(serviceDuration || '1 hr');
-  return timeSlots.slice(startIdx, startIdx + consumed);
-};
 
 export function AppProvider({ children }) {
   const [services, setServices] = useState(staticServices);
@@ -94,7 +72,27 @@ export function AppProvider({ children }) {
       console.error('[bookings] fetch error', error);
       return;
     }
-    setBookings((data || []).map(fromRow));
+    const mapped = (data || []).map(fromRow);
+
+    // Attach each booking's cross-date occupancy (booking_day_slots) as a
+    // date→slots map so the pure availability helpers can see multi-day spans.
+    // Falls back gracefully if the table doesn't exist yet (pre-Phase 13).
+    const { data: dayRows, error: dayErr } = await supabase
+      .from('booking_day_slots')
+      .select('booking_id, date, slot')
+      .limit(20000);
+    if (!dayErr && dayRows) {
+      const byBooking = new Map();
+      for (const r of dayRows) {
+        let m = byBooking.get(r.booking_id);
+        if (!m) { m = {}; byBooking.set(r.booking_id, m); }
+        (m[r.date] ??= []).push(r.slot);
+      }
+      for (const b of mapped) {
+        b.dayScheduleSlots = byBooking.get(b.id) || null;
+      }
+    }
+    setBookings(mapped);
   }, []);
 
   const refetchMembers = useCallback(async () => {
@@ -495,13 +493,23 @@ export function AppProvider({ children }) {
       }
       const svc = services.find((s) => s.id === Number(booking.serviceId));
       const minDetailers = svc?.minDetailers ?? 1;
-      const occupies = computeOccupiesSlots(
+      const closingMinutes =
+        settings?.closingMinutes ?? DEFAULT_SETTINGS.closingMinutes;
+      // Sequential day-fill plan: day 1 from the start time to closing, the
+      // remainder rolling into subsequent days (partial final day allowed).
+      const plan = planBookingDays(
+        booking.date,
         booking.time,
-        booking.serviceDuration || svc?.duration
+        booking.serviceDuration || svc?.duration,
+        closingMinutes
       );
-      if (occupies.length === 0) {
+      if (!plan.days.length) {
         return { error: 'Invalid time slot.' };
       }
+      // Day-1 slots feed the legacy occupies_slots column; the full plan drives
+      // cross-date capacity enforcement in the RPC.
+      const occupies = plan.days[0].slots;
+      const daySlots = plan.days.map((d) => ({ date: d.date, slots: d.slots }));
 
       const payload = {
         ...toRow({
@@ -534,6 +542,7 @@ export function AppProvider({ children }) {
       const { data, error } = await supabase.rpc('add_booking', {
         p: payload,
         p_occupies_slots: occupies,
+        p_day_slots: daySlots,
       });
       if (error) return { error: error.message };
       if (data?.error) return { error: data.error };

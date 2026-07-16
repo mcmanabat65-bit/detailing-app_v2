@@ -132,6 +132,7 @@
 | Table | Purpose |
 |---|---|
 | `bookings` | All customer appointments |
+| `booking_day_slots` | Cross-date occupancy: one row per (booking, date, slot) a job touches — authoritative for capacity/conflict across days (long & multi-day sequential fill) |
 | `members` | VIP membership applications |
 | `services` | Service packages (admin-managed, DB-driven) |
 | `service_categories` | Category definitions (name, slug, color) |
@@ -151,7 +152,7 @@
 
 | RPC | Purpose |
 |---|---|
-| `add_booking(p, p_occupies_slots)` | Atomic capacity-aware booking insert |
+| `add_booking(p, p_occupies_slots, p_day_slots?)` | Atomic capacity-aware booking insert. `p_day_slots` is the cross-date plan `[{date, slots[]}]` — capacity/conflict are checked across every (date, slot) it touches, and the span is recorded in `booking_day_slots`. `p_occupies_slots` stays the day-1 list for the legacy column; null `p_day_slots` falls back to a single day. |
 | `update_booking_detailers(p_id, p_detailer_ids, p_min_detailers)` | Safely reassign detailers on a booking |
 | `update_settings(p_pool_size, p_default_per_booking, p_closing_minutes?)` | Validates and updates settings singleton (`p_closing_minutes` null = leave closing time unchanged) |
 | `adjust_inventory_item(p_item_id, p_qty_change, p_reason, p_note)` | Signed stock delta (restock/adjustment) + logs a transaction (super-admin) |
@@ -244,9 +245,9 @@ showToast(message, type)
 
 ### Booking Rules
 
-1. **Capacity check**: Each time slot supports up to `detailerPoolSize` detailers total. A service's `minDetailers` is the minimum required — the slot is blocked if fewer are available.
-2. **Duration blocking**: `getSlotsConsumed(duration)` returns the number of 30-min slots a service occupies. All slots are stored in `occupies_slots[]` on the booking.
-3. **Multi-day services**: Services with "day" in duration block entire days.
+1. **Capacity check**: Each time slot supports up to `detailerPoolSize` detailers total. A service's `minDetailers` is the minimum required — the slot is blocked if fewer are available. Capacity is checked on **every day** a booking touches (see sequential fill below).
+2. **Sequential day-fill** (`planBookingDays` in `bookingUtils.js`): every service is a total-hours budget (hour-based services use their upper-bound hours; day-based use **N × 8 fixed hours** via `HOURS_PER_SERVICE_DAY`). The budget fills working days one after another — day 1 from the chosen start time to the configured closing, the remainder rolling into the next day's opening, and so on. The final day may be **partial** (only the slots needed are blocked; the rest of that day stays open for others). A service that runs past closing is never rejected — it auto-rolls into the next working day.
+3. **Cross-date occupancy**: the full (date, slot) span of a booking is stored in the `booking_day_slots` child table and drives capacity + per-detailer conflict enforcement in `add_booking`. `bookings.date` / `bookings.occupies_slots` remain the **day-1** values (for the schedule/monitor single-date views). Client-side, `refetchBookings` attaches each booking's `dayScheduleSlots` (date→slots map) so the pure availability helpers see multi-day spans.
 4. **Pending by default**: New public bookings land as `status = 'pending'`. Admin must confirm — only then does the booking appear on the schedule and the customer gets a confirmation email.
 5. **Disabled dates**: Past dates and Sundays are never selectable.
 6. **Operating hours**: 7:00 AM – 5:00 PM, Mon – Sun (slots defined in `timeSlots.js`).

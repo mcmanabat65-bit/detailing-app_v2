@@ -20,17 +20,17 @@ import {
   X,
 } from 'lucide-react';
 import { formatCurrency } from '@/data/services';
-import { GRID_END_MINUTES } from '@/data/timeSlots';
+import { GRID_END_MINUTES, SLOT_MINUTES } from '@/data/timeSlots';
 import {
   DEFAULT_SETTINGS,
   formatDateLong,
   formatDateShort,
   getBusyDetailerIds,
   getDaysConsumed,
-  getMultiDayBlockedDates,
   getTimeAvailability,
   isDateSelectable,
   minutesToTimeStr,
+  parseTimeToMinutes,
   toIsoDate,
 } from '@/utils/bookingUtils';
 import { useApp } from '@/context/AppContext';
@@ -47,6 +47,14 @@ function serviceSizeFromName(name) {
   const m = String(name || '').match(/\(([^)]+)\)\s*$/);
   if (!m) return null;
   return SIZE_BY_SUFFIX[m[1].trim().toUpperCase()] ?? null;
+}
+
+// A slot label is a start time; the slot's end is +SLOT_MINUTES. Used to show
+// "…– <end>" for the last slot of a day in a multi-day plan preview.
+function slotEndLabel(slotLabel) {
+  const mins = parseTimeToMinutes(slotLabel);
+  if (mins < 0) return slotLabel;
+  return minutesToTimeStr(mins + SLOT_MINUTES);
 }
 
 // --- Mini calendar (one month) ---
@@ -436,8 +444,6 @@ export function BookingFlow({ member = null, onComplete = null }) {
   const [manualCarSize, setManualCarSize] = useState(null);
 
   const [selectedDetailerIds, setSelectedDetailerIds] = useState([]);
-  // 'extend' = service runs past closing, 'tomorrow' = move booking to next day
-  const [overflowMode, setOverflowMode] = useState(null);
 
   const activeDetailers = useMemo(
     () => detailers.filter((d) => d.isActive !== false),
@@ -525,17 +531,16 @@ export function BookingFlow({ member = null, onComplete = null }) {
             bookings,
             blockedSlots,
             settings,
-            allowOverflow: overflowMode === 'extend',
           })
         : null,
-    [date, time, service, hydrated, bookings, blockedSlots, settings, overflowMode]
+    [date, time, service, hydrated, bookings, blockedSlots, settings]
   );
 
-  // Configurable closing cutoff (minutes since midnight) + display/input forms.
+  // Configurable closing cutoff (minutes since midnight) + display forms. A
+  // service that runs past closing now rolls into the next working day, so the
+  // time input opens the full grid; the plan preview shows how the days split.
   const closingMinutes = settings?.closingMinutes ?? DEFAULT_SETTINGS.closingMinutes;
   const closingLabel = minutesToTimeStr(closingMinutes);
-  const closingInputMax = `${String(Math.floor(closingMinutes / 60)).padStart(2, '0')}:${String(closingMinutes % 60).padStart(2, '0')}`;
-  // When extending into the evening, the grid's last slot is the hard ceiling.
   const gridEndInputMax = `${String(Math.floor(GRID_END_MINUTES / 60)).padStart(2, '0')}:${String(GRID_END_MINUTES % 60).padStart(2, '0')}`;
 
   // Detailers already committed to an overlapping booking at the chosen
@@ -543,9 +548,9 @@ export function BookingFlow({ member = null, onComplete = null }) {
   const busyDetailerIds = useMemo(
     () =>
       hydrated && date && time && service
-        ? getBusyDetailerIds(date, time, service.duration, { bookings })
+        ? getBusyDetailerIds(date, time, service.duration, { bookings, closingMinutes })
         : new Set(),
-    [date, time, service, hydrated, bookings]
+    [date, time, service, hydrated, bookings, closingMinutes]
   );
 
   // If the date/time changes after a detailer was picked, drop any selection
@@ -557,14 +562,13 @@ export function BookingFlow({ member = null, onComplete = null }) {
     });
   }, [busyDetailerIds]);
 
-  // For multi-day services, compute which additional dates will be occupied
-  // so we can show an informational callout in the time slot panel.
-  const multiDaySpan = useMemo(() => {
-    const days = getDaysConsumed(service?.duration || '');
-    if (days <= 1 || !date) return null;
-    const extra = getMultiDayBlockedDates(date, days);
-    return { days, lastDate: extra[extra.length - 1] };
-  }, [service, date]);
+  // Flag multi-day services so we can hint (before a time is picked) that the
+  // job will span several days. The exact day split depends on the start time
+  // and is shown by the plan preview once a time is chosen.
+  const isMultiDayService = useMemo(
+    () => getDaysConsumed(service?.duration || '') > 1,
+    [service]
+  );
 
   useEffect(() => {
     if (preSelectedId && getServiceById(preSelectedId)) {
@@ -582,13 +586,6 @@ export function BookingFlow({ member = null, onComplete = null }) {
     const today = new Date();
     return calendarMonth > new Date(today.getFullYear(), today.getMonth(), 1);
   }, [calendarMonth]);
-
-  const handlePickTomorrow = () => {
-    const [y, m, d] = date.split('-').map(Number);
-    const next = new Date(y, m - 1, d + 1);
-    setDate(toIsoDate(next));
-    setOverflowMode(null);
-  };
 
   const handleNext = () => {
     if (currentKey === 'car') {
@@ -885,7 +882,6 @@ export function BookingFlow({ member = null, onComplete = null }) {
                   onSelect={(d) => {
                     setDate(d);
                     setTime('');
-                    setOverflowMode(null);
                   }}
                 />
                 <div className="hidden md:block">
@@ -895,7 +891,6 @@ export function BookingFlow({ member = null, onComplete = null }) {
                     onSelect={(d) => {
                       setDate(d);
                       setTime('');
-                      setOverflowMode(null);
                     }}
                   />
                 </div>
@@ -914,12 +909,12 @@ export function BookingFlow({ member = null, onComplete = null }) {
                 </div>
               )}
 
-              {multiDaySpan && (
+              {isMultiDayService && (
                 <div className="flex items-start gap-2 text-[11px] text-cream/70 bg-white/5 border border-white/10 rounded-sm px-3 py-2.5 mb-4 leading-relaxed">
                   <Clock className="w-3 h-3 text-gold shrink-0 mt-0.5" />
                   <span>
-                    Multi-day service — your vehicle will be with us from your chosen start time through{' '}
-                    <span className="text-cream">{formatDateShort(multiDaySpan.lastDate)}</span>.
+                    Multi-day service — pick a start time to see exactly which days
+                    it will occupy.
                   </span>
                 </div>
               )}
@@ -946,10 +941,9 @@ export function BookingFlow({ member = null, onComplete = null }) {
                         return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
                       })()}
                       min="08:00"
-                      max={overflowMode === 'extend' ? gridEndInputMax : closingInputMax}
+                      max={gridEndInputMax}
                       onChange={(e) => {
                         const val = e.target.value;
-                        setOverflowMode(null);
                         if (!val) { setTime(''); return; }
                         const [hStr, mStr] = val.split(':');
                         const totalMin = parseInt(hStr, 10) * 60 + parseInt(mStr, 10);
@@ -962,59 +956,42 @@ export function BookingFlow({ member = null, onComplete = null }) {
                   {time && timeAvailability && (
                     <>
                       {timeAvailability.available ? (
-                        <div className="flex items-center gap-2 px-3 py-2.5 rounded-sm text-sm mb-3 bg-success/10 border border-success/30 text-success">
-                          <Check className="w-4 h-4 shrink-0" />
-                          <span>
-                            <span className="font-medium">{time}</span> is available &mdash;{' '}
-                            <span className="inline-flex items-center gap-1">
-                              <Users className="w-3 h-3" />
-                              {timeAvailability.remaining} detailer{timeAvailability.remaining === 1 ? '' : 's'} free
+                        <div className="mb-3 space-y-2">
+                          <div className="flex items-center gap-2 px-3 py-2.5 rounded-sm text-sm bg-success/10 border border-success/30 text-success">
+                            <Check className="w-4 h-4 shrink-0" />
+                            <span>
+                              <span className="font-medium">{time}</span> is available &mdash;{' '}
+                              <span className="inline-flex items-center gap-1">
+                                <Users className="w-3 h-3" />
+                                {timeAvailability.remaining} detailer{timeAvailability.remaining === 1 ? '' : 's'} free
+                              </span>
                             </span>
-                          </span>
-                        </div>
-                      ) : timeAvailability.reason === 'overflow' && overflowMode === null ? (
-                        <div className="rounded-sm border border-gold/30 bg-gold/5 px-4 py-3 mb-3 space-y-3">
-                          <p className="text-sm text-cream/80">
-                            <span className="font-medium text-cream">{time}</span> doesn't leave enough time to finish the service by closing. How would you like to proceed?
-                          </p>
-                          <div className="flex flex-col gap-2">
-                            <button
-                              type="button"
-                              onClick={() => setOverflowMode('extend')}
-                              className="w-full text-left px-3 py-2.5 rounded-sm border border-gold/40 bg-gold/10 text-gold text-sm hover:bg-gold/20 transition-colors"
-                            >
-                              <span className="font-medium">Extend into the evening</span>
-                              <span className="block text-xs text-gold/70 mt-0.5">Service will continue past {closingLabel}</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={handlePickTomorrow}
-                              className="w-full text-left px-3 py-2.5 rounded-sm border border-white/10 bg-white/5 text-cream text-sm hover:border-white/20 transition-colors"
-                            >
-                              <span className="font-medium">Move to tomorrow</span>
-                              <span className="block text-xs text-muted mt-0.5">Start the same time on the next day</span>
-                            </button>
                           </div>
-                        </div>
-                      ) : overflowMode === 'extend' && timeAvailability.available ? (
-                        <div className="flex items-center gap-2 px-3 py-2.5 rounded-sm text-sm mb-3 bg-success/10 border border-success/30 text-success">
-                          <Check className="w-4 h-4 shrink-0" />
-                          <span>
-                            <span className="font-medium">{time}</span> — service will extend past closing &mdash;{' '}
-                            <span className="inline-flex items-center gap-1">
-                              <Users className="w-3 h-3" />
-                              {timeAvailability.remaining} detailer{timeAvailability.remaining === 1 ? '' : 's'} free
-                            </span>
-                          </span>
+                          {timeAvailability.spansDays && timeAvailability.plan && (
+                            <div className="rounded-sm border border-gold/30 bg-gold/5 px-3 py-2.5 text-xs text-cream/80 space-y-1">
+                              <div className="flex items-center gap-1.5 text-gold font-medium">
+                                <Clock className="w-3 h-3" />
+                                This service runs across {timeAvailability.plan.days.length} days:
+                              </div>
+                              {timeAvailability.plan.days.map((d) => (
+                                <div key={d.date} className="flex justify-between gap-2 pl-4">
+                                  <span>{formatDateShort(d.date)}</span>
+                                  <span className="text-cream/60">
+                                    {d.slots[0]} – {slotEndLabel(d.slots[d.slots.length - 1])}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       ) : (
                         <div className="flex items-center gap-2 px-3 py-2.5 rounded-sm text-sm mb-3 bg-danger/10 border border-danger/30 text-danger">
                           <X className="w-4 h-4 shrink-0" />
                           <span>
-                            {timeAvailability.reason === 'blocked' && 'This time is blocked by the shop.'}
-                            {timeAvailability.reason === 'overflow' && 'Not enough time remaining in the day for this service.'}
-                            {timeAvailability.reason === 'multiday' && 'This date is occupied by a multi-day booking.'}
-                            {timeAvailability.reason === 'capacity' && `No detailers available — ${timeAvailability.remaining} free, need ${service?.minDetailers ?? 1}.`}
+                            {timeAvailability.reason === 'blocked' && 'A time this service needs is blocked by the shop.'}
+                            {timeAvailability.reason === 'overflow' && 'This start time is too late in the day — pick an earlier time.'}
+                            {timeAvailability.reason === 'multiday' && 'A day this service needs is occupied by a multi-day booking.'}
+                            {timeAvailability.reason === 'capacity' && `Not enough detailers free across this service's days — ${timeAvailability.remaining} free, need ${service?.minDetailers ?? 1}.`}
                           </span>
                         </div>
                       )}
