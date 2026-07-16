@@ -1,4 +1,4 @@
-import { timeSlots, SLOT_MINUTES } from '../data/timeSlots.js';
+import { timeSlots, SLOT_MINUTES, CLOSING_MINUTES } from '../data/timeSlots.js';
 
 /** Parse any "H:MM AM/PM" string to total minutes since midnight. */
 export const parseTimeToMinutes = (time = '') => {
@@ -53,6 +53,8 @@ export { STORAGE_KEYS };
 export const DEFAULT_SETTINGS = {
   detailerPoolSize: 5,
   defaultDetailersPerBooking: 1,
+  // Default closing cutoff (minutes since midnight). Configurable in Settings.
+  closingMinutes: CLOSING_MINUTES,
 };
 
 /** A booking is "active" (consumes detailer capacity) unless cancelled / no_show. */
@@ -171,6 +173,20 @@ const occupiedRange = (time, slotsConsumed) => {
   return timeSlots.slice(i, i + slotsConsumed);
 };
 
+/**
+ * True if an hour-based booking of `slotsConsumed` 30-min slots starting at
+ * `time` would finish after the shop's closing cutoff. `closingMinutes`
+ * defaults to `CLOSING_MINUTES` (5:00 PM) but is configurable in Settings.
+ * Day-based services run "rest of day" and never count as past-closing here —
+ * their end is the day boundary, handled by the empty-range check instead.
+ */
+const endsPastClosing = (time, slotsConsumed, closingMinutes = CLOSING_MINUTES) => {
+  if (slotsConsumed >= timeSlots.length) return false;
+  const startMins = parseTimeToMinutes(time);
+  if (startMins < 0) return false;
+  return startMins + slotsConsumed * SLOT_MINUTES > closingMinutes;
+};
+
 const detailersFor = (b) => {
   if (Array.isArray(b.detailersAssigned)) return b.detailersAssigned.length || 1;
   const n = Number(b.detailersAssigned);
@@ -283,6 +299,7 @@ export const isSlotAvailable = (date, time, serviceDuration, opts = {}) => {
     blockedSlots = [],
     settings = DEFAULT_SETTINGS,
     excludeBookingId = null,
+    allowOverflow = false, // staff explicitly extending past closing
   } = opts;
 
   const slotsConsumed = getSlotsConsumed(serviceDuration);
@@ -290,6 +307,9 @@ export const isSlotAvailable = (date, time, serviceDuration, opts = {}) => {
   if (range.length === 0) return false;
   // For arbitrary start times the range may be shorter if near end of day — still overflow
   if (slotsConsumed < timeSlots.length && range.length < slotsConsumed) return false;
+  // Default cutoff at closing unless the caller opts in to extend.
+  const closing = settings.closingMinutes ?? DEFAULT_SETTINGS.closingMinutes;
+  if (!allowOverflow && endsPastClosing(time, slotsConsumed, closing)) return false;
 
   // If this date is itself a subsequent day of an existing multi-day booking,
   // it is fully committed and cannot host a new booking start.
@@ -329,6 +349,7 @@ export const getSlotStatuses = (date, serviceDuration, opts = {}) => {
   const slotsConsumed = getSlotsConsumed(serviceDuration);
   const isDayService = slotsConsumed >= timeSlots.length;
   const pool = settings.detailerPoolSize ?? DEFAULT_SETTINGS.detailerPoolSize;
+  const closing = settings.closingMinutes ?? DEFAULT_SETTINGS.closingMinutes;
   const list = bookings;
   const blocked = blockedSlots.filter((b) => b.date === date);
 
@@ -343,8 +364,11 @@ export const getSlotStatuses = (date, serviceDuration, opts = {}) => {
   return timeSlots.map((t) => {
     const range = occupiedRange(t, slotsConsumed);
     // Day-based services never overflow: any start time consumes "rest of day".
-    // Hour-based services overflow when there aren't enough slots remaining.
-    const overflow = isDayService ? range.length === 0 : range.length < slotsConsumed;
+    // Hour-based services overflow when they can't finish by closing (default
+    // 5:00 PM) or there aren't enough slots remaining in the grid.
+    const overflow = isDayService
+      ? range.length === 0
+      : range.length < slotsConsumed || endsPastClosing(t, slotsConsumed, closing);
     if (overflow || isSubsequentDay) {
       const used = computeDetailersUsedAt(date, t, list);
       return {
@@ -410,12 +434,18 @@ export const getTimeAvailability = (date, time, serviceDuration, opts = {}) => {
   if (timeMins < 0) return { available: false, reason: null, remaining: 0 };
 
   const pool = settings.detailerPoolSize ?? DEFAULT_SETTINGS.detailerPoolSize;
+  const closing = settings.closingMinutes ?? DEFAULT_SETTINGS.closingMinutes;
   const slotsConsumed = getSlotsConsumed(serviceDuration);
   const range = occupiedRange(time, slotsConsumed);
 
   if (!allowOverflow) {
     if (range.length === 0) return { available: false, reason: 'overflow', remaining: 0 };
     if (slotsConsumed < timeSlots.length && range.length < slotsConsumed) {
+      return { available: false, reason: 'overflow', remaining: 0 };
+    }
+    // Default cutoff: a service that would finish after closing is overflow
+    // until staff explicitly opt in to extend into the evening.
+    if (endsPastClosing(time, slotsConsumed, closing)) {
       return { available: false, reason: 'overflow', remaining: 0 };
     }
   }

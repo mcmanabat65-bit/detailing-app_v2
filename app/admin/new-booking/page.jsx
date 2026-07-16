@@ -39,6 +39,18 @@ import {
 // Helpers
 // ---------------------------------------------------------------------------
 
+// Service names encode the eligible car size as a trailing suffix, e.g.
+// "The Essential (M)". Map that suffix to a cars.size bucket. Returns null for
+// names with no recognizable size suffix — those are size-agnostic and shown
+// for every car. XL and XXL both map to the `xl` car bucket.
+const SIZE_BY_SUFFIX = { S: 'small', M: 'medium', L: 'large', XL: 'xl', XXL: 'xl' };
+const SIZE_LABEL = { small: 'Small', medium: 'Medium', large: 'Large', xl: 'XL' };
+function serviceSizeFromName(name) {
+  const m = String(name || '').match(/\(([^)]+)\)\s*$/);
+  if (!m) return null;
+  return SIZE_BY_SUFFIX[m[1].trim().toUpperCase()] ?? null;
+}
+
 function Field({ label, children }) {
   return (
     <label className="block">
@@ -132,7 +144,7 @@ function CarCombobox({ cars, vehicle, vehicleYear, onChange }) {
       <input
         type="text"
         value={query}
-        onChange={(e) => { setQuery(e.target.value); setOpen(true); onChange({ vehicle: e.target.value, vehicleYear, vehicleType: null }); }}
+        onChange={(e) => { setQuery(e.target.value); setOpen(true); onChange({ vehicle: e.target.value, vehicleYear, vehicleType: null, size: null }); }}
         onFocus={() => setOpen(true)}
         className="w-full bg-surface/70 border border-white/[0.08] rounded-[4px] py-[10px] pl-10 pr-8 text-[13px] text-cream placeholder-muted focus:outline-none focus:border-gold/50 transition-colors"
         placeholder="Search or type (e.g. Toyota Fortuner)"
@@ -149,7 +161,7 @@ function CarCombobox({ cars, vehicle, vehicleYear, onChange }) {
           {suggestions.map((car) => (
             <li key={car.id}>
               <button type="button"
-                onMouseDown={() => { const label = `${car.make} ${car.model}`; setQuery(label); setOpen(false); onChange({ vehicle: label, vehicleYear: String(car.year), vehicleType: car.vehicleType || 1 }); }}
+                onMouseDown={() => { const label = `${car.make} ${car.model}`; setQuery(label); setOpen(false); onChange({ vehicle: label, vehicleYear: String(car.year), vehicleType: car.vehicleType || 1, size: car.size || null }); }}
                 className="w-full text-left px-4 py-2.5 text-sm text-cream hover:bg-gold/10 hover:text-gold transition-colors flex items-center justify-between gap-3">
                 <span>{car.year} {car.make} {car.model}</span>
                 <span className="text-[10px] uppercase tracking-widest text-muted shrink-0">{car.size}</span>
@@ -286,6 +298,28 @@ function ServiceDropdown({ services, catMap, value, onChange }) {
 function BookingItem({ item, index, services, catMap, cars, coffees, memberCars = [], addonCatalog = [], onUpdate, onRemove, canRemove }) {
   const coffeeOptions = coffees.filter((c) => c.available !== false).map((c) => c.name);
   const usingFleetCar = memberCars.length > 0 && Boolean(item.fleetCarId);
+
+  // The car size driving this item's service filter. Set when a fleet car or a
+  // catalog car is picked, or manually chosen for free-text entry. null = no
+  // size known → all services shown (unfiltered).
+  const carSize = item.size || null;
+
+  // Only show services whose name suffix matches the car's size. Services with
+  // no size suffix are size-agnostic and always shown. Mirrors BookingFlow.
+  const visibleServices = useMemo(() => {
+    if (!carSize) return services;
+    return services.filter((s) => {
+      const sz = serviceSizeFromName(s.name);
+      return sz === null || sz === carSize;
+    });
+  }, [services, carSize]);
+
+  // If the size changes such that the chosen service no longer fits, drop it.
+  useEffect(() => {
+    if (item.serviceId && !visibleServices.some((s) => s.id === item.serviceId)) {
+      onUpdate({ serviceId: null });
+    }
+  }, [visibleServices, item.serviceId]);
   const [customAddon, setCustomAddon] = useState({ name: '', price: '' });
   const addCustomAddon = () => {
     if (!customAddon.name.trim()) return;
@@ -295,10 +329,10 @@ function BookingItem({ item, index, services, catMap, cars, coffees, memberCars 
 
   const handleFleetSelect = (carId) => {
     if (!carId) {
-      onUpdate({ fleetCarId: null, vehicle: '', vehicleYear: '', vehicleTypeFromCatalog: false });
+      onUpdate({ fleetCarId: null, vehicle: '', vehicleYear: '', vehicleTypeFromCatalog: false, size: null });
     } else {
       const car = memberCars.find((c) => c.id === carId);
-      if (car) onUpdate({ fleetCarId: car.id, vehicle: `${car.make} ${car.model}`, vehicleYear: String(car.year), vehicleType: car.vehicleType || 1, vehicleTypeFromCatalog: true });
+      if (car) onUpdate({ fleetCarId: car.id, vehicle: `${car.make} ${car.model}`, vehicleYear: String(car.year), vehicleType: car.vehicleType || 1, vehicleTypeFromCatalog: true, size: car.size || null });
     }
   };
 
@@ -349,8 +383,8 @@ function BookingItem({ item, index, services, catMap, cars, coffees, memberCars 
                 cars={cars}
                 vehicle={item.vehicle}
                 vehicleYear={item.vehicleYear}
-                onChange={({ vehicle, vehicleYear, vehicleType }) =>
-                  onUpdate({ vehicle, vehicleYear, ...(vehicleType !== null ? { vehicleType, vehicleTypeFromCatalog: true } : { vehicleTypeFromCatalog: false }) })
+                onChange={({ vehicle, vehicleYear, vehicleType, size }) =>
+                  onUpdate({ vehicle, vehicleYear, size: size ?? null, ...(vehicleType !== null ? { vehicleType, vehicleTypeFromCatalog: true } : { vehicleTypeFromCatalog: false }) })
                 }
               />
             </Field>
@@ -380,16 +414,38 @@ function BookingItem({ item, index, services, catMap, cars, coffees, memberCars 
               </div>
             </Field>
           )}
+          {/* Vehicle size — filters the service list. Auto-filled from a catalog
+              car; a manual entry lets the admin pick so size-specific packages
+              show correctly. "Any size" leaves the list unfiltered. */}
+          <Field label="Vehicle Size">
+            <div className="flex flex-wrap gap-1 bg-surface/70 border border-white/[0.08] rounded-[4px] p-1">
+              {[['', 'Any size'], ['small', 'Small'], ['medium', 'Medium'], ['large', 'Large'], ['xl', 'XL']].map(([val, label]) => (
+                <button key={val || 'any'} type="button" onClick={() => onUpdate({ size: val || null })}
+                  className={`flex-1 px-2.5 py-1.5 rounded-[2px] text-xs transition-colors ${(item.size || '') === val ? 'bg-gold/20 text-gold' : 'text-muted hover:text-cream'}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </Field>
+        </div>
+      )}
+
+      {carSize && (
+        <div className="text-[11px] text-gold/80 uppercase tracking-widest px-2 py-1 bg-gold/10 rounded-sm inline-block">
+          Showing packages for {SIZE_LABEL[carSize] ?? carSize} vehicles
         </div>
       )}
 
       <Field label="Service Package *">
         <ServiceDropdown
-          services={services}
+          services={visibleServices}
           catMap={catMap}
           value={item.serviceId}
           onChange={(id) => onUpdate({ serviceId: id })}
         />
+        {visibleServices.length === 0 && (
+          <p className="text-xs text-muted mt-1.5">No packages available for this vehicle size.</p>
+        )}
       </Field>
 
       {item.isVip && coffeeOptions.length > 0 && (
@@ -566,7 +622,7 @@ function AdminNewBookingForm() {
   // Booking items — each is one car + one service
   // fleetCarId: UUID of selected fleet car, or null = manual entry
   // ---------------------------------------------------------------------------
-  const newItem = () => ({ id: Date.now(), vehicle: '', vehicleYear: '', vehicleType: 1, vehicleTypeFromCatalog: false, serviceId: visibleServices[0]?.id || null, coffeeOrder: '', isVip: false, fleetCarId: null, addOns: [] });
+  const newItem = () => ({ id: Date.now(), vehicle: '', vehicleYear: '', vehicleType: 1, vehicleTypeFromCatalog: false, size: null, serviceId: visibleServices[0]?.id || null, coffeeOrder: '', isVip: false, fleetCarId: null, addOns: [] });
   const [items, setItems] = useState(() => [newItem()]);
 
   const addItem = () => setItems((prev) => [...prev, newItem()]);
@@ -607,6 +663,7 @@ function AdminNewBookingForm() {
       fleetCarId: i === 0 && firstCar ? firstCar.id : null,
       vehicle:    i === 0 && firstCar ? `${firstCar.make} ${firstCar.model}` : it.vehicle,
       vehicleYear: i === 0 && firstCar ? String(firstCar.year) : it.vehicleYear,
+      size:       i === 0 && firstCar ? (firstCar.size || null) : it.size,
     })));
   }, [getCarsForMember]);
 

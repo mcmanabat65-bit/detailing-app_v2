@@ -1766,3 +1766,78 @@ $$;
 grant execute on function public.update_booking_status(text, text, text) to authenticated;
 
 notify pgrst, 'reload schema';
+-- =====================================================================
+-- Phase 12 — Configurable closing time
+-- ---------------------------------------------------------------------
+-- The booking-grid slots run to 7:00 PM so staff can extend long jobs
+-- into the evening, but the shop's default closing cutoff (past which a
+-- booking counts as "overflow" and prompts extend-or-tomorrow) is now
+-- configurable in Settings instead of a hardcoded 5:00 PM. Stored as
+-- minutes since midnight (1020 = 5:00 PM). Re-runnable.
+-- =====================================================================
+
+alter table settings
+  add column if not exists closing_minutes integer not null default 1020
+  check (closing_minutes between 1 and 1439);
+
+-- Re-create update_settings to accept an optional p_closing_minutes.
+-- Null leaves the existing value untouched (so older callers still work).
+create or replace function update_settings(
+  p_pool_size int,
+  p_default_per_booking int,
+  p_closing_minutes int default null
+) returns jsonb
+language plpgsql
+as $$
+declare
+  v_peak int;
+  v_row settings;
+  v_closing int;
+begin
+  if p_pool_size < 1 then
+    return jsonb_build_object('error', 'Pool size must be at least 1.');
+  end if;
+  if p_default_per_booking < 1 then
+    return jsonb_build_object('error', 'Default detailers per booking must be at least 1.');
+  end if;
+  if p_default_per_booking > p_pool_size then
+    return jsonb_build_object('error', 'Default detailers per booking cannot exceed pool size.');
+  end if;
+
+  select closing_minutes into v_closing from settings where id = 1;
+  if p_closing_minutes is not null then
+    if p_closing_minutes < 1 or p_closing_minutes > 1439 then
+      return jsonb_build_object('error', 'Closing time must be a valid time of day.');
+    end if;
+    v_closing := p_closing_minutes;
+  end if;
+
+  select coalesce(max(slot_total), 0) into v_peak
+  from (
+    select date, slot, sum(coalesce(array_length(detailers_assigned, 1), 0)) as slot_total
+    from (
+      select b.date, unnest(b.occupies_slots) as slot, b.detailers_assigned
+      from bookings b
+      where b.status not in ('cancelled', 'no_show')
+    ) t
+    group by date, slot
+  ) s;
+
+  if p_pool_size < v_peak then
+    return jsonb_build_object(
+      'error',
+      'Pool size cannot drop below ' || v_peak || ' — existing bookings already use that many detailers in one hour.'
+    );
+  end if;
+
+  update settings
+    set detailer_pool_size = p_pool_size,
+        default_detailers_per_booking = p_default_per_booking,
+        closing_minutes = v_closing,
+        updated_at = now()
+    where id = 1
+    returning * into v_row;
+
+  return to_jsonb(v_row);
+end;
+$$;

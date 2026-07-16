@@ -20,7 +20,9 @@ import {
   X,
 } from 'lucide-react';
 import { formatCurrency } from '@/data/services';
+import { GRID_END_MINUTES } from '@/data/timeSlots';
 import {
+  DEFAULT_SETTINGS,
   formatDateLong,
   formatDateShort,
   getBusyDetailerIds,
@@ -529,6 +531,13 @@ export function BookingFlow({ member = null, onComplete = null }) {
     [date, time, service, hydrated, bookings, blockedSlots, settings, overflowMode]
   );
 
+  // Configurable closing cutoff (minutes since midnight) + display/input forms.
+  const closingMinutes = settings?.closingMinutes ?? DEFAULT_SETTINGS.closingMinutes;
+  const closingLabel = minutesToTimeStr(closingMinutes);
+  const closingInputMax = `${String(Math.floor(closingMinutes / 60)).padStart(2, '0')}:${String(closingMinutes % 60).padStart(2, '0')}`;
+  // When extending into the evening, the grid's last slot is the hard ceiling.
+  const gridEndInputMax = `${String(Math.floor(GRID_END_MINUTES / 60)).padStart(2, '0')}:${String(GRID_END_MINUTES % 60).padStart(2, '0')}`;
+
   // Detailers already committed to an overlapping booking at the chosen
   // date/time — these can't be offered as a preferred detailer.
   const busyDetailerIds = useMemo(
@@ -937,7 +946,7 @@ export function BookingFlow({ member = null, onComplete = null }) {
                         return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
                       })()}
                       min="08:00"
-                      max={overflowMode === 'extend' ? '23:59' : '17:00'}
+                      max={overflowMode === 'extend' ? gridEndInputMax : closingInputMax}
                       onChange={(e) => {
                         const val = e.target.value;
                         setOverflowMode(null);
@@ -975,7 +984,7 @@ export function BookingFlow({ member = null, onComplete = null }) {
                               className="w-full text-left px-3 py-2.5 rounded-sm border border-gold/40 bg-gold/10 text-gold text-sm hover:bg-gold/20 transition-colors"
                             >
                               <span className="font-medium">Extend into the evening</span>
-                              <span className="block text-xs text-gold/70 mt-0.5">Service will continue past 5:00 PM</span>
+                              <span className="block text-xs text-gold/70 mt-0.5">Service will continue past {closingLabel}</span>
                             </button>
                             <button
                               type="button"
@@ -1013,7 +1022,7 @@ export function BookingFlow({ member = null, onComplete = null }) {
                   )}
 
                   <div className="text-[11px] text-muted leading-relaxed">
-                    Operating hours: <span className="text-cream/70">8:00 AM – 5:00 PM</span>.
+                    Operating hours: <span className="text-cream/70">8:00 AM – {closingLabel}</span>.
                     {service?.minDetailers > 1 && (
                       <> {service.name} needs at least <b>{service.minDetailers} detailers</b>.</>
                     )}

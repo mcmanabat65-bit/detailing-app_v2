@@ -7,12 +7,37 @@ import {
   RotateCcw,
   TrendingUp,
   AlertTriangle,
+  Clock,
 } from 'lucide-react';
 import { AdminLayout } from '@/components/AdminLayout';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { useApp } from '@/context/AppContext';
 import { DEFAULT_SETTINGS, getSlotsConsumed } from '@/utils/bookingUtils';
-import { timeSlots } from '@/data/timeSlots';
+import { timeSlots, GRID_END_MINUTES } from '@/data/timeSlots';
+
+// Minutes-since-midnight <-> "HH:MM" for <input type="time">.
+const minutesToTimeInput = (mins) => {
+  const m = Number(mins);
+  if (!Number.isFinite(m)) return '';
+  const h = Math.floor(m / 60);
+  const min = m % 60;
+  return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+};
+const timeInputToMinutes = (val) => {
+  const [h, m] = String(val).split(':').map(Number);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+  return h * 60 + m;
+};
+// 1020 -> "5:00 PM" for display copy.
+const minutesToLabel = (mins) => {
+  const m = Number(mins);
+  if (!Number.isFinite(m)) return '';
+  const h24 = Math.floor(m / 60);
+  const min = m % 60;
+  const period = h24 >= 12 ? 'PM' : 'AM';
+  const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+  return `${h12}:${String(min).padStart(2, '0')} ${period}`;
+};
 
 function SettingsForm() {
   const { settings, updateSettings, bookings, detailers, hydrated, showToast } =
@@ -28,9 +53,13 @@ function SettingsForm() {
   const [defaultDet, setDefaultDet] = useState(
     settings.defaultDetailersPerBooking
   );
+  const [closingMins, setClosingMins] = useState(
+    settings.closingMinutes ?? DEFAULT_SETTINGS.closingMinutes
+  );
 
   useEffect(() => {
     setDefaultDet(settings.defaultDetailersPerBooking);
+    setClosingMins(settings.closingMinutes ?? DEFAULT_SETTINGS.closingMinutes);
   }, [settings]);
 
   // Across all active bookings, find the busiest (date,time) cell — that
@@ -78,12 +107,16 @@ function SettingsForm() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hydrated, poolSize, settings.detailerPoolSize, poolBlockedByPeak]);
 
-  const dirty = Number(defaultDet) !== settings.defaultDetailersPerBooking;
+  const savedClosing = settings.closingMinutes ?? DEFAULT_SETTINGS.closingMinutes;
+  const dirty =
+    Number(defaultDet) !== settings.defaultDetailersPerBooking ||
+    Number(closingMins) !== savedClosing;
 
   const handleSave = async (e) => {
     e.preventDefault();
     const result = await updateSettings({
       defaultDetailersPerBooking: Number(defaultDet),
+      closingMinutes: Number(closingMins),
     });
     if (result?.error) {
       showToast(result.error, 'error');
@@ -94,6 +127,7 @@ function SettingsForm() {
 
   const handleReset = () => {
     setDefaultDet(DEFAULT_SETTINGS.defaultDetailersPerBooking);
+    setClosingMins(DEFAULT_SETTINGS.closingMinutes);
   };
 
   return (
@@ -154,6 +188,39 @@ function SettingsForm() {
               </div>
             </div>
           )}
+
+          <div className="border-t border-white/5 pt-6">
+            <div className="text-gold text-xs tracking-[0.3em] uppercase mb-2">
+              Operating hours
+            </div>
+            <h2 className="font-serif text-2xl text-cream">Closing time</h2>
+            <p className="text-muted text-sm mt-1">
+              The shop opens at 8:00 AM. A booking that would finish after the
+              closing time is flagged so staff can choose to extend into the
+              evening or move it to the next day.
+            </p>
+          </div>
+
+          <Field
+            label="Closing time"
+            hint={`Services must finish by this time by default. Staff can still extend a long job past closing on a per-booking basis (up to ${minutesToLabel(GRID_END_MINUTES)}).`}
+          >
+            <div className="relative w-40">
+              <Clock className="w-4 h-4 text-gold absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="time"
+                value={minutesToTimeInput(closingMins)}
+                min="08:00"
+                max={minutesToTimeInput(GRID_END_MINUTES)}
+                onChange={(e) => {
+                  const mins = timeInputToMinutes(e.target.value);
+                  if (mins != null) setClosingMins(mins);
+                }}
+                className="input w-full pl-9 [color-scheme:dark]"
+                required
+              />
+            </div>
+          </Field>
 
           <div className="flex items-center gap-3 pt-2">
             <button

@@ -12,6 +12,9 @@ create table if not exists settings (
   id integer primary key default 1,
   detailer_pool_size integer not null default 5 check (detailer_pool_size >= 1),
   default_detailers_per_booking integer not null default 1 check (default_detailers_per_booking >= 1),
+  -- Default closing cutoff as minutes since midnight (1020 = 5:00 PM). A booking
+  -- whose end time crosses this counts as "overflow" unless staff opt to extend.
+  closing_minutes integer not null default 1020 check (closing_minutes between 1 and 1439),
   updated_at timestamptz not null default now(),
   constraint settings_singleton check (id = 1)
 );
@@ -524,13 +527,15 @@ grant execute on function public.update_booking_addons(text, jsonb) to authentic
 -- ---------------------------------------------------------------------
 create or replace function update_settings(
   p_pool_size int,
-  p_default_per_booking int
+  p_default_per_booking int,
+  p_closing_minutes int default null
 ) returns jsonb
 language plpgsql
 as $$
 declare
   v_peak int;
   v_row settings;
+  v_closing int;
 begin
   if p_pool_size < 1 then
     return jsonb_build_object('error', 'Pool size must be at least 1.');
@@ -540,6 +545,15 @@ begin
   end if;
   if p_default_per_booking > p_pool_size then
     return jsonb_build_object('error', 'Default detailers per booking cannot exceed pool size.');
+  end if;
+
+  -- Null = leave closing time unchanged; otherwise validate the new value.
+  select closing_minutes into v_closing from settings where id = 1;
+  if p_closing_minutes is not null then
+    if p_closing_minutes < 1 or p_closing_minutes > 1439 then
+      return jsonb_build_object('error', 'Closing time must be a valid time of day.');
+    end if;
+    v_closing := p_closing_minutes;
   end if;
 
   select coalesce(max(slot_total), 0) into v_peak
@@ -563,6 +577,7 @@ begin
   update settings
     set detailer_pool_size = p_pool_size,
         default_detailers_per_booking = p_default_per_booking,
+        closing_minutes = v_closing,
         updated_at = now()
     where id = 1
     returning * into v_row;

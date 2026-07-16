@@ -1464,6 +1464,8 @@ export function AppProvider({ children }) {
       const { data, error } = await supabase.rpc('update_settings', {
         p_pool_size: Number(merged.detailerPoolSize),
         p_default_per_booking: Number(merged.defaultDetailersPerBooking),
+        p_closing_minutes:
+          merged.closingMinutes == null ? null : Number(merged.closingMinutes),
       });
       if (error) return { error: error.message };
       if (data?.error) return { error: data.error };

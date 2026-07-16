@@ -140,7 +140,7 @@
 | `coffees` | Coffee menu items |
 | `detailers` | Shop detailer roster |
 | `blocked_slots` | Admin-blocked time slots |
-| `settings` | Singleton row: pool size, default detailers per booking |
+| `settings` | Singleton row: pool size, default detailers per booking, closing time (`closing_minutes`, minutes since midnight) |
 | `inventory_items` | Coffee ingredient catalog + live stock (brand, uom, unit cost, stock_qty, low_stock_at) |
 | `coffee_recipes` | Bill of materials: coffee ↔ ingredient + qty_per_serve |
 | `inventory_transactions` | Signed stock movement log (restock / adjustment / consumption / initial) |
@@ -153,7 +153,7 @@
 |---|---|
 | `add_booking(p, p_occupies_slots)` | Atomic capacity-aware booking insert |
 | `update_booking_detailers(p_id, p_detailer_ids, p_min_detailers)` | Safely reassign detailers on a booking |
-| `update_settings(p_pool_size, p_default_per_booking)` | Validates and updates settings singleton |
+| `update_settings(p_pool_size, p_default_per_booking, p_closing_minutes?)` | Validates and updates settings singleton (`p_closing_minutes` null = leave closing time unchanged) |
 | `adjust_inventory_item(p_item_id, p_qty_change, p_reason, p_note)` | Signed stock delta (restock/adjustment) + logs a transaction (super-admin) |
 | `consume_coffee_serve(p_booking_id, p_coffee_name)` | Legacy per-booking coffee deduction (idempotent via `bookings.coffee_served_at`). **No longer auto-called** — kept for reference; serving now happens in the POS. |
 | `tender_pos_order(p_member_id, p_member_name, p_note, p_lines)` | Records a POS coffee order + deducts each coffee's recipe × qty from stock, logging a `consumption` movement per ingredient (super_admin + admin/barista via SECURITY DEFINER). Allows negative stock (flagged, not blocked). |
