@@ -11,7 +11,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
-import { bookingCoversDate, getSlotsConsumed, toIsoDate } from '@/utils/bookingUtils';
+import { bookingCoversDate, computeBookingETC, toIsoDate } from '@/utils/bookingUtils';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -28,22 +28,6 @@ function toMinutes(timeStr = '') {
   return h * 60 + min;
 }
 
-function computeEndTime(startTime, slotsConsumed) {
-  const m = startTime.match(/(\d+):(\d+)\s*(AM|PM)/i);
-  if (!m) return '—';
-  let h = parseInt(m[1]);
-  const min = parseInt(m[2]);
-  const period = m[3].toUpperCase();
-  if (period === 'PM' && h !== 12) h += 12;
-  if (period === 'AM' && h === 12) h = 0;
-  const total = h * 60 + min + slotsConsumed * 60;
-  const endH = Math.floor(total / 60) % 24;
-  const endM = total % 60;
-  const mer = endH >= 12 ? 'PM' : 'AM';
-  const display = endH % 12 === 0 ? 12 : endH % 12;
-  return `${display}:${String(endM).padStart(2, '0')} ${mer}`;
-}
-
 // ---------------------------------------------------------------------------
 // Live job card — public-facing, no customer personal data shown
 // ---------------------------------------------------------------------------
@@ -54,8 +38,7 @@ const LiveCard = memo(function LiveCard({ booking, catMap }) {
   const catColor = cat?.color ?? 'bg-white/10 text-cream';
   const catName = cat?.name ?? booking.serviceCategory ?? '—';
   const vehicle = [booking.vehicleYear, booking.vehicle].filter(Boolean).join(' ') || '—';
-  const slots = getSlotsConsumed(booking.serviceDuration || '1 hr');
-  const endTime = computeEndTime(booking.time, slots);
+  const endTime = computeBookingETC(booking);
 
   return (
     <div

@@ -314,3 +314,24 @@ Admin tables scroll horizontally on mobile.
 ---
 
 # 
+
+The cause: half-hour slots multiplied by 60 minutes
+getSlotsConsumed() returns a count of 30-minute slots, but the Shop Monitor and /live computed the finish time as slots × 60. That doubles every job's displayed length:
+
+Service	Monitor showed	Actual
+1 hr @ 8:00 AM	10:00 AM (2h span)	9:00 AM
+4–5 hrs @ 8:00 AM	6:00 PM (10h span)	2:00 PM
+2–3 hrs @ 9:00 AM	3:00 PM (6h span)	12:00 PM
+That middle row is the "10hrs" they're seeing — a 4–5 hr service renders as a 10-hour span. The offending line was const SLOT_MIN = 60 in monitor/page.jsx:35, duplicated as slotsConsumed * 60 in live/page.jsx:39.
+
+Notably, the public /schedule page already had this right — it read the end of the last occupied slot instead of doing arithmetic. The bug was in the two copies that drifted.
+
+The fix
+Rather than patch 60 → 30 in two places and leave three near-identical copies to drift again, I moved the correct implementation into computeBookingETC(booking) in bookingUtils.js and pointed the monitor, /live, and /schedule at it. It reads the end of the last occupiesSlots entry, which also makes it lunch-gap aware — the arithmetic version couldn't be, since it doesn't know the 12–1 break exists.
+
+Verified: an 11:30 AM 1.5hr job now correctly finishes at 2:00 PM (skipping lunch) rather than 1:00 PM. Bad input returns — instead of a garbage time. next build compiles, and no computeEndTime/SLOT_MIN = 60 references remain.
+
+Two things worth knowing
+This was display-only. Booking capacity, conflicts, and occupies_slots were always computed correctly via SLOT_MINUTES — so no stored data is wrong, and nothing needs backfilling. Only the monitor and live screens lied about finish times.
+
+A job starting near closing shows its day-1 finish. A 1hr job at 4:30 PM displays "Finish 5:00 PM" because only one slot fits before closing and the rest rolls to tomorrow morning (the rollover you confirmed is intended). The monitor is a single-day view, so that's consistent — but staff reading it won't see that the job continues tomorrow. Tell me if you want the card to flag a rollover.

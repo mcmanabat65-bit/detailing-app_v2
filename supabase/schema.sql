@@ -82,6 +82,12 @@ create table if not exists bookings (
   status text not null default 'pending' check (status in ('pending', 'confirmed', 'cancelled', 'no_show', 'completed')),
   cancellation_reason text,
   detailers_assigned uuid[] not null default '{}',
+  -- Heads this booking reserves against the pool. `detailers_assigned` is the
+  -- optional list of *specific* detailers and is always a subset, so
+  -- detailers_count >= array_length(detailers_assigned, 1). Every capacity sum
+  -- reads this column — never array_length, which is NULL for an unassigned
+  -- booking and would silently count it as zero.
+  detailers_count integer not null default 1 check (detailers_count >= 1),
   occupies_slots text[] not null default '{}',
   add_ons jsonb not null default '[]',
   nickname text,
@@ -263,7 +269,8 @@ declare
   v_min int := 2147483647;
   v_min_detailers int;
   v_detailer_ids uuid[];
-  v_requested int;
+  v_named int;
+  v_headcount int;
   v_clamped_ids uuid[];
   v_conflict_names text;
   v_id text;
@@ -301,8 +308,16 @@ begin
     (select array_agg(v::uuid) from jsonb_array_elements_text(p->'detailers_assigned') v),
     '{}'::uuid[]
   );
-  v_requested := coalesce(array_length(v_detailer_ids, 1), 0);
-  if v_requested < 1 then v_requested := 1; end if;
+  v_named := coalesce(array_length(v_detailer_ids, 1), 0);
+
+  -- Heads this booking reserves: whatever the caller asked for, but never
+  -- fewer than the named detailers or the service's minimum.
+  v_headcount := greatest(
+    coalesce((p->>'detailers_count')::int, 1),
+    v_named,
+    v_min_detailers,
+    1
+  );
 
   -- Capacity: for every (date, slot) in the plan, how many detailers are free?
   for v_cell in
@@ -310,7 +325,7 @@ begin
     from jsonb_array_elements(v_plan) elem
     cross join lateral jsonb_array_elements_text(elem->'slots') s(slot)
   loop
-    select coalesce(sum(array_length(b.detailers_assigned, 1)), 0) into v_used
+    select coalesce(sum(b.detailers_count), 0) into v_used
     from booking_day_slots bds
     join bookings b on b.id = bds.booking_id
     where bds.date = v_cell.d
@@ -319,12 +334,15 @@ begin
     v_min := least(v_min, v_pool - v_used);
   end loop;
 
+  -- Gate on the service minimum (mirrors the client's availability check),
+  -- then trim the reservation to what is actually free.
   if v_min < v_min_detailers then
     return jsonb_build_object(
       'error',
       'This time slot just filled up. Please choose another.'
     );
   end if;
+  v_headcount := greatest(least(v_headcount, v_min), v_min_detailers);
 
   -- Per-detailer conflict: a requested detailer must not already occupy any
   -- (date, slot) this job touches.
@@ -345,7 +363,7 @@ begin
     );
   end if;
 
-  v_clamped_ids := v_detailer_ids[1:least(v_requested, v_min)];
+  v_clamped_ids := v_detailer_ids[1:least(v_named, v_headcount)];
 
   v_id := coalesce(
     nullif(p->>'id', ''),
@@ -355,8 +373,8 @@ begin
   insert into bookings (
     id, service_id, service_name, service_price, service_duration, service_category,
     date, time, customer_name, nickname, email, phone, vehicle, vehicle_year, notes,
-    is_vip, member_id, car_id, coffee_order, status, detailers_assigned, occupies_slots,
-    vehicle_type
+    is_vip, member_id, car_id, coffee_order, status, detailers_assigned, detailers_count,
+    occupies_slots, vehicle_type
   ) values (
     v_id,
     (p->>'service_id')::int,
@@ -379,6 +397,7 @@ begin
     p->>'coffee_order',
     coalesce(nullif(p->>'status', ''), 'pending'),
     v_clamped_ids,
+    v_headcount,
     p_occupies_slots,
     coalesce((nullif(p->>'vehicle_type', ''))::smallint, 1)
   )
@@ -399,7 +418,8 @@ $$;
 -- RPC: update_booking_detailers
 -- ---------------------------------------------------------------------
 -- SECURITY DEFINER so any signed-in staff (admin or super_admin) can assign
--- detailers without table-level UPDATE rights — it only writes detailers_assigned.
+-- detailers without table-level UPDATE rights — it only writes
+-- detailers_assigned + detailers_count.
 create or replace function update_booking_detailers(
   p_id text,
   p_detailer_ids uuid[],
@@ -414,10 +434,12 @@ declare
   v_used int;
   v_min int := 2147483647;
   v_count int;
-  v_slot text;
   v_conflict_names text;
   v_booking bookings;
   v_row bookings;
+  v_span jsonb;
+  v_cell record;
+  v_d date;
 begin
   if auth.uid() is null then
     return jsonb_build_object('error', 'Not authenticated.');
@@ -441,17 +463,44 @@ begin
     );
   end if;
 
-  perform pg_advisory_xact_lock(hashtext(v_booking.date::text));
+  -- The booking's full cross-date span as [{date, slot}] — matching what
+  -- add_booking enforces. Checking only bookings.date + occupies_slots would
+  -- miss the continuation days of a job that rolls past closing. Falls back to
+  -- the day-1 columns for bookings created before booking_day_slots existed.
+  select coalesce(
+    (select jsonb_agg(jsonb_build_object('date', bds.date, 'slot', bds.slot))
+       from booking_day_slots bds
+      where bds.booking_id = p_id),
+    (select jsonb_agg(jsonb_build_object('date', v_booking.date, 'slot', s.slot))
+       from unnest(v_booking.occupies_slots) as s(slot))
+  ) into v_span;
+
+  if v_span is null then
+    return jsonb_build_object('error', 'Booking has no scheduled slots.');
+  end if;
+
+  -- Lock every distinct date the job touches (sorted, to avoid deadlocks).
+  for v_d in
+    select distinct (elem->>'date')::date as d
+    from jsonb_array_elements(v_span) elem
+    order by d
+  loop
+    perform pg_advisory_xact_lock(hashtext(v_d::text));
+  end loop;
 
   select detailer_pool_size into v_pool from settings where id = 1;
 
-  foreach v_slot in array v_booking.occupies_slots loop
-    select coalesce(sum(array_length(detailers_assigned, 1)), 0) into v_used
-    from bookings
-    where date = v_booking.date
-      and id <> p_id
-      and status not in ('cancelled', 'no_show')
-      and v_slot = any (occupies_slots);
+  for v_cell in
+    select (elem->>'date')::date as d, elem->>'slot' as slot
+    from jsonb_array_elements(v_span) elem
+  loop
+    select coalesce(sum(b.detailers_count), 0) into v_used
+    from booking_day_slots bds
+    join bookings b on b.id = bds.booking_id
+    where bds.date = v_cell.d
+      and bds.slot = v_cell.slot
+      and b.id <> p_id
+      and b.status not in ('cancelled', 'no_show');
     v_min := least(v_min, v_pool - v_used);
   end loop;
 
@@ -462,17 +511,19 @@ begin
     );
   end if;
 
-  -- Per-detailer conflict guard: a specific detailer cannot be assigned to
-  -- two bookings whose slots overlap on the same date.
+  -- Per-detailer conflict guard: a requested detailer must not already occupy
+  -- any (date, slot) in this booking's span.
   select string_agg(distinct dt.name, ', ') into v_conflict_names
-  from bookings b
+  from jsonb_array_elements(v_span) elem
+  join booking_day_slots bds
+    on bds.date = (elem->>'date')::date and bds.slot = elem->>'slot'
+  join bookings b
+    on b.id = bds.booking_id
+   and b.id <> p_id
+   and b.status not in ('cancelled', 'no_show')
   cross join lateral unnest(b.detailers_assigned) as busy(id)
   join detailers dt on dt.id = busy.id
-  where b.date = v_booking.date
-    and b.id <> p_id
-    and b.status not in ('cancelled', 'no_show')
-    and b.occupies_slots && v_booking.occupies_slots
-    and busy.id = any (p_detailer_ids);
+  where busy.id = any (p_detailer_ids);
 
   if v_conflict_names is not null then
     return jsonb_build_object(
@@ -481,7 +532,10 @@ begin
     );
   end if;
 
-  update bookings set detailers_assigned = p_detailer_ids where id = p_id
+  update bookings
+    set detailers_assigned = p_detailer_ids,
+        detailers_count = greatest(v_count, p_min_detailers, 1)
+    where id = p_id
     returning * into v_row;
 
   return to_jsonb(v_row);
@@ -609,15 +663,16 @@ begin
     v_closing := p_closing_minutes;
   end if;
 
+  -- Peak heads in any one (date, slot) — measured across every date a job
+  -- touches (booking_day_slots), using the same headcount the capacity checks
+  -- use.
   select coalesce(max(slot_total), 0) into v_peak
   from (
-    select date, slot, sum(coalesce(array_length(detailers_assigned, 1), 0)) as slot_total
-    from (
-      select b.date, unnest(b.occupies_slots) as slot, b.detailers_assigned
-      from bookings b
-      where b.status not in ('cancelled', 'no_show')
-    ) t
-    group by date, slot
+    select bds.date, bds.slot, sum(b.detailers_count) as slot_total
+    from booking_day_slots bds
+    join bookings b on b.id = bds.booking_id
+    where b.status not in ('cancelled', 'no_show')
+    group by bds.date, bds.slot
   ) s;
 
   if p_pool_size < v_peak then

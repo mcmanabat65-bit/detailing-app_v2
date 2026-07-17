@@ -152,8 +152,8 @@
 
 | RPC | Purpose |
 |---|---|
-| `add_booking(p, p_occupies_slots, p_day_slots?)` | Atomic capacity-aware booking insert. `p_day_slots` is the cross-date plan `[{date, slots[]}]` — capacity/conflict are checked across every (date, slot) it touches, and the span is recorded in `booking_day_slots`. `p_occupies_slots` stays the day-1 list for the legacy column; null `p_day_slots` falls back to a single day. |
-| `update_booking_detailers(p_id, p_detailer_ids, p_min_detailers)` | Safely reassign detailers on a booking |
+| `add_booking(p, p_occupies_slots, p_day_slots?)` | Atomic capacity-aware booking insert. `p_day_slots` is the cross-date plan `[{date, slots[]}]` — capacity/conflict are checked across every (date, slot) it touches, and the span is recorded in `booking_day_slots`. `p_occupies_slots` stays the day-1 list for the legacy column; null `p_day_slots` falls back to a single day. Persists `p->>'detailers_count'` (clamped to free capacity, floored at `min_detailers`) as the heads reserved. |
+| `update_booking_detailers(p_id, p_detailer_ids, p_min_detailers)` | Safely reassign detailers on a booking. Capacity + per-detailer conflict are checked across the booking's **full `booking_day_slots` span** (same as `add_booking`), not just day 1. Keeps `detailers_count` in step with the named list |
 | `update_settings(p_pool_size, p_default_per_booking, p_closing_minutes?)` | Validates and updates settings singleton (`p_closing_minutes` null = leave closing time unchanged) |
 | `adjust_inventory_item(p_item_id, p_qty_change, p_reason, p_note)` | Signed stock delta (restock/adjustment) + logs a transaction (super-admin) |
 | `consume_coffee_serve(p_booking_id, p_coffee_name)` | Legacy per-booking coffee deduction (idempotent via `bookings.coffee_served_at`). **No longer auto-called** — kept for reference; serving now happens in the POS. |
@@ -186,7 +186,8 @@
   coffeeOrder: "Macchiato",
   status: "pending",               // pending | confirmed | cancelled | no_show | completed
   cancellationReason: null,
-  detailersAssigned: ["uuid1"],    // uuid[] — actual detailer IDs
+  detailersAssigned: ["uuid1"],    // uuid[] — the *specific* detailers named (may be empty)
+  detailersCount: 1,               // heads reserved against the pool; always >= detailersAssigned.length
   occupiesSlots: ["10:00 AM", "10:30 AM", "11:00 AM", "11:30 AM", "12:00 PM"],
   createdAt: "2024-03-10T09:30:00Z"
 }
@@ -245,7 +246,7 @@ showToast(message, type)
 
 ### Booking Rules
 
-1. **Capacity check**: Each time slot supports up to `detailerPoolSize` detailers total. A service's `minDetailers` is the minimum required — the slot is blocked if fewer are available. Capacity is checked on **every day** a booking touches (see sequential fill below).
+1. **Capacity check**: Each time slot supports up to `detailerPoolSize` detailers total. A service's `minDetailers` is the minimum required — the slot is blocked if fewer are available. Capacity is checked on **every day** a booking touches (see sequential fill below). Every capacity sum (client and DB) measures `bookings.detailers_count` — the heads a booking reserves — **never** `array_length(detailers_assigned, 1)`, which is NULL for a booking with no *specific* detailer named and would count it as zero. Naming a detailer is optional; the booking reserves `max(minDetailers, defaultDetailersPerBooking, named.length)` heads either way.
 2. **Sequential day-fill** (`planBookingDays` in `bookingUtils.js`): every service is a total-hours budget (hour-based services use their upper-bound hours; day-based use **N × 8 fixed hours** via `HOURS_PER_SERVICE_DAY`). The budget fills working days one after another — day 1 from the chosen start time to the configured closing, the remainder rolling into the next day's opening, and so on. The final day may be **partial** (only the slots needed are blocked; the rest of that day stays open for others). A service that runs past closing is never rejected — it auto-rolls into the next working day.
 3. **Cross-date occupancy**: the full (date, slot) span of a booking is stored in the `booking_day_slots` child table and drives capacity + per-detailer conflict enforcement in `add_booking`. `bookings.date` / `bookings.occupies_slots` remain the **day-1** values (for the schedule/monitor single-date views). Client-side, `refetchBookings` attaches each booking's `dayScheduleSlots` (date→slots map) so the pure availability helpers see multi-day spans.
 4. **Pending by default**: New public bookings land as `status = 'pending'`. Admin must confirm — only then does the booking appear on the schedule and the customer gets a confirmation email.
@@ -371,7 +372,7 @@ Categories are a separate `service_categories` table (slug → name + color). Th
 - Supabase Realtime (`postgres_changes`) pushes updates instantly — no polling
 - Fullscreen toggle for wall-mounted displays
 - Status badges: Upcoming / In Progress (pulsing gold) / Done
-- Start time + End time computed from slot duration
+- Start time + Finish time via `computeBookingETC(booking)` — the **one** shared helper (`bookingUtils.js`) used by the monitor, `/live`, and `/schedule`. It reads the end of the last `occupiesSlots` entry, so it is lunch-gap aware. Never recompute a finish time as `getSlotsConsumed() * 60` — slots are `SLOT_MINUTES` (30) apart, and multiplying by 60 doubles every job (a "4–5 hrs" service reads as a 10-hour span).
 
 ---
 

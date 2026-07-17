@@ -18,28 +18,11 @@ import { AdminLayout } from '@/components/AdminLayout';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { useApp } from '@/context/AppContext';
 import { supabase } from '@/lib/supabase';
-import { bookingCoversDate, getSlotsConsumed, toIsoDate } from '@/utils/bookingUtils';
+import { bookingCoversDate, computeBookingETC, toIsoDate } from '@/utils/bookingUtils';
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function computeEndTime(startTime, slotsConsumed) {
-  const m = startTime.match(/(\d+):(\d+)\s*(AM|PM)/i);
-  if (!m) return '—';
-  let h = parseInt(m[1]);
-  const min = parseInt(m[2]);
-  const period = m[3].toUpperCase();
-  if (period === 'PM' && h !== 12) h += 12;
-  if (period === 'AM' && h === 12) h = 0;
-  const SLOT_MIN = 60;
-  const total = h * 60 + min + slotsConsumed * SLOT_MIN;
-  const endH = Math.floor(total / 60) % 24;
-  const endM = total % 60;
-  const mer = endH >= 12 ? 'PM' : 'AM';
-  const display = endH % 12 === 0 ? 12 : endH % 12;
-  return `${display}:${String(endM).padStart(2, '0')} ${mer}`;
-}
 
 function toMinutes(timeStr = '') {
   const m = timeStr.match(/(\d+):(\d+)\s*(AM|PM)/i);
@@ -245,7 +228,7 @@ const JobCard = memo(function JobCard({ booking, catMap, status, detailerMap }) 
           </div>
           <div className="flex items-center gap-1.5 text-cream font-semibold">
             <Clock className="w-3.5 h-3.5 text-gold shrink-0" />
-            {computeEndTime(booking.time, getSlotsConsumed(booking.serviceDuration || '1 hr'))}
+            {computeBookingETC(booking)}
           </div>
         </div>
       </div>

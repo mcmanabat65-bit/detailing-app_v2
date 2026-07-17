@@ -14,27 +14,12 @@ import {
 import { useApp } from '@/context/AppContext';
 import { categoryColors } from '@/data/services';
 import {
+  computeBookingETC,
   getSlotsConsumed,
   nearestSlotAtOrBefore,
   toIsoDate,
-  parseTimeToMinutes,
-  minutesToTimeStr,
 } from '@/utils/bookingUtils';
-import { timeSlots, SLOT_MINUTES } from '@/data/timeSlots';
-
-// ETC from occupiesSlots (lunch-break-aware); arithmetic fallback.
-function computeETC(booking) {
-  const slots = booking.occupiesSlots;
-  if (Array.isArray(slots) && slots.length > 0) {
-    const lastMins = parseTimeToMinutes(slots[slots.length - 1]);
-    if (lastMins >= 0) return minutesToTimeStr(lastMins + SLOT_MINUTES);
-  }
-  const startMins = parseTimeToMinutes(booking.time);
-  if (startMins < 0) return '—';
-  return minutesToTimeStr(
-    startMins + getSlotsConsumed(booking.serviceDuration || '1 hr') * SLOT_MINUTES
-  );
-}
+import { timeSlots } from '@/data/timeSlots';
 
 const weekDates = (anchor) => {
   const d = new Date(anchor);
@@ -84,7 +69,7 @@ function StartCard({ booking, catMap }) {
   const color = categoryColors[booking.serviceCategory] || '#00704A';
   const catName = catMap[booking.serviceCategory]?.name ?? booking.serviceCategory ?? '—';
   const vehicle = [booking.vehicleYear, booking.vehicle].filter(Boolean).join(' ') || '—';
-  const etc = computeETC(booking);
+  const etc = computeBookingETC(booking);
   const VehicleIcon = booking.vehicleType === 2 ? Bike : Car;
 
   return (

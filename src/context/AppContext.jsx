@@ -511,6 +511,22 @@ export function AppProvider({ children }) {
       const occupies = plan.days[0].slots;
       const daySlots = plan.days.map((d) => ({ date: d.date, slots: d.slots }));
 
+      // Heads to reserve vs. the specific detailers named. Callers pass the
+      // named ids in `assignedDetailerIds`, and `detailersAssigned` as either
+      // that same array or a plain requested count. A booking with no named
+      // detailer still occupies the pool, so the count is sent separately —
+      // it is what the RPC's capacity check sums.
+      const namedIds = booking.assignedDetailerIds || [];
+      const requested = Array.isArray(booking.detailersAssigned)
+        ? booking.detailersAssigned.length
+        : Number(booking.detailersAssigned);
+      const detailersCount = Math.max(
+        namedIds.length,
+        Number.isFinite(requested) && requested > 0 ? requested : 1,
+        minDetailers,
+        1
+      );
+
       const payload = {
         ...toRow({
           id: booking.id || generateBookingId(),
@@ -534,7 +550,8 @@ export function AppProvider({ children }) {
           carId: booking.carId || null,
           coffeeOrder: booking.coffeeOrder,
           status: booking.status || 'pending',
-          detailersAssigned: booking.assignedDetailerIds || [],
+          detailersAssigned: namedIds,
+          detailersCount,
         }),
         min_detailers: minDetailers,
       };

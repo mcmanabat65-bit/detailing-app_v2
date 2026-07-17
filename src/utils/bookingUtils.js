@@ -202,6 +202,30 @@ export const planBookingDays = (startDate, startTime, serviceDuration, closingMi
 };
 
 /**
+ * Estimated finish time ("ETC") for a booking, as a "H:MM AM/PM" label.
+ *
+ * Prefers the booking's recorded `occupiesSlots` — the authoritative day-1 grid
+ * slots, which already skip the lunch gap — and returns the end of the last one.
+ * Falls back to arithmetic from the duration when no slots are recorded.
+ *
+ * Slots are SLOT_MINUTES (30) apart, NOT 60: `getSlotsConsumed` returns a count
+ * of half-hour slots, so multiplying it by 60 doubles the job length (a "4–5 hrs"
+ * service then reads as a 10-hour span).
+ */
+export const computeBookingETC = (booking) => {
+  const slots = booking?.occupiesSlots;
+  if (Array.isArray(slots) && slots.length > 0) {
+    const lastMins = parseTimeToMinutes(slots[slots.length - 1]);
+    if (lastMins >= 0) return minutesToTimeStr(lastMins + SLOT_MINUTES);
+  }
+  const startMins = parseTimeToMinutes(booking?.time || '');
+  if (startMins < 0) return '—';
+  return minutesToTimeStr(
+    startMins + getSlotsConsumed(booking?.serviceDuration || '1 hr') * SLOT_MINUTES
+  );
+};
+
+/**
  * Returns ISO date strings for days 2, 3, … of a multi-day booking.
  * Day 1 (the start date) is not included — only the additional blocked dates.
  * e.g. startDate="2026-05-06", daysConsumed=2 → ["2026-05-07"]
@@ -278,7 +302,15 @@ const endsPastClosing = (time, slotsConsumed, closingMinutes = CLOSING_MINUTES) 
   return startMins + slotsConsumed * SLOT_MINUTES > closingMinutes;
 };
 
+/**
+ * Heads a booking reserves against the pool. `detailersCount` is authoritative
+ * — it is what the DB's capacity checks sum, and it covers bookings with no
+ * *specific* detailers named. The array/number branches are fallbacks for rows
+ * fetched before the detailers_count backfill.
+ */
 const detailersFor = (b) => {
+  const count = Number(b.detailersCount);
+  if (Number.isFinite(count) && count > 0) return count;
   if (Array.isArray(b.detailersAssigned)) return b.detailersAssigned.length || 1;
   const n = Number(b.detailersAssigned);
   return Number.isFinite(n) && n > 0 ? n : 1;
