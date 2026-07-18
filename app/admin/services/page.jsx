@@ -23,6 +23,35 @@ import { AdminLayout } from '@/components/AdminLayout';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { useApp } from '@/context/AppContext';
 import { formatCurrency } from '@/data/services';
+import {
+  getDaysConsumed,
+  getSlotsConsumed,
+  parseDurationMinutes,
+  HOURS_PER_SERVICE_DAY,
+} from '@/utils/bookingUtils';
+
+// Live feedback on how a typed duration is interpreted, so staff catch typos
+// (e.g. "45" read as 45 hours) before saving.
+function DurationPreview({ duration }) {
+  const days = getDaysConsumed(duration);
+  let text;
+  if (days > 0) {
+    text = `${days} day${days === 1 ? '' : 's'} of work (≈ ${days * HOURS_PER_SERVICE_DAY} hrs), fills working days in order`;
+  } else {
+    const mins = parseDurationMinutes(duration);
+    const slots = getSlotsConsumed(duration);
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    const hm = [h ? `${h} hr` : null, m ? `${m} min` : null].filter(Boolean).join(' ') || '—';
+    text = `Interpreted as ${hm} → ${slots} slot${slots === 1 ? '' : 's'} (${slots * 30} min reserved)`;
+  }
+  return (
+    <div className="mt-1.5 text-[11px] text-gold/80 flex items-center gap-1.5">
+      <Clock className="w-3 h-3 shrink-0" />
+      <span>{text}</span>
+    </div>
+  );
+}
 
 const EMPTY_FORM = {
   name: '',
@@ -149,7 +178,7 @@ function ServiceForm({ initial, onSave, onCancel, isSaving, categories }) {
         </FormField>
 
         <FormField label="Duration *" error={errors.duration}
-          hint="e.g. 2–3 hrs, 1–2 days">
+          hint="e.g. 45 min, 1.5 hrs, 1 hr 30 min, 2–3 hrs, 1–2 days">
           <input
             type="text"
             value={form.duration}
@@ -157,6 +186,7 @@ function ServiceForm({ initial, onSave, onCancel, isSaving, categories }) {
             className="admin-input"
             placeholder="2–3 hrs"
           />
+          {form.duration.trim() && <DurationPreview duration={form.duration} />}
         </FormField>
 
         <FormField label="Category *">

@@ -62,30 +62,74 @@ export const isActiveBooking = (b) =>
   b && b.status !== 'cancelled' && b.status !== 'no_show';
 
 /**
- * Map a service "duration" string (e.g. "1.5 hrs", "4–5 hrs", "1–2 days") to
- * the number of 30-minute slots it occupies.
- *   - Range strings use the upper bound (conservative, no double-booking).
- *   - Day strings consume the full slot grid.
- *   - Fractional hours are rounded up to the next slot boundary.
+ * Parse an hour/minute duration string to total MINUTES. Supports:
+ *   - hours:    "1 hr", "1 hour", "1.5 hrs", "2h"      (unit word optional)
+ *   - minutes:  "45 min", "45 mins", "45 minutes", "45m", "90m"
+ *   - compound: "1 hr 30 min", "1h30m"                 (summed)
+ *   - ranges:   "2-3 hrs", "1.5–2 hrs"  → upper bound (conservative)
+ *   - bare:     "1:30"                  → 1 h 30 m (clock form)
+ *   - a lone number with no unit is treated as HOURS ("2" → 120 min),
+ *     matching the historical default.
+ * Returns 0 if nothing parses (caller decides the fallback).
+ *
+ * NOTE: this is for hour/minute durations only — day-based durations are
+ * handled separately via getDaysConsumed (see getSlotsConsumed).
+ */
+export const parseDurationMinutes = (duration = '') => {
+  const d = String(duration).toLowerCase().trim();
+  if (!d) return 0;
+
+  // Clock form "H:MM" (only when there's no unit word) → hours:minutes.
+  const clock = d.match(/^(\d+)\s*:\s*(\d{1,2})$/);
+  if (clock) return parseInt(clock[1], 10) * 60 + parseInt(clock[2], 10);
+
+  // Minute components: number directly before m / min / mins / minute(s).
+  // Matched first so "45 min" is never mistaken for hours.
+  let minutes = 0;
+  let matchedMinutes = false;
+  for (const m of d.matchAll(/(\d+(?:\.\d+)?)\s*(?:mins?|minutes?|m)\b/g)) {
+    minutes += parseFloat(m[1]);
+    matchedMinutes = true;
+  }
+
+  // Hour components. A range like "2-3 hrs" takes the upper bound. Strip the
+  // minute tokens first so their numbers can't be re-read as hours.
+  const hoursStr = d.replace(/(\d+(?:\.\d+)?)\s*(?:mins?|minutes?|m)\b/g, ' ');
+  let hours = 0;
+  let matchedHours = false;
+  const range = hoursStr.match(/(\d+(?:\.\d+)?)\s*[–-]\s*(\d+(?:\.\d+)?)\s*(?:h|hr|hrs|hour|hours)?\b/);
+  if (range) {
+    hours = parseFloat(range[2]); // upper bound
+    matchedHours = true;
+  } else {
+    for (const h of hoursStr.matchAll(/(\d+(?:\.\d+)?)\s*(?:h|hr|hrs|hour|hours)\b/g)) {
+      hours += parseFloat(h[1]);
+      matchedHours = true;
+    }
+    // A lone bare number with no unit anywhere → treat as hours (legacy).
+    if (!matchedHours && !matchedMinutes) {
+      const bare = hoursStr.match(/(\d+(?:\.\d+)?)/);
+      if (bare) { hours = parseFloat(bare[1]); matchedHours = true; }
+    }
+  }
+
+  return hours * 60 + minutes;
+};
+
+/**
+ * Map a service "duration" string (e.g. "45 min", "1.5 hrs", "1 hr 30 min",
+ * "4–5 hrs", "1–2 days") to the number of 30-minute slots it occupies.
+ *   - Day strings consume the full slot grid (sentinel).
+ *   - Hour/minute durations are parsed by parseDurationMinutes, then rounded
+ *     UP to the next 30-min slot boundary (never zero).
  */
 export const getSlotsConsumed = (duration = '') => {
-  const d = duration.toLowerCase();
+  const d = String(duration).toLowerCase();
   // Day-based services use timeSlots.length as a sentinel meaning "rest of day from start".
   if (d.includes('day')) return timeSlots.length;
-  const slotsPerHour = 60 / SLOT_MINUTES;
-  // Range: "1.5–2 hrs" or "4-5 hrs" — take upper bound
-  const range = d.match(/(\d+(?:\.\d+)?)\s*[–-]\s*(\d+(?:\.\d+)?)/);
-  if (range) {
-    const upper = parseFloat(range[2]);
-    return Math.max(1, Math.ceil(upper * slotsPerHour));
-  }
-  // Single value: "1.5 hrs", "2 hrs"
-  const single = d.match(/(\d+(?:\.\d+)?)/);
-  if (single) {
-    const hours = parseFloat(single[1]);
-    return Math.max(1, Math.ceil(hours * slotsPerHour));
-  }
-  return 1;
+  const minutes = parseDurationMinutes(d);
+  if (minutes <= 0) return 1;
+  return Math.max(1, Math.ceil(minutes / SLOT_MINUTES));
 };
 
 /**
@@ -257,19 +301,30 @@ export const bookingCoversDate = (b, isoDate) => {
 };
 
 /**
- * Map a time string (exact or arbitrary) to its grid index.
- * For non-grid times (e.g. "8:15 AM"), finds the nearest slot at or before.
+ * Map a time string (exact or arbitrary) to its grid index, rounding to the
+ * NEAREST slot (ties go forward). So "10:44 AM" → 10:30, "10:46 AM" → 11:00.
+ *
+ * Rounding to nearest (rather than always snapping backward to the previous
+ * slot) prevents a start time like 10:44 from being treated as 10:30 and
+ * falsely colliding with a booking already sitting in that earlier slot.
+ * Times before the first slot clamp to 0; after the last clamp to the last.
  */
 const slotIndex = (time) => {
   const exact = timeSlots.indexOf(time);
   if (exact !== -1) return exact;
-  // Arbitrary time: find the slot that starts at or before this time
   const mins = parseTimeToMinutes(time);
   if (mins < 0) return -1;
-  let best = -1;
+  if (mins <= parseTimeToMinutes(timeSlots[0])) return 0;
+  const last = timeSlots.length - 1;
+  if (mins >= parseTimeToMinutes(timeSlots[last])) return last;
+  let best = 0;
+  let bestDist = Infinity;
   for (let i = 0; i < timeSlots.length; i++) {
-    if (parseTimeToMinutes(timeSlots[i]) <= mins) best = i;
-    else break;
+    const dist = Math.abs(parseTimeToMinutes(timeSlots[i]) - mins);
+    // `<=` lets a later, equidistant slot win — so exact ties (e.g. 10:45
+    // between 10:30 and 11:00) round FORWARD, never backward into an earlier
+    // slot another booking may occupy.
+    if (dist <= bestDist) { bestDist = dist; best = i; }
   }
   return best;
 };
