@@ -335,3 +335,7 @@ Two things worth knowing
 This was display-only. Booking capacity, conflicts, and occupies_slots were always computed correctly via SLOT_MINUTES — so no stored data is wrong, and nothing needs backfilling. Only the monitor and live screens lied about finish times.
 
 A job starting near closing shows its day-1 finish. A 1hr job at 4:30 PM displays "Finish 5:00 PM" because only one slot fits before closing and the rest rolls to tomorrow morning (the rollover you confirmed is intended). The monitor is a single-day view, so that's consistent — but staff reading it won't see that the job continues tomorrow. Tell me if you want the card to flag a rollover.
+
+
+todos: 
+- add status on detailers page if they are in-progress or not

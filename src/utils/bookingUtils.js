@@ -22,6 +22,23 @@ export const minutesToTimeStr = (totalMin) => {
 };
 
 /**
+ * Snap a minute-precise time to the 30-minute booking grid, flooring to the
+ * slot at or before it: 8:20 → 8:00, 8:44 → 8:30. Booking capacity is tracked
+ * in `SLOT_MINUTES` buckets, so an off-grid start (e.g. 8:20) must be pinned to
+ * a bucket — otherwise two jobs a few minutes apart round to *different*
+ * buckets and stop seeing each other's detailers (an undercount).
+ *
+ * Accepts and returns a "H:MM AM/PM" label. Flooring (not nearest) keeps a job
+ * inside the bucket its start actually falls in.
+ */
+export const snapTimeToGrid = (label = '') => {
+  const mins = parseTimeToMinutes(label);
+  if (mins < 0) return label;
+  const snapped = Math.floor(mins / SLOT_MINUTES) * SLOT_MINUTES;
+  return minutesToTimeStr(snapped);
+};
+
+/**
  * Map any time string to the nearest grid slot at or before it.
  * e.g. "8:15 AM" → "8:00 AM", "8:45 AM" → "8:30 AM"
  * Returns null if no grid slot is at or before the given time.
@@ -75,6 +92,12 @@ export const isActiveBooking = (b) =>
  * NOTE: this is for hour/minute durations only — day-based durations are
  * handled separately via getDaysConsumed (see getSlotsConsumed).
  */
+// A number token that also accepts a leading decimal point: "2", "1.5", "0.5"
+// and ".5" (which admins do type). Must be `\d*\.?\d+`, NOT `\d+(?:\.\d+)?` —
+// the latter needs a digit before the dot, so ".5 hrs" matched only the "5"
+// and silently became FIVE hours, a 10x over-block on a half-hour job.
+const DUR_NUM = String.raw`\d*\.?\d+`;
+
 export const parseDurationMinutes = (duration = '') => {
   const d = String(duration).toLowerCase().trim();
   if (!d) return 0;
@@ -87,28 +110,29 @@ export const parseDurationMinutes = (duration = '') => {
   // Matched first so "45 min" is never mistaken for hours.
   let minutes = 0;
   let matchedMinutes = false;
-  for (const m of d.matchAll(/(\d+(?:\.\d+)?)\s*(?:mins?|minutes?|m)\b/g)) {
+  const minuteRe = new RegExp(`(${DUR_NUM})\\s*(?:mins?|minutes?|m)\\b`, 'g');
+  for (const m of d.matchAll(minuteRe)) {
     minutes += parseFloat(m[1]);
     matchedMinutes = true;
   }
 
   // Hour components. A range like "2-3 hrs" takes the upper bound. Strip the
   // minute tokens first so their numbers can't be re-read as hours.
-  const hoursStr = d.replace(/(\d+(?:\.\d+)?)\s*(?:mins?|minutes?|m)\b/g, ' ');
+  const hoursStr = d.replace(new RegExp(`(${DUR_NUM})\\s*(?:mins?|minutes?|m)\\b`, 'g'), ' ');
   let hours = 0;
   let matchedHours = false;
-  const range = hoursStr.match(/(\d+(?:\.\d+)?)\s*[–-]\s*(\d+(?:\.\d+)?)\s*(?:h|hr|hrs|hour|hours)?\b/);
+  const range = hoursStr.match(new RegExp(`(${DUR_NUM})\\s*[–-]\\s*(${DUR_NUM})\\s*(?:h|hr|hrs|hour|hours)?\\b`));
   if (range) {
     hours = parseFloat(range[2]); // upper bound
     matchedHours = true;
   } else {
-    for (const h of hoursStr.matchAll(/(\d+(?:\.\d+)?)\s*(?:h|hr|hrs|hour|hours)\b/g)) {
+    for (const h of hoursStr.matchAll(new RegExp(`(${DUR_NUM})\\s*(?:h|hr|hrs|hour|hours)\\b`, 'g'))) {
       hours += parseFloat(h[1]);
       matchedHours = true;
     }
     // A lone bare number with no unit anywhere → treat as hours (legacy).
     if (!matchedHours && !matchedMinutes) {
-      const bare = hoursStr.match(/(\d+(?:\.\d+)?)/);
+      const bare = hoursStr.match(new RegExp(`(${DUR_NUM})`));
       if (bare) { hours = parseFloat(bare[1]); matchedHours = true; }
     }
   }

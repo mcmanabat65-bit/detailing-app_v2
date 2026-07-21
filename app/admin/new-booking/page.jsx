@@ -32,6 +32,7 @@ import {
   getTimeAvailability,
   isDateSelectable,
   minutesToTimeStr,
+  snapTimeToGrid,
   toIsoDate,
 } from '@/utils/bookingUtils';
 
@@ -962,11 +963,14 @@ function AdminNewBookingForm() {
                   })()}
                   min="07:00"
                   max="17:00"
+                  step={1800}
                   onChange={(e) => {
                     const val = e.target.value;
                     if (!val) { setTime(''); return; }
                     const [hStr, mStr] = val.split(':');
-                    setTime(minutesToTimeStr(parseInt(hStr, 10) * 60 + parseInt(mStr, 10)));
+                    // Snap to the 30-min grid — capacity is bucketed, so an
+                    // off-grid start (8:20) must pin to a slot (8:00).
+                    setTime(snapTimeToGrid(minutesToTimeStr(parseInt(hStr, 10) * 60 + parseInt(mStr, 10))));
                   }}
                   className="w-full bg-surface/70 border border-white/10 rounded-sm py-2.5 pl-10 pr-3 text-cream text-sm focus:outline-none focus:border-gold/50 transition-colors [color-scheme:dark] disabled:opacity-40 disabled:cursor-not-allowed"
                 />
