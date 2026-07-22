@@ -271,6 +271,7 @@ function RecipeForm({ coffee, items, initialLines, onSave, onCancel, isSaving })
       ? initialLines.map((l) => ({ itemId: l.itemId, qtyPerServe: String(l.qtyPerServe) }))
       : [{ itemId: '', qtyPerServe: '' }]
   );
+  const [sellingPrice, setSellingPrice] = useState(String(coffee.sellingPrice ?? coffee.selling_price ?? ''));
 
   const setLine = (i, patch) =>
     setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
@@ -328,13 +329,27 @@ function RecipeForm({ coffee, items, initialLines, onSave, onCancel, isSaving })
         <span className="text-gold font-semibold">{peso(costPerServe)}</span>
       </div>
 
+      <div className="flex items-center justify-between border-t border-white/5 pt-3">
+        <span className="text-muted text-sm">Selling price / serve</span>
+        <div className="relative w-36">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted text-sm pointer-events-none">₱</span>
+          <input
+            type="number" step="0.01" min="0"
+            className={`${inputCls} pl-7`}
+            value={sellingPrice}
+            onChange={(e) => setSellingPrice(e.target.value)}
+            placeholder="0.00"
+          />
+        </div>
+      </div>
+
       <div className="flex gap-3">
         <button type="button" onClick={onCancel}
           className="flex-1 px-4 py-2.5 border border-white/10 text-cream/85 rounded-sm hover:border-gold/50 transition-colors">
           Cancel
         </button>
         <button type="button" disabled={isSaving}
-          onClick={() => onSave(lines)}
+          onClick={() => onSave(lines, Math.max(0, Number(sellingPrice) || 0))}
           className="flex-1 px-4 py-2.5 bg-gold text-obsidian font-semibold rounded-sm hover:bg-gold-light transition-colors disabled:opacity-60 inline-flex items-center justify-center gap-2">
           {isSaving ? 'Saving…' : (<><Check className="w-4 h-4" />Save Recipe</>)}
         </button>
@@ -357,6 +372,7 @@ function InventoryAdmin() {
     adjustInventoryItem,
     setCoffeeRecipe,
     getRecipeForCoffee,
+    upsertCoffee,
     showToast,
   } = useApp();
 
@@ -397,11 +413,15 @@ function InventoryAdmin() {
     setAdjustModal(null);
   };
 
-  const saveRecipe = async (lines) => {
+  const saveRecipe = async (lines, sellingPrice) => {
     setSaving(true);
-    const res = await setCoffeeRecipe(recipeModal.id, lines);
+    const [recipeRes, priceRes] = await Promise.all([
+      setCoffeeRecipe(recipeModal.id, lines),
+      upsertCoffee({ ...recipeModal, sellingPrice }),
+    ]);
     setSaving(false);
-    if (res?.error) { showToast(res.error, 'error'); return; }
+    if (recipeRes?.error) { showToast(recipeRes.error, 'error'); return; }
+    if (priceRes?.error) { showToast(priceRes.error, 'error'); return; }
     showToast(`Recipe for "${recipeModal.name}" saved.`, 'success');
     setRecipeModal(null);
   };

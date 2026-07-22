@@ -215,10 +215,11 @@ function Reports() {
         o.createdAt ? o.createdAt.slice(0, 10) : toIso(new Date()),
         period
       );
-      if (!map[key]) map[key] = { count: 0, items: 0, estCost: 0 };
+      if (!map[key]) map[key] = { count: 0, items: 0, estCost: 0, selling: 0 };
       map[key].count += 1;
       map[key].items += o.itemCount || 0;
       map[key].estCost += o.totalCost || 0;
+      map[key].selling += o.sellingTotal || 0;
     });
 
     const sorted = Object.keys(map)
@@ -230,13 +231,15 @@ function Reports() {
         orders: map[key].count,
         items: map[key].items,
         estCost: map[key].estCost,
+        selling: map[key].selling,
       }));
 
     const totalOrders = sorted.reduce((s, r) => s + r.orders, 0);
     const totalItems = sorted.reduce((s, r) => s + r.items, 0);
     const totalEstCost = sorted.reduce((s, r) => s + r.estCost, 0);
+    const totalSelling = sorted.reduce((s, r) => s + r.selling, 0);
 
-    return { rows: sorted, totalOrders, totalItems, totalEstCost };
+    return { rows: sorted, totalOrders, totalItems, totalEstCost, totalSelling };
   }, [posOrders, period, rangeCount]);
 
   // ── coffee item breakdown ───────────────────────────────────────────────
@@ -427,7 +430,7 @@ function Reports() {
       {/* ── Coffee / POS Sales ────────────────────────────────────────── */}
       <div>
         <h2 className="font-serif text-lg text-cream mb-4">Coffee Sales (POS)</h2>
-        <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
           <StatCard
             icon={Coffee}
             label="Total Orders"
@@ -441,6 +444,13 @@ function Reports() {
             value={coffeeSales.totalItems}
             sub={coffeeSales.totalOrders ? `avg ${(coffeeSales.totalItems / coffeeSales.totalOrders).toFixed(1)} per order` : '—'}
             accent="text-amber-400"
+          />
+          <StatCard
+            icon={PhilippinePeso}
+            label="Total Coffee Sales"
+            value={formatCurrency(coffeeSales.totalSelling)}
+            sub="based on selling price"
+            accent="text-gold"
           />
           <StatCard
             icon={PhilippinePeso}

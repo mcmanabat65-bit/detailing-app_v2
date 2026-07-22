@@ -131,6 +131,7 @@ create table if not exists coffees (
   name text not null,
   available boolean not null default true,
   sort_order integer not null default 0,
+  selling_price numeric(10,2) not null default 0,
   created_at timestamptz not null default now()
 );
 
@@ -1105,6 +1106,7 @@ create table if not exists pos_orders (
   note          text,
   item_count    integer not null default 0,
   total_cost    numeric(14,4) not null default 0,  -- estimated ingredient cost
+  selling_total numeric(14,2) not null default 0,  -- customer-facing selling price total
   served_by     text,                 -- JWT email of the barista who tendered
   created_at    timestamptz not null default now()
 );
@@ -1144,10 +1146,11 @@ create policy "pos_order_items_select" on pos_order_items for select to authenti
 -- Returns { ok, order_id, deducted:[{name,qty,uom}], warnings:[...] }.
 -- ---------------------------------------------------------------------
 create or replace function public.tender_pos_order(
-  p_member_id   text,
-  p_member_name text,
-  p_note        text,
-  p_lines       jsonb
+  p_member_id    text,
+  p_member_name  text,
+  p_note         text,
+  p_lines        jsonb,
+  p_selling_total numeric(14,2) default 0
 ) returns jsonb
 language plpgsql
 security definer
@@ -1226,7 +1229,7 @@ begin
     end loop;
   end loop;
 
-  update pos_orders set item_count = v_count, total_cost = v_total where id = v_order_id;
+  update pos_orders set item_count = v_count, total_cost = v_total, selling_total = coalesce(p_selling_total, 0) where id = v_order_id;
 
   return jsonb_build_object(
     'ok', true, 'order_id', v_order_id,

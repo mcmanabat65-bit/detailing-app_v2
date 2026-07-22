@@ -15,6 +15,7 @@ import {
   ClipboardList,
   Maximize2,
   Minimize2,
+  Trash2,
 } from 'lucide-react';
 import { AdminLayout } from '@/components/AdminLayout';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
@@ -47,6 +48,8 @@ function PosContent({ fullscreen = false, onToggle }) {
     inventoryItems,
     posOrders,
     createPosOrder,
+    deletePosOrder,
+    isSuperAdmin,
     showToast,
   } = useApp();
   const router = useRouter();
@@ -55,6 +58,17 @@ function PosContent({ fullscreen = false, onToggle }) {
   const [note, setNote] = useState('');
   const [cart, setCart] = useState([]);           // [{ coffeeId, name, qty }]
   const [saving, setSaving] = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+
+  const deleteOrder = async (id) => {
+    const res = await deletePosOrder(id);
+    if (res?.error) {
+      showToast(res.error, 'error');
+    } else {
+      showToast('Order deleted.', 'success');
+    }
+    setConfirmDeleteId(null);
+  };
 
   const approvedMembers = useMemo(
     () =>
@@ -81,7 +95,12 @@ function PosContent({ fullscreen = false, onToggle }) {
     return map;
   }, [coffeeRecipes]);
 
-  // Estimated ingredient cost per single serve of a coffee.
+  const coffeeById = (id) => coffees.find((c) => c.id === id);
+
+  // Selling price set by the admin in the recipe editor (customer-facing).
+  const sellingPriceOf = (coffeeId) => Number(coffeeById(coffeeId)?.sellingPrice) || 0;
+
+  // Estimated ingredient cost per single serve — shown on coffee cards for reference.
   const costPerServe = (coffeeId) =>
     coffeeRecipes
       .filter((r) => r.coffeeId === coffeeId)
@@ -111,7 +130,7 @@ function PosContent({ fullscreen = false, onToggle }) {
     setCart((c) => c.filter((l) => l.coffeeId !== coffeeId));
 
   const itemCount = cart.reduce((s, l) => s + l.qty, 0);
-  const cartCost = cart.reduce((s, l) => s + costPerServe(l.coffeeId) * l.qty, 0);
+  const cartTotal = cart.reduce((s, l) => s + sellingPriceOf(l.coffeeId) * l.qty, 0);
 
   const clearCart = () => {
     setCart([]);
@@ -131,6 +150,7 @@ function PosContent({ fullscreen = false, onToggle }) {
       memberName: member ? member.name : null,
       note: note.trim() || null,
       lines: cart.map((l) => ({ coffeeId: l.coffeeId, coffeeName: l.name, qty: l.qty })),
+      sellingTotal: cartTotal,
     });
     setSaving(false);
 
@@ -197,8 +217,7 @@ function PosContent({ fullscreen = false, onToggle }) {
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               {availableCoffees.map((c) => {
-                const mapped = recipeCountByCoffee.get(c.id) || 0;
-                const cost = costPerServe(c.id);
+                const price = sellingPriceOf(c.id);
                 return (
                   <button
                     key={c.id}
@@ -210,11 +229,11 @@ function PosContent({ fullscreen = false, onToggle }) {
                       <Plus className="w-4 h-4 text-cream/40 group-hover:text-gold transition-colors" />
                     </div>
                     <div className="text-cream font-medium leading-tight">{c.name}</div>
-                    <div className="text-[11px] text-muted mt-auto">
-                      {mapped > 0 ? (
-                        <>~{peso(cost)} / serve</>
+                    <div className="text-[11px] mt-auto">
+                      {price > 0 ? (
+                        <span className="text-gold font-medium">{peso(price)}</span>
                       ) : (
-                        <span className="text-cream/40 italic">No recipe — no deduction</span>
+                        <span className="text-cream/40 italic">No price set</span>
                       )}
                     </div>
                   </button>
@@ -265,7 +284,7 @@ function PosContent({ fullscreen = false, onToggle }) {
                   <div className="flex-1 min-w-0">
                     <div className="text-sm text-cream truncate">{l.name}</div>
                     <div className="text-[11px] text-muted">
-                      {peso(costPerServe(l.coffeeId) * l.qty)}
+                      {peso(sellingPriceOf(l.coffeeId) * l.qty)}
                     </div>
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
@@ -309,9 +328,9 @@ function PosContent({ fullscreen = false, onToggle }) {
 
           <div className="flex items-center justify-between text-sm border-t border-white/5 pt-3 mb-4">
             <span className="text-muted">
-              {itemCount} item{itemCount === 1 ? '' : 's'} · est. cost
+              {itemCount} item{itemCount === 1 ? '' : 's'} · total
             </span>
-            <span className="text-gold font-semibold">{peso(cartCost)}</span>
+            <span className="text-gold font-semibold">{peso(cartTotal)}</span>
           </div>
 
           <div className="flex gap-2">
@@ -352,7 +371,8 @@ function PosContent({ fullscreen = false, onToggle }) {
                   <th className="px-4 py-3 font-medium">Member</th>
                   <th className="px-4 py-3 font-medium">Coffees</th>
                   <th className="px-4 py-3 font-medium text-right">Items</th>
-                  <th className="px-4 py-3 font-medium text-right">Est. Cost</th>
+                  <th className="px-4 py-3 font-medium text-right">Total</th>
+                  {isSuperAdmin && <th className="px-4 py-3 font-medium w-10" />}
                 </tr>
               </thead>
               <tbody>
@@ -394,7 +414,35 @@ function PosContent({ fullscreen = false, onToggle }) {
                         .join(', ') || '—'}
                     </td>
                     <td className="px-4 py-3 text-right text-cream">{num(o.itemCount)}</td>
-                    <td className="px-4 py-3 text-right text-muted">{peso(o.totalCost)}</td>
+                    <td className="px-4 py-3 text-right text-muted">{peso(o.sellingTotal ?? o.totalCost)}</td>
+                    {isSuperAdmin && (
+                      <td className="px-4 py-3 text-right">
+                        {confirmDeleteId === o.id ? (
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              onClick={() => deleteOrder(o.id)}
+                              className="px-2 py-1 text-[11px] bg-danger/20 text-danger border border-danger/30 rounded-sm hover:bg-danger/30 transition-colors"
+                            >
+                              Confirm
+                            </button>
+                            <button
+                              onClick={() => setConfirmDeleteId(null)}
+                              className="px-2 py-1 text-[11px] border border-white/10 text-cream/60 rounded-sm hover:border-white/20 transition-colors"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setConfirmDeleteId(o.id)}
+                            aria-label="Delete order"
+                            className="p-1.5 text-cream/30 hover:text-danger hover:bg-danger/10 rounded-sm transition-colors"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>

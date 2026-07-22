@@ -951,6 +951,7 @@ export function AppProvider({ children }) {
         name: (coffee.name || '').trim(),
         available: coffee.available !== false,
         sort_order: Number(coffee.sortOrder) || 0,
+        selling_price: Math.max(0, Number(coffee.sellingPrice) || 0),
       };
       if (!row.name) return { error: 'Name is required.' };
       let query;
@@ -1328,7 +1329,7 @@ export function AppProvider({ children }) {
   // lives here now — booking completion no longer touches inventory.
   // `lines`: [{ coffeeId?, coffeeName, qty }]. Returns { ok, deducted, warnings }.
   const createPosOrder = useCallback(
-    async ({ memberId = null, memberName = null, note = null, lines = [] } = {}) => {
+    async ({ memberId = null, memberName = null, note = null, lines = [], sellingTotal = 0 } = {}) => {
       if (!supabase) return { error: 'Database not connected.' };
       const payload = (lines || [])
         .filter((l) => (l.coffeeName || '').trim() && Number(l.qty) > 0)
@@ -1344,6 +1345,7 @@ export function AppProvider({ children }) {
         p_member_name: memberName,
         p_note: note,
         p_lines: payload,
+        p_selling_total: Math.max(0, Number(sellingTotal) || 0),
       });
       if (error) return { error: error.message };
       if (data?.error) return { error: data.error };
@@ -1359,6 +1361,17 @@ export function AppProvider({ children }) {
       };
     },
     [refetchPosOrders, refetchInventoryItems, refetchInventoryTransactions]
+  );
+
+  const deletePosOrder = useCallback(
+    async (id) => {
+      if (!supabase) return { error: 'Database not connected.' };
+      const { error } = await supabase.from('pos_orders').delete().eq('id', id);
+      if (error) return { error: error.message };
+      await refetchPosOrders();
+      return { ok: true };
+    },
+    [refetchPosOrders]
   );
 
   // ===== Add-on Catalog =====
@@ -1928,6 +1941,7 @@ export function AppProvider({ children }) {
       getRecipeForCoffee,
       posOrders,
       createPosOrder,
+      deletePosOrder,
       updateSettings,
       setAdminSession,
       signOut,
@@ -2026,6 +2040,7 @@ export function AppProvider({ children }) {
       getRecipeForCoffee,
       posOrders,
       createPosOrder,
+      deletePosOrder,
       updateSettings,
       setAdminSession,
       signOut,

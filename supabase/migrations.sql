@@ -2475,3 +2475,105 @@ end;
 $$;
 
 grant execute on function update_booking_detailers(text, uuid[], int) to authenticated;
+
+-- Phase 16 — Coffee selling price + POS selling total
+-- Adds a selling_price column to coffees so each drink has a customer-facing
+-- price that the POS displays (separate from the ingredient cost estimate).
+-- Also adds selling_total to pos_orders to record what was actually charged.
+alter table coffees    add column if not exists selling_price  numeric(10,2)  not null default 0;
+alter table pos_orders add column if not exists selling_total  numeric(14,2)  not null default 0;
+
+-- Re-create tender_pos_order to accept p_selling_total and persist it.
+create or replace function public.tender_pos_order(
+  p_member_id    text,
+  p_member_name  text,
+  p_note         text,
+  p_lines        jsonb,
+  p_selling_total numeric(14,2) default 0
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_order_id  uuid;
+  v_email     text := lower(coalesce(auth.jwt() ->> 'email', ''));
+  v_line      jsonb;
+  v_coffee_id uuid;
+  v_qty       integer;
+  v_name      text;
+  v_count     integer := 0;
+  r           record;
+  v_deducted  jsonb := '[]'::jsonb;
+  v_warnings  jsonb := '[]'::jsonb;
+  v_total     numeric(14,4) := 0;
+begin
+  if auth.uid() is null then
+    return jsonb_build_object('error', 'Not authenticated.');
+  end if;
+  if p_lines is null or jsonb_typeof(p_lines) <> 'array' or jsonb_array_length(p_lines) = 0 then
+    return jsonb_build_object('error', 'Add at least one coffee to the order.');
+  end if;
+
+  insert into pos_orders (member_id, member_name, note, served_by)
+  values (p_member_id, nullif(btrim(p_member_name), ''), nullif(btrim(p_note), ''), nullif(v_email, ''))
+  returning id into v_order_id;
+
+  for v_line in select * from jsonb_array_elements(p_lines)
+  loop
+    v_qty  := greatest(1, coalesce((v_line ->> 'qty')::int, 1));
+    v_name := btrim(coalesce(v_line ->> 'coffee_name', ''));
+    if v_name = '' then continue; end if;
+
+    begin
+      v_coffee_id := nullif(v_line ->> 'coffee_id', '')::uuid;
+    exception when others then
+      v_coffee_id := null;
+    end;
+    if v_coffee_id is null then
+      select id into v_coffee_id from coffees where lower(name) = lower(v_name) limit 1;
+    end if;
+
+    insert into pos_order_items (order_id, coffee_id, coffee_name, qty)
+    values (v_order_id, v_coffee_id, v_name, v_qty);
+    v_count := v_count + v_qty;
+
+    if v_coffee_id is null then
+      v_warnings := v_warnings || to_jsonb('No menu match for "' || v_name || '" — no recipe deducted.');
+      continue;
+    end if;
+
+    for r in
+      select cr.item_id, cr.qty_per_serve, i.name, i.uom, i.unit_cost, i.stock_qty
+      from coffee_recipes cr
+      join inventory_items i on i.id = cr.item_id
+      where cr.coffee_id = v_coffee_id and cr.qty_per_serve > 0
+    loop
+      update inventory_items
+         set stock_qty = stock_qty - (r.qty_per_serve * v_qty), updated_at = now()
+       where id = r.item_id;
+
+      insert into inventory_transactions (item_id, qty_change, reason, coffee_name, note)
+      values (r.item_id, -(r.qty_per_serve * v_qty), 'consumption', v_name, 'POS ' || v_order_id::text);
+
+      v_deducted := v_deducted || jsonb_build_object(
+        'name', r.name, 'qty', r.qty_per_serve * v_qty, 'uom', r.uom);
+      v_total := v_total + (coalesce(r.unit_cost, 0) * r.qty_per_serve * v_qty);
+
+      if r.stock_qty - (r.qty_per_serve * v_qty) < 0 then
+        v_warnings := v_warnings || to_jsonb('"' || r.name || '" is now oversold (negative stock).');
+      end if;
+    end loop;
+  end loop;
+
+  update pos_orders
+     set item_count = v_count, total_cost = v_total, selling_total = coalesce(p_selling_total, 0)
+   where id = v_order_id;
+
+  return jsonb_build_object(
+    'ok', true, 'order_id', v_order_id,
+    'deducted', v_deducted, 'warnings', v_warnings);
+end;
+$$;
+
+grant execute on function public.tender_pos_order(text, text, text, jsonb, numeric) to authenticated;
