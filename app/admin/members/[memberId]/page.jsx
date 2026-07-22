@@ -34,7 +34,7 @@ import { useApp } from '@/context/AppContext';
 import { sendEmail } from '@/lib/sendEmail';
 import { membershipStatusHtml } from '@/lib/emailTemplates';
 import { formatCurrency } from '@/data/services';
-import { formatDateLong, formatDateShort } from '@/utils/bookingUtils';
+import { formatDateLong, formatDateShort, snapTimeToGrid } from '@/utils/bookingUtils';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -874,7 +874,9 @@ function ScheduleModal({ mode, initial, ownedCars, services, saving, onSave, onC
     const [h, m] = val.split(':').map(Number);
     const period = h >= 12 ? 'PM' : 'AM';
     const hour   = h % 12 || 12;
-    return `${hour}:${String(m).padStart(2, '0')} ${period}`;
+    // Snap to the 30-min grid — recurring bookings share the same bucketed
+    // capacity model, so an off-grid preferred time must pin to a slot.
+    return snapTimeToGrid(`${hour}:${String(m).padStart(2, '0')} ${period}`);
   };
 
   // Convert "9:00 AM" → "09:00" for input value
@@ -954,7 +956,7 @@ function ScheduleModal({ mode, initial, ownedCars, services, saving, onSave, onC
             </label>
             <label className="block">
               <div className="text-[11px] uppercase tracking-widest text-cream/70 mb-1.5">Preferred Time *</div>
-              <input type="time" required min="07:00" max="17:00"
+              <input type="time" required min="07:00" max="17:00" step={1800}
                 value={toTimeInput(form.preferredTime)}
                 onChange={(e) => set('preferredTime', fromTimeInput(e.target.value))}
                 className="w-full bg-surface/70 border border-white/[0.08] rounded-sm px-3 py-2.5 text-sm text-cream focus:outline-none focus:border-gold/50 transition-colors [color-scheme:dark]" />
