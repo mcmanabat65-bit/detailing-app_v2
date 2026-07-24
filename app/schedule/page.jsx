@@ -16,6 +16,7 @@ import { categoryColors } from '@/data/services';
 import {
   computeBookingETC,
   getSlotsConsumed,
+  effectiveSlotSpanOnDate,
   nearestSlotAtOrBefore,
   toIsoDate,
 } from '@/utils/bookingUtils';
@@ -47,7 +48,13 @@ function buildCells(week, bookings) {
   for (const b of bookings) {
     if (b.status === 'cancelled' || b.status === 'no_show' || b.status === 'pending') continue;
     if (!map[b.date]) continue;
-    const consumed = getSlotsConsumed(b.serviceDuration || '1 hr');
+    // A completed booking that finished early shrinks to the slots it actually
+    // kept (released trailing buckets are dropped); others draw their estimate.
+    const consumed = effectiveSlotSpanOnDate(
+      b,
+      b.date,
+      getSlotsConsumed(b.serviceDuration || '1 hr')
+    );
     let startIdx = timeSlots.indexOf(b.time);
     if (startIdx === -1) {
       const nearest = nearestSlotAtOrBefore(b.time);

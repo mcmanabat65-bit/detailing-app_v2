@@ -132,7 +132,7 @@
 | Table | Purpose |
 |---|---|
 | `bookings` | All customer appointments |
-| `booking_day_slots` | Cross-date occupancy: one row per (booking, date, slot) a job touches — authoritative for capacity/conflict across days (long & multi-day sequential fill) |
+| `booking_day_slots` | Cross-date occupancy: one row per (booking, date, slot) a job touches — authoritative for capacity/conflict across days (long & multi-day sequential fill). `released boolean` — set when a booking is completed early to free the slots after its actual finish (see `update_booking_status`); released rows are excluded from every capacity/conflict check |
 | `members` | VIP membership applications |
 | `services` | Service packages (admin-managed, DB-driven) |
 | `service_categories` | Category definitions (name, slug, color) |
@@ -154,6 +154,7 @@
 |---|---|
 | `add_booking(p, p_occupies_slots, p_day_slots?)` | Atomic capacity-aware booking insert. `p_day_slots` is the cross-date plan `[{date, slots[]}]` — capacity/conflict are checked across every (date, slot) it touches, and the span is recorded in `booking_day_slots`. `p_occupies_slots` stays the day-1 list for the legacy column; null `p_day_slots` falls back to a single day. Persists `p->>'detailers_count'` (clamped to free capacity, floored at `min_detailers`) as the heads reserved. |
 | `update_booking_detailers(p_id, p_detailer_ids, p_min_detailers)` | Safely reassign detailers on a booking. Capacity + per-detailer conflict are checked across the booking's **full `booking_day_slots` span** (same as `add_booking`), not just day 1. Keeps `detailers_count` in step with the named list |
+| `update_booking_status(p_id, p_status, p_reason?)` | Advances a booking's lifecycle status (column-scoped `SECURITY DEFINER`; plain admins may call). Stamps `started_at`/`completed_at`. **Early-finish release**: on `completed`, marks `booking_day_slots.released = true` for the 30-min bucket the completion time falls in and every later bucket/continuation day (keeps only fully-elapsed buckets), immediately freeing the detailer(s). Re-opening (`on-going`/`confirmed`/`pending`) clears `released`, exactly restoring the original span. Release granularity is the 30-min slot, not to-the-minute |
 | `update_settings(p_pool_size, p_default_per_booking, p_closing_minutes?)` | Validates and updates settings singleton (`p_closing_minutes` null = leave closing time unchanged) |
 | `adjust_inventory_item(p_item_id, p_qty_change, p_reason, p_note)` | Signed stock delta (restock/adjustment) + logs a transaction (super-admin) |
 | `consume_coffee_serve(p_booking_id, p_coffee_name)` | Legacy per-booking coffee deduction (idempotent via `bookings.coffee_served_at`). **No longer auto-called** — kept for reference; serving now happens in the POS. |

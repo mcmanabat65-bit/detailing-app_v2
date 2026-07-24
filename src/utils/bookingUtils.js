@@ -270,17 +270,42 @@ export const planBookingDays = (startDate, startTime, serviceDuration, closingMi
 };
 
 /**
- * Estimated finish time ("ETC") for a booking, as a "H:MM AM/PM" label.
+ * Format an ISO timestamp to a shop-local "H:MM AM/PM" label (Asia/Manila).
+ * Returns null for a missing/unparseable value.
+ */
+const tsToLocalLabel = (ts) => {
+  if (!ts) return null;
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+    timeZone: 'Asia/Manila',
+  });
+};
+
+/**
+ * Finish time for a booking, as a "H:MM AM/PM" label.
  *
- * Prefers the booking's recorded `occupiesSlots` — the authoritative day-1 grid
- * slots, which already skip the lunch gap — and returns the end of the last one.
- * Falls back to arithmetic from the duration when no slots are recorded.
+ * For a booking that finished early (status 'completed' with a recorded
+ * `completedAt`), returns the ACTUAL completion time — the job is done, so the
+ * schedule/monitor should show when it really ended, not its estimate.
+ *
+ * Otherwise this is the ESTIMATED finish: prefers the booking's recorded
+ * `occupiesSlots` — the authoritative day-1 grid slots, which already skip the
+ * lunch gap — and returns the end of the last one. Falls back to arithmetic
+ * from the duration when no slots are recorded.
  *
  * Slots are SLOT_MINUTES (30) apart, NOT 60: `getSlotsConsumed` returns a count
  * of half-hour slots, so multiplying it by 60 doubles the job length (a "4–5 hrs"
  * service then reads as a 10-hour span).
  */
 export const computeBookingETC = (booking) => {
+  if (booking?.status === 'completed') {
+    const actual = tsToLocalLabel(booking.completedAt);
+    if (actual) return actual;
+  }
   const slots = booking?.occupiesSlots;
   if (Array.isArray(slots) && slots.length > 0) {
     const lastMins = parseTimeToMinutes(slots[slots.length - 1]);
@@ -291,6 +316,21 @@ export const computeBookingETC = (booking) => {
   return minutesToTimeStr(
     startMins + getSlotsConsumed(booking?.serviceDuration || '1 hr') * SLOT_MINUTES
   );
+};
+
+/**
+ * How many grid slots to DRAW for a booking on `isoDate`, honoring early
+ * completion. A completed booking's block shrinks to the slots it actually kept
+ * (released trailing buckets are dropped from `dayScheduleSlots` client-side);
+ * every other booking draws its full estimated span. Returns at least 1 so the
+ * start card always renders.
+ */
+export const effectiveSlotSpanOnDate = (booking, isoDate, fallbackSpan) => {
+  if (booking?.status === 'completed' && booking?.dayScheduleSlots) {
+    const kept = booking.dayScheduleSlots[isoDate];
+    if (Array.isArray(kept)) return Math.max(1, kept.length);
+  }
+  return fallbackSpan;
 };
 
 /**

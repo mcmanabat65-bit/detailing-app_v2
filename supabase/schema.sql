@@ -112,8 +112,13 @@ create table if not exists booking_day_slots (
   booking_id text not null references bookings (id) on delete cascade,
   date date not null,
   slot text not null,
+  -- A completed booking that finished early releases the slots after its
+  -- completion time (see update_booking_status). Released rows stay for audit /
+  -- re-open but are excluded from every capacity + conflict check.
+  released boolean not null default false,
   primary key (booking_id, date, slot)
 );
+alter table booking_day_slots add column if not exists released boolean not null default false;
 create index if not exists booking_day_slots_date_idx on booking_day_slots (date);
 
 create table if not exists blocked_slots (
@@ -249,6 +254,20 @@ create unique index if not exists addon_catalog_name_lower_idx on addon_catalog 
 create index  if not exists addon_catalog_sort_idx             on addon_catalog (sort_order);
 
 -- ---------------------------------------------------------------------
+-- Helper: slot_label_minutes — "9:00 AM" → 540 (minutes since midnight).
+-- ---------------------------------------------------------------------
+-- Used to compare a booking_day_slots grid label against a completion time
+-- when releasing the slots of a booking that finished early.
+create or replace function public.slot_label_minutes(p_slot text)
+returns int
+language sql
+immutable
+as $$
+  select extract(hour from ts)::int * 60 + extract(minute from ts)::int
+  from (select to_timestamp(p_slot, 'HH12:MI AM') as ts) x;
+$$;
+
+-- ---------------------------------------------------------------------
 -- RPC: add_booking — atomic capacity-aware insert
 -- ---------------------------------------------------------------------
 -- `p_day_slots` is the cross-date plan: a jsonb array of { "date", "slots":[] }.
@@ -331,6 +350,7 @@ begin
     join bookings b on b.id = bds.booking_id
     where bds.date = v_cell.d
       and bds.slot = v_cell.slot
+      and not bds.released
       and b.status not in ('cancelled', 'no_show');
     v_min := least(v_min, v_pool - v_used);
   end loop;
@@ -351,7 +371,7 @@ begin
   from jsonb_array_elements(v_plan) elem
   cross join lateral jsonb_array_elements_text(elem->'slots') s(slot)
   join booking_day_slots bds
-    on bds.date = (elem->>'date')::date and bds.slot = s.slot
+    on bds.date = (elem->>'date')::date and bds.slot = s.slot and not bds.released
   join bookings b on b.id = bds.booking_id and b.status not in ('cancelled', 'no_show')
   cross join lateral unnest(b.detailers_assigned) as busy(id)
   join detailers dt on dt.id = busy.id
@@ -500,6 +520,7 @@ begin
     join bookings b on b.id = bds.booking_id
     where bds.date = v_cell.d
       and bds.slot = v_cell.slot
+      and not bds.released
       and b.id <> p_id
       and b.status not in ('cancelled', 'no_show');
     v_min := least(v_min, v_pool - v_used);
@@ -517,7 +538,7 @@ begin
   select string_agg(distinct dt.name, ', ') into v_conflict_names
   from jsonb_array_elements(v_span) elem
   join booking_day_slots bds
-    on bds.date = (elem->>'date')::date and bds.slot = elem->>'slot'
+    on bds.date = (elem->>'date')::date and bds.slot = elem->>'slot' and not bds.released
   join bookings b
     on b.id = bds.booking_id
    and b.id <> p_id
@@ -561,8 +582,11 @@ security definer
 set search_path = public
 as $$
 declare
-  v_from text;
-  v_row  bookings;
+  v_from         text;
+  v_row          bookings;
+  v_comp_local   timestamp;
+  v_comp_date    date;
+  v_bucket_floor int;
 begin
   if auth.uid() is null then
     return jsonb_build_object('error', 'Not authenticated.');
@@ -578,9 +602,45 @@ begin
 
   update bookings
      set status = p_status,
-         cancellation_reason = case when p_status = 'cancelled' then p_reason else cancellation_reason end
+         cancellation_reason = case when p_status = 'cancelled' then p_reason else cancellation_reason end,
+         -- Stamp started_at the first time the job goes on-going.
+         started_at = case
+           when p_status = 'on-going' and started_at is null then now()
+           else started_at
+         end,
+         -- Stamp completed_at when marked completed; clear it if re-opened.
+         completed_at = case
+           when p_status = 'completed' then now()
+           when p_status in ('on-going','confirmed','pending') then null
+           else completed_at
+         end
    where id = p_id
    returning * into v_row;
+
+  -- Early-finish release: a booking marked completed frees the detailer for the
+  -- slots after its actual completion time. Capacity is bucketed at 30 min, so
+  -- we release the bucket the completion falls in and every later bucket (and
+  -- all continuation days) — a job done at 9:45 keeps only the 9:00 bucket, so
+  -- the 9:30 bucket reopens for a new ~9:47 booking. Re-opening the booking
+  -- (status back to on-going/confirmed/pending) un-releases every slot, exactly
+  -- restoring the original span. Released rows are excluded from all capacity /
+  -- conflict checks (add_booking, update_booking_detailers, update_settings).
+  if p_status = 'completed' then
+    v_comp_local   := now() at time zone 'Asia/Manila';
+    v_comp_date    := v_comp_local::date;
+    v_bucket_floor := (extract(hour from v_comp_local)::int * 60
+                       + extract(minute from v_comp_local)::int) / 30 * 30;
+    update booking_day_slots
+       set released = true
+     where booking_id = p_id
+       and ( date > v_comp_date
+             or (date = v_comp_date and slot_label_minutes(slot) >= v_bucket_floor) );
+  elsif p_status in ('on-going','confirmed','pending') then
+    update booking_day_slots
+       set released = false
+     where booking_id = p_id
+       and released;
+  end if;
 
   insert into booking_status_logs (booking_id, from_status, to_status, notes)
   values (p_id, v_from, p_status, p_reason);
@@ -673,6 +733,7 @@ begin
     from booking_day_slots bds
     join bookings b on b.id = bds.booking_id
     where b.status not in ('cancelled', 'no_show')
+      and not bds.released
     group by bds.date, bds.slot
   ) s;
 

@@ -2577,3 +2577,435 @@ end;
 $$;
 
 grant execute on function public.tender_pos_order(text, text, text, jsonb, numeric) to authenticated;
+-- =====================================================================
+-- Phase 17 — Early-finish detailer release
+-- ---------------------------------------------------------------------
+-- When a booking finishes ahead of its estimated duration and is marked
+-- `completed`, its detailer(s) should free up immediately instead of staying
+-- locked to the original estimated slot span. Capacity is bucketed at 30 min,
+-- so completing at 9:45 releases the 9:30 bucket (the one the completion falls
+-- in) and every later bucket / continuation day, keeping only the 9:00 bucket
+-- — a new ~9:47 booking can then take that detailer.
+--
+-- Mechanism: booking_day_slots grows a `released` flag. update_booking_status
+-- sets it on completion and clears it on re-open (so a mis-click is fully
+-- reversible — the original span is restored exactly). Every capacity + conflict
+-- query (add_booking, update_booking_detailers, update_settings) now skips
+-- released rows. Client-side, refetchBookings drops released rows from each
+-- booking's dayScheduleSlots map.
+-- Re-runnable. Run after Phase 16.
+-- =====================================================================
+
+alter table booking_day_slots add column if not exists released boolean not null default false;
+
+-- Helper: "9:00 AM" → 540 (minutes since midnight). Used to compare a grid slot
+-- label against a completion time when releasing an early-finished booking.
+create or replace function public.slot_label_minutes(p_slot text)
+returns int
+language sql
+immutable
+as $$
+  select extract(hour from ts)::int * 60 + extract(minute from ts)::int
+  from (select to_timestamp(p_slot, 'HH12:MI AM') as ts) x;
+$$;
+
+-- Re-create update_booking_status to release / restore slots on completion.
+create or replace function public.update_booking_status(
+  p_id     text,
+  p_status text,
+  p_reason text default null
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_from         text;
+  v_row          bookings;
+  v_comp_local   timestamp;
+  v_comp_date    date;
+  v_bucket_floor int;
+begin
+  if auth.uid() is null then
+    return jsonb_build_object('error', 'Not authenticated.');
+  end if;
+  if p_status not in ('pending','confirmed','on-going','completed','cancelled','no_show') then
+    return jsonb_build_object('error', 'Invalid status.');
+  end if;
+
+  select status into v_from from bookings where id = p_id;
+  if v_from is null then
+    return jsonb_build_object('error', 'Booking not found.');
+  end if;
+
+  update bookings
+     set status = p_status,
+         cancellation_reason = case when p_status = 'cancelled' then p_reason else cancellation_reason end,
+         started_at = case
+           when p_status = 'on-going' and started_at is null then now()
+           else started_at
+         end,
+         completed_at = case
+           when p_status = 'completed' then now()
+           when p_status in ('on-going','confirmed','pending') then null
+           else completed_at
+         end
+   where id = p_id
+   returning * into v_row;
+
+  -- Early-finish release (see phase header). Bucket the completion time to the
+  -- 30-min grid and release that bucket + everything after it (and all
+  -- continuation days). Re-opening un-releases every slot.
+  if p_status = 'completed' then
+    v_comp_local   := now() at time zone 'Asia/Manila';
+    v_comp_date    := v_comp_local::date;
+    v_bucket_floor := (extract(hour from v_comp_local)::int * 60
+                       + extract(minute from v_comp_local)::int) / 30 * 30;
+    update booking_day_slots
+       set released = true
+     where booking_id = p_id
+       and ( date > v_comp_date
+             or (date = v_comp_date and slot_label_minutes(slot) >= v_bucket_floor) );
+  elsif p_status in ('on-going','confirmed','pending') then
+    update booking_day_slots
+       set released = false
+     where booking_id = p_id
+       and released;
+  end if;
+
+  insert into booking_status_logs (booking_id, from_status, to_status, notes)
+  values (p_id, v_from, p_status, p_reason);
+
+  return to_jsonb(v_row);
+end;
+$$;
+grant execute on function public.update_booking_status(text, text, text) to authenticated;
+
+-- Re-create add_booking so capacity + conflict checks skip released slots.
+create or replace function add_booking(
+  p jsonb,
+  p_occupies_slots text[],
+  p_day_slots jsonb default null
+) returns jsonb
+language plpgsql
+as $$
+declare
+  v_pool int;
+  v_used int;
+  v_min int := 2147483647;
+  v_min_detailers int;
+  v_detailer_ids uuid[];
+  v_named int;
+  v_headcount int;
+  v_clamped_ids uuid[];
+  v_conflict_names text;
+  v_id text;
+  v_date date;
+  v_row bookings;
+  v_plan jsonb;
+  v_cell record;
+  v_d date;
+begin
+  v_date := (p->>'date')::date;
+
+  if p_day_slots is not null and jsonb_array_length(p_day_slots) > 0 then
+    v_plan := p_day_slots;
+  else
+    v_plan := jsonb_build_array(
+      jsonb_build_object('date', to_char(v_date, 'YYYY-MM-DD'), 'slots', to_jsonb(p_occupies_slots))
+    );
+  end if;
+
+  for v_d in
+    select distinct (elem->>'date')::date as d
+    from jsonb_array_elements(v_plan) elem
+    order by d
+  loop
+    perform pg_advisory_xact_lock(hashtext(v_d::text));
+  end loop;
+
+  select detailer_pool_size into v_pool from settings where id = 1;
+  v_min_detailers := coalesce((p->>'min_detailers')::int, 1);
+
+  v_detailer_ids := coalesce(
+    (select array_agg(v::uuid) from jsonb_array_elements_text(p->'detailers_assigned') v),
+    '{}'::uuid[]
+  );
+  v_named := coalesce(array_length(v_detailer_ids, 1), 0);
+
+  v_headcount := greatest(
+    coalesce((p->>'detailers_count')::int, 1),
+    v_named,
+    v_min_detailers,
+    1
+  );
+
+  for v_cell in
+    select (elem->>'date')::date as d, s.slot
+    from jsonb_array_elements(v_plan) elem
+    cross join lateral jsonb_array_elements_text(elem->'slots') s(slot)
+  loop
+    select coalesce(sum(b.detailers_count), 0) into v_used
+    from booking_day_slots bds
+    join bookings b on b.id = bds.booking_id
+    where bds.date = v_cell.d
+      and bds.slot = v_cell.slot
+      and not bds.released
+      and b.status not in ('cancelled', 'no_show');
+    v_min := least(v_min, v_pool - v_used);
+  end loop;
+
+  if v_min < v_min_detailers then
+    return jsonb_build_object(
+      'error',
+      'This time slot just filled up. Please choose another.'
+    );
+  end if;
+  v_headcount := greatest(least(v_headcount, v_min), v_min_detailers);
+
+  select string_agg(distinct dt.name, ', ') into v_conflict_names
+  from jsonb_array_elements(v_plan) elem
+  cross join lateral jsonb_array_elements_text(elem->'slots') s(slot)
+  join booking_day_slots bds
+    on bds.date = (elem->>'date')::date and bds.slot = s.slot and not bds.released
+  join bookings b on b.id = bds.booking_id and b.status not in ('cancelled', 'no_show')
+  cross join lateral unnest(b.detailers_assigned) as busy(id)
+  join detailers dt on dt.id = busy.id
+  where busy.id = any (v_detailer_ids);
+
+  if v_conflict_names is not null then
+    return jsonb_build_object(
+      'error',
+      'Already booked at this time: ' || v_conflict_names || '. Choose a different detailer or time slot.'
+    );
+  end if;
+
+  v_clamped_ids := v_detailer_ids[1:least(v_named, v_headcount)];
+
+  v_id := coalesce(
+    nullif(p->>'id', ''),
+    'OBS-' || to_char(v_date, 'YYYYMMDD') || '-' || lpad((1000 + floor(random() * 9000))::int::text, 4, '0')
+  );
+
+  insert into bookings (
+    id, service_id, service_name, service_price, service_duration, service_category,
+    date, time, customer_name, nickname, email, phone, vehicle, vehicle_year, notes,
+    is_vip, member_id, car_id, coffee_order, status, detailers_assigned, detailers_count,
+    occupies_slots, vehicle_type
+  ) values (
+    v_id,
+    (p->>'service_id')::int,
+    p->>'service_name',
+    (p->>'service_price')::int,
+    p->>'service_duration',
+    p->>'service_category',
+    v_date,
+    p->>'time',
+    p->>'customer_name',
+    nullif(p->>'nickname', ''),
+    p->>'email',
+    p->>'phone',
+    p->>'vehicle',
+    p->>'vehicle_year',
+    p->>'notes',
+    coalesce((p->>'is_vip')::boolean, false),
+    nullif(p->>'member_id', ''),
+    nullif(p->>'car_id', '')::uuid,
+    p->>'coffee_order',
+    coalesce(nullif(p->>'status', ''), 'pending'),
+    v_clamped_ids,
+    v_headcount,
+    p_occupies_slots,
+    coalesce((nullif(p->>'vehicle_type', ''))::smallint, 1)
+  )
+  returning * into v_row;
+
+  insert into booking_day_slots (booking_id, date, slot)
+  select v_id, (elem->>'date')::date, s.slot
+  from jsonb_array_elements(v_plan) elem
+  cross join lateral jsonb_array_elements_text(elem->'slots') s(slot)
+  on conflict do nothing;
+
+  return to_jsonb(v_row);
+end;
+$$;
+
+-- Re-create update_booking_detailers so capacity + conflict skip released slots.
+create or replace function update_booking_detailers(
+  p_id text,
+  p_detailer_ids uuid[],
+  p_min_detailers int
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_pool int;
+  v_used int;
+  v_min int := 2147483647;
+  v_count int;
+  v_conflict_names text;
+  v_booking bookings;
+  v_row bookings;
+  v_span jsonb;
+  v_cell record;
+  v_d date;
+begin
+  if auth.uid() is null then
+    return jsonb_build_object('error', 'Not authenticated.');
+  end if;
+
+  v_count := coalesce(array_length(p_detailer_ids, 1), 0);
+
+  if v_count < 1 then
+    return jsonb_build_object('error', 'At least one detailer must be assigned.');
+  end if;
+
+  select * into v_booking from bookings where id = p_id;
+  if v_booking is null then
+    return jsonb_build_object('error', 'Booking not found.');
+  end if;
+
+  if v_count < p_min_detailers then
+    return jsonb_build_object(
+      'error',
+      'Service requires at least ' || p_min_detailers || ' detailer(s).'
+    );
+  end if;
+
+  select coalesce(
+    (select jsonb_agg(jsonb_build_object('date', bds.date, 'slot', bds.slot))
+       from booking_day_slots bds
+      where bds.booking_id = p_id),
+    (select jsonb_agg(jsonb_build_object('date', v_booking.date, 'slot', s.slot))
+       from unnest(v_booking.occupies_slots) as s(slot))
+  ) into v_span;
+
+  if v_span is null then
+    return jsonb_build_object('error', 'Booking has no scheduled slots.');
+  end if;
+
+  for v_d in
+    select distinct (elem->>'date')::date as d
+    from jsonb_array_elements(v_span) elem
+    order by d
+  loop
+    perform pg_advisory_xact_lock(hashtext(v_d::text));
+  end loop;
+
+  select detailer_pool_size into v_pool from settings where id = 1;
+
+  for v_cell in
+    select (elem->>'date')::date as d, elem->>'slot' as slot
+    from jsonb_array_elements(v_span) elem
+  loop
+    select coalesce(sum(b.detailers_count), 0) into v_used
+    from booking_day_slots bds
+    join bookings b on b.id = bds.booking_id
+    where bds.date = v_cell.d
+      and bds.slot = v_cell.slot
+      and not bds.released
+      and b.id <> p_id
+      and b.status not in ('cancelled', 'no_show');
+    v_min := least(v_min, v_pool - v_used);
+  end loop;
+
+  if v_count > v_min then
+    return jsonb_build_object(
+      'error',
+      'Only ' || v_min || ' detailer(s) available across this booking''s hours.'
+    );
+  end if;
+
+  select string_agg(distinct dt.name, ', ') into v_conflict_names
+  from jsonb_array_elements(v_span) elem
+  join booking_day_slots bds
+    on bds.date = (elem->>'date')::date and bds.slot = elem->>'slot' and not bds.released
+  join bookings b
+    on b.id = bds.booking_id
+   and b.id <> p_id
+   and b.status not in ('cancelled', 'no_show')
+  cross join lateral unnest(b.detailers_assigned) as busy(id)
+  join detailers dt on dt.id = busy.id
+  where busy.id = any (p_detailer_ids);
+
+  if v_conflict_names is not null then
+    return jsonb_build_object(
+      'error',
+      'Already booked at this time: ' || v_conflict_names || '. Choose a different detailer.'
+    );
+  end if;
+
+  update bookings
+    set detailers_assigned = p_detailer_ids,
+        detailers_count = greatest(v_count, p_min_detailers, 1)
+    where id = p_id
+    returning * into v_row;
+
+  return to_jsonb(v_row);
+end;
+$$;
+grant execute on function update_booking_detailers(text, uuid[], int) to authenticated;
+
+-- Re-create update_settings so the peak-demand guard skips released slots.
+create or replace function update_settings(
+  p_pool_size int,
+  p_default_per_booking int,
+  p_closing_minutes int default null
+) returns jsonb
+language plpgsql
+as $$
+declare
+  v_peak int;
+  v_row settings;
+  v_closing int;
+begin
+  if p_pool_size < 1 then
+    return jsonb_build_object('error', 'Pool size must be at least 1.');
+  end if;
+  if p_default_per_booking < 1 then
+    return jsonb_build_object('error', 'Default detailers per booking must be at least 1.');
+  end if;
+  if p_default_per_booking > p_pool_size then
+    return jsonb_build_object('error', 'Default detailers per booking cannot exceed pool size.');
+  end if;
+
+  select closing_minutes into v_closing from settings where id = 1;
+  if p_closing_minutes is not null then
+    if p_closing_minutes < 1 or p_closing_minutes > 1439 then
+      return jsonb_build_object('error', 'Closing time must be a valid time of day.');
+    end if;
+    v_closing := p_closing_minutes;
+  end if;
+
+  select coalesce(max(slot_total), 0) into v_peak
+  from (
+    select bds.date, bds.slot, sum(b.detailers_count) as slot_total
+    from booking_day_slots bds
+    join bookings b on b.id = bds.booking_id
+    where b.status not in ('cancelled', 'no_show')
+      and not bds.released
+    group by bds.date, bds.slot
+  ) s;
+
+  if p_pool_size < v_peak then
+    return jsonb_build_object(
+      'error',
+      'Pool size cannot drop below ' || v_peak || ' — existing bookings already use that many detailers in one hour.'
+    );
+  end if;
+
+  update settings
+    set detailer_pool_size = p_pool_size,
+        default_detailers_per_booking = p_default_per_booking,
+        closing_minutes = v_closing,
+        updated_at = now()
+    where id = 1
+    returning * into v_row;
+
+  return to_jsonb(v_row);
+end;
+$$;
+
+notify pgrst, 'reload schema';

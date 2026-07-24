@@ -79,13 +79,20 @@ export function AppProvider({ children }) {
     // Falls back gracefully if the table doesn't exist yet (pre-Phase 13).
     const { data: dayRows, error: dayErr } = await supabase
       .from('booking_day_slots')
-      .select('booking_id, date, slot')
+      .select('booking_id, date, slot, released')
       .limit(20000);
     if (!dayErr && dayRows) {
       const byBooking = new Map();
       for (const r of dayRows) {
+        // Ensure the booking gets a (possibly empty) map so the availability
+        // helpers treat it as day-slot-backed — NOT as a pre-migration booking
+        // that falls back to counting its full occupies_slots span. A booking
+        // completed early can have all its rows released; its map stays {} and
+        // it correctly consumes no capacity.
         let m = byBooking.get(r.booking_id);
         if (!m) { m = {}; byBooking.set(r.booking_id, m); }
+        // Released rows (freed by an early-completed booking) don't occupy.
+        if (r.released) continue;
         (m[r.date] ??= []).push(r.slot);
       }
       for (const b of mapped) {
